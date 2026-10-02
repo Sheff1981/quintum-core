@@ -39,12 +39,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M5 — Live transaction/block relay:** real TCP P2P transport, persistent peer discovery, headers-first blockchain synchronization, an in-memory validated mempool, transaction inventory relay, block inventory relay and mempool catch-up for newly connected peers.
+**M6 — Continuous P2P node runtime:** `quintumd` now combines TCP listening, persistent peer discovery, automatic outbound connections, startup blockchain synchronization, live transaction/block relay, mempool catch-up, asynchronous ping/pong liveness, reconnect scheduling and graceful shutdown in one long-running node process.
 
-Transactions admitted to the mempool are checked against the active UTXO set plus earlier mempool entries, including authorization, coinbase maturity, double-spend conflicts, money range and script/resource policy. Miners can build blocks directly from the mempool, and confirmed/conflicting entries are revalidated and removed after block activation or reorg.
+The runtime listens on the network's own P2P port, learns and persists peer endpoints, maintains outbound connectivity, services inbound peers, requests missing chain data, relays newly accepted transactions and blocks, and automatically reconnects after a live outbound connection is lost.
 
-Every received block still enters the existing consensus/Chainstate path; networking cannot bypass PoW, difficulty, timestamps, transactions, UTXO, coinbase reward or storage checks.
+Transactions and blocks received from the network still enter the same local validation paths used by the node itself. Networking cannot directly set height, chain work, UTXO state, rewards, difficulty or active tip.
 
-The public QUINTUM seed list is intentionally empty until real independent seed nodes exist; no fake or developer-only endpoint is embedded.
+The public QUINTUM seed list is intentionally empty until real independent seed infrastructure exists; no fake or developer-only endpoint is embedded.
 
-Next: **M6 — long-running network runtime:** combine discovery, reconnect, inbound/outbound peer servicing, headers/block sync and live relay into the continuously running node process.
+Next: **M7 — Wallet Core:** persistent private-key storage, QUINTUM addresses, wallet-owned UTXO tracking, balances, transaction construction/signing and safe backup/recovery foundations.
