@@ -51,6 +51,14 @@ public:
 
     void close() noexcept;
 
+    // Internal adoption constructor used by the handshake layer.
+    PeerSession(
+        const consensus::ChainParams& params,
+        std::uintptr_t socket,
+        bool inbound,
+        VersionMessage remote
+    ) noexcept;
+
 private:
     friend class PeerListener;
     friend struct PeerHandshakeResult;
@@ -64,13 +72,6 @@ private:
 
     static constexpr std::uintptr_t kInvalidSocket =
         std::numeric_limits<std::uintptr_t>::max();
-
-    PeerSession(
-        const consensus::ChainParams& params,
-        std::uintptr_t socket,
-        bool inbound,
-        VersionMessage remote
-    ) noexcept;
 
     consensus::ChainParams params_{};
     std::uintptr_t socket_{kInvalidSocket};
