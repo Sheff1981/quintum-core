@@ -20,6 +20,7 @@ enum class MempoolError {
     coinbase_forbidden,
     duplicate,
     transaction_too_large,
+    script_too_large,
     mempool_full,
     inconsistent_existing_pool,
     transaction_rejected,
