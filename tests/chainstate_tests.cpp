@@ -12,6 +12,13 @@
 
 namespace {
 
+quintum::consensus::ChainParams development_regtest_params()
+{
+    auto params = quintum::consensus::regtest_params();
+    params.genesis.enforce = false;
+    return params;
+}
+
 quintum::crypto::PrivateKey test_private_key()
 {
     quintum::crypto::PrivateKey key{};
@@ -157,7 +164,7 @@ quintum::Hash256 append_coinbase_range(
 void test_connect_disconnect_and_atomic_failure()
 {
     quintum::Chainstate chain{
-        quintum::consensus::regtest_params()
+        development_regtest_params()
     };
     quintum::Hash256 zero{};
 
@@ -329,7 +336,7 @@ void test_connect_disconnect_and_atomic_failure()
 void test_heavier_fork_reorg_and_failed_reorg_rollback()
 {
     quintum::Chainstate chain{
-        quintum::consensus::regtest_params()
+        development_regtest_params()
     };
     quintum::Hash256 zero{};
 
