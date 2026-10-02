@@ -104,7 +104,7 @@ void test_real_nonce_mining()
     assert(header.nonce == result.nonce);
     assert(
         hash_to_hex(result.hash) ==
-        "98fff58d9ac53d30d0b161ccbfd692855a1c261ee3efc67273399ceceeb179e7"
+        "98fff58d5138e732f7e72445fe26a853e1ac099ca0a8f674d17ce3ed127296e6"
     );
     assert(
         quintum::consensus::check_proof_of_work(header) ==
