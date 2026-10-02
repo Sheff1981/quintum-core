@@ -1703,10 +1703,22 @@ WalletKeyResult Wallet::reserve_key(
 
         std::vector<KeyRecord> candidate =
             keys_;
-        candidate[index].used = true;
+
+        KeyRecord selected =
+            std::move(candidate[index]);
+        selected.used = true;
+
+        candidate.erase(
+            candidate.begin() +
+            static_cast<std::ptrdiff_t>(
+                index)
+        );
+        candidate.push_back(
+            std::move(selected)
+        );
 
         out.public_key =
-            candidate[index].public_key;
+            candidate.back().public_key;
         out.address =
             encode_address(
                 params_.network,
@@ -1716,20 +1728,21 @@ WalletKeyResult Wallet::reserve_key(
         out.store_error =
             save_keys(candidate);
 
-        for (auto& key : candidate) {
-            crypto::secure_erase(
-                key.private_key
-            );
-        }
-
         if (out.store_error !=
             WalletStoreError::none) {
+            for (auto& key : candidate) {
+                crypto::secure_erase(
+                    key.private_key
+                );
+            }
+
             out.error =
                 WalletKeyError::store_failed;
             return out;
         }
 
-        keys_[index].used = true;
+        clear_keys();
+        keys_ = std::move(candidate);
         return out;
     }
 
