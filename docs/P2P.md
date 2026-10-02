@@ -1,6 +1,6 @@
 # QUINTUM P2P Foundation
 
-Stage 15 introduces the first real peer-to-peer transport layer.
+Stages 15–16 implement the first real peer-to-peer transport and peer-discovery layers.
 
 ## Wire message framing
 
@@ -72,7 +72,53 @@ On POSIX systems sends use `MSG_NOSIGNAL`, so a remote disconnect cannot termina
 - pruning closed sessions;
 - disconnecting all peers.
 
-This is intentionally the minimal lifecycle layer. Automatic peer discovery and long-running scheduling are the next layer.
+This is intentionally the minimal lifecycle layer.
+
+## Peer discovery and address manager
+
+Stage 16 adds Bitcoin-style peer address exchange and durable address management:
+
+- `getaddr` asks a connected peer for known endpoints;
+- `addr` carries up to 1,000 validated IPv4 endpoints per message;
+- duplicate endpoints are collapsed;
+- non-routable/private addresses are rejected on public networks;
+- loopback/private addresses may be enabled explicitly for Regtest and local QA;
+- the persistent address manager is capped at 50,000 entries.
+
+Each address record stores:
+
+- IPv4 address and P2P port;
+- service bits;
+- last-seen time;
+- last connection attempt;
+- last successful connection;
+- failure count;
+- next allowed retry time.
+
+Failed outbound connections use exponential retry backoff. A discovery attempt can automatically move to another eligible peer instead of repeatedly hammering the same failed endpoint.
+
+### Persistent `peers.dat`
+
+The address manager writes `peers.dat` under the node data directory.
+
+The file contains:
+
+- QUINTUM peer-store magic/version;
+- network identity and network magic;
+- peer records and retry state;
+- double-SHA-256 checksum.
+
+Writes use a temporary file plus durable replacement. Windows uses a Unicode-safe wide path and `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`; POSIX uses `rename()` and directory fsync.
+
+A corrupt or wrong-network peer database is rejected. It is not silently treated as a valid peer source.
+
+### Seed bootstrap
+
+The discovery layer supports pinned numeric hardcoded seed endpoints and can import them into the address manager on first start.
+
+The built-in Mainnet/Testnet/Regtest seed lists are currently intentionally empty because there is not yet a real public QUINTUM seed node. The implementation does not invent a developer-controlled server merely to make discovery appear complete.
+
+DNS seed resolution is a later network-deployment step.
 
 ## Security boundary
 
@@ -82,16 +128,15 @@ Stage 15 transports only handshake/liveness messages. Future block and transacti
 
 ## Not implemented yet
 
-Stage 15 deliberately does not yet add:
+The current network layer does not yet add:
 
-- hardcoded seed nodes;
+- live public seed infrastructure;
 - DNS seeds;
-- addr/getaddr;
-- persistent addrman/peer database;
 - headers-first synchronization;
 - block relay;
 - transaction relay;
 - mempool relay;
+- long-running connection scheduler in the final GUI/node runtime;
 - UPnP/NAT-PMP.
 
-Those build on this transport and handshake foundation.
+Those build on the completed transport and discovery foundation.
