@@ -172,6 +172,15 @@ quintum_test_assertions(quintum_timestamp_limits_tests)
 
 add_test(NAME timestamp_limits COMMAND quintum_timestamp_limits_tests)
 
+add_executable(quintum_genesis_tests
+    tests/genesis_tests.cpp
+)
+target_link_libraries(quintum_genesis_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_genesis_tests)
+quintum_test_assertions(quintum_genesis_tests)
+
+add_test(NAME genesis COMMAND quintum_genesis_tests)
+
 add_executable(quintum_chainstate_tests
     tests/chainstate_tests.cpp
 )
