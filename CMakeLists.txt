@@ -23,6 +23,7 @@ add_library(quintum_core STATIC
     src/primitives/transaction.cpp
     src/chain/utxo.cpp
     src/primitives/block.cpp
+    src/consensus/pow.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -67,3 +68,11 @@ target_link_libraries(quintum_block_tests PRIVATE quintum_core)
 quintum_strict_warnings(quintum_block_tests)
 
 add_test(NAME block COMMAND quintum_block_tests)
+
+add_executable(quintum_pow_tests
+    tests/pow_tests.cpp
+)
+target_link_libraries(quintum_pow_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_pow_tests)
+
+add_test(NAME pow COMMAND quintum_pow_tests)
