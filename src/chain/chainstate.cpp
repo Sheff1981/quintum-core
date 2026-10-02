@@ -1,10 +1,13 @@
 #include "chain/chainstate.hpp"
 
+#include "consensus/block_limits.hpp"
 #include "consensus/difficulty.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/time.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -39,12 +42,23 @@ ApplyBlockResult apply_block_to_view(
     UtxoSet& utxos,
     std::uint32_t height,
     const Hash256& parent_work,
-    const consensus::PowParams& pow_params)
+    const consensus::PowParams& pow_params,
+    const consensus::ResourceLimits& limits)
 {
     ApplyBlockResult out;
 
     if (validate_block_structure(block) != BlockStructureError::none) {
         out.result.error = ChainConnectError::invalid_block_structure;
+        return out;
+    }
+
+    const auto resource_error =
+        consensus::validate_block_resources(block, limits);
+
+    if (resource_error != consensus::BlockResourceError::none) {
+        out.result.error =
+            ChainConnectError::resource_limits_exceeded;
+        out.result.resource_error = resource_error;
         return out;
     }
 
@@ -227,6 +241,44 @@ bool Chainstate::has_failed_ancestor(const Hash256& hash) const
     return false;
 }
 
+std::optional<std::uint64_t> Chainstate::median_time_past(
+    const BlockIndexEntry* parent) const
+{
+    if (parent == nullptr ||
+        params_.time.median_time_span == 0U) {
+        return std::nullopt;
+    }
+
+    std::vector<std::uint64_t> timestamps;
+    timestamps.reserve(
+        static_cast<std::size_t>(
+            params_.time.median_time_span));
+
+    const BlockIndexEntry* cursor = parent;
+
+    for (std::uint32_t count = 0U;
+         count < params_.time.median_time_span;
+         ++count) {
+        timestamps.push_back(
+            cursor->block.header.timestamp);
+
+        if (cursor->height == 0U) {
+            break;
+        }
+
+        const auto it =
+            block_index_.find(cursor->parent);
+
+        if (it == block_index_.end()) {
+            return std::nullopt;
+        }
+
+        cursor = &it->second;
+    }
+
+    return consensus::median_timestamp(timestamps);
+}
+
 std::optional<std::uint32_t> Chainstate::expected_bits(
     const Block& block,
     const BlockIndexEntry* parent) const
@@ -323,12 +375,51 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     return retarget.bits;
 }
 
-ChainConnectResult Chainstate::connect_block(const Block& block)
+ChainConnectResult Chainstate::connect_block(
+    const Block& block)
+{
+    const auto now =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now()
+                .time_since_epoch())
+            .count();
+
+    const auto adjusted_time =
+        now < 0 ? 0U :
+        static_cast<std::uint64_t>(now);
+
+    return connect_block(block, adjusted_time);
+}
+
+ChainConnectResult Chainstate::connect_block(
+    const Block& block,
+    std::uint64_t adjusted_time)
 {
     ChainConnectResult result;
 
     if (validate_block_structure(block) != BlockStructureError::none) {
         result.error = ChainConnectError::invalid_block_structure;
+        return result;
+    }
+
+    const auto resource_error =
+        consensus::validate_block_resources(
+            block,
+            params_.limits);
+
+    if (resource_error != consensus::BlockResourceError::none) {
+        result.error =
+            ChainConnectError::resource_limits_exceeded;
+        result.resource_error = resource_error;
+        return result;
+    }
+
+    if (!consensus::timestamp_not_too_far_future(
+            block.header.timestamp,
+            adjusted_time,
+            params_.time.max_future_seconds)) {
+        result.error =
+            ChainConnectError::timestamp_too_far_future;
         return result;
     }
 
@@ -371,6 +462,18 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
         new_height = parent_it->second.height + 1U;
         parent_work = parent_it->second.chain_work;
         parent_entry = &parent_it->second;
+    }
+
+    if (parent_entry != nullptr) {
+        const auto mtp =
+            median_time_past(parent_entry);
+
+        if (!mtp ||
+            block.header.timestamp <= *mtp) {
+            result.error =
+                ChainConnectError::timestamp_too_old;
+            return result;
+        }
     }
 
     const auto required_bits =
@@ -533,7 +636,8 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
             staged_utxos,
             staged_height,
             staged_parent_work,
-            params_.pow
+            params_.pow,
+            params_.limits
         );
 
         if (!applied.result.ok()) {
