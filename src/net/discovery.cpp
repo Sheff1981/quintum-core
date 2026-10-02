@@ -47,6 +47,36 @@ std::size_t PeerDiscovery::bootstrap_hardcoded(
     );
 }
 
+DiscoveryLearnResult
+PeerDiscovery::learn_from_peer(
+    PeerSession& peer,
+    bool allow_local)
+{
+    DiscoveryLearnResult out;
+    std::vector<PeerAddress> learned;
+
+    out.peer_error =
+        peer.request_addresses(
+            allow_local,
+            learned
+        );
+
+    if (out.peer_error != PeerError::none) {
+        out.error = DiscoveryError::peer_failed;
+        return out;
+    }
+
+    out.received = learned.size();
+    out.added = addrman_.add(learned);
+    out.store_error = addrman_.save();
+
+    if (out.store_error != AddrStoreError::none) {
+        out.error = DiscoveryError::store_failed;
+    }
+
+    return out;
+}
+
 DiscoveryConnectResult
 PeerDiscovery::connect_one(
     const consensus::ChainParams& params,
