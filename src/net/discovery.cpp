@@ -1,5 +1,7 @@
 #include "net/discovery.hpp"
 
+#include <utility>
+
 namespace quintum::net {
 
 PeerDiscovery::PeerDiscovery(
