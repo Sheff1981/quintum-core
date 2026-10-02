@@ -11,6 +11,8 @@
 
 namespace quintum {
 
+class ChainstateStore;
+
 struct Coin {
     TxOutput output{};
     std::uint32_t height{0};
@@ -59,6 +61,8 @@ struct UtxoApplyResult {
 };
 
 class UtxoSet {
+    friend class ChainstateStore;
+
 public:
     [[nodiscard]] bool contains(const OutPoint& outpoint) const;
     [[nodiscard]] std::optional<Coin> get(const OutPoint& outpoint) const;
