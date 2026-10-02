@@ -3,7 +3,9 @@
 #include "core/serialize.hpp"
 #include "core/types.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace quintum {
@@ -46,6 +48,9 @@ enum class TxStructureError {
     output_sum_overflow,
 };
 
+[[nodiscard]] std::optional<std::size_t> serialized_transaction_size(
+    const Transaction& tx
+) noexcept;
 [[nodiscard]] Bytes serialize_transaction(const Transaction& tx);
 [[nodiscard]] Hash256 transaction_id(const Transaction& tx);
 [[nodiscard]] TxStructureError validate_transaction_structure(const Transaction& tx);
