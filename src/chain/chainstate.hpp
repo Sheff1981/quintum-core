@@ -107,6 +107,18 @@ public:
     [[nodiscard]] const UtxoSet& utxos() const noexcept;
     [[nodiscard]] bool has_block(const Hash256& hash) const;
     [[nodiscard]] bool is_on_active_chain(const Hash256& hash) const;
+    [[nodiscard]] std::optional<Hash256> active_hash(
+        std::uint32_t height
+    ) const;
+    [[nodiscard]] std::optional<BlockHeader> active_header(
+        std::uint32_t height
+    ) const;
+    [[nodiscard]] std::optional<std::uint32_t> active_height(
+        const Hash256& hash
+    ) const;
+    [[nodiscard]] const Block* block(
+        const Hash256& hash
+    ) const noexcept;
     [[nodiscard]] std::optional<std::uint32_t> next_work_required(
         std::uint64_t candidate_timestamp
     ) const;
