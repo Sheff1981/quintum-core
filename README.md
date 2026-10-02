@@ -39,6 +39,6 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M0 — Foundation:** build system, documentation, protocol decisions, deterministic tests.
+**M1 — Local blockchain:** consensus validation, UTXO state, Proof of Work, pinned Genesis, durable blockchain storage, restart recovery, reorg handling and persistent node/mining runtime.
 
-Next: primitive types → serialization → hashing → transactions → UTXO → blocks → chainstate → PoW → genesis → P2P.
+Next: **M3 — P2P foundation** after development-network runtime hardening: handshake, peer discovery, address management and headers/block synchronization.
