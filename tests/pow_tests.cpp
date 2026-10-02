@@ -92,6 +92,40 @@ void test_invalid_targets()
     );
 }
 
+void test_chain_work()
+{
+    const auto compact =
+        quintum::consensus::decode_compact_target(0x1d00ffffU);
+
+    const auto work =
+        quintum::consensus::work_for_target(compact.target);
+
+    assert(
+        hash_to_hex(work) ==
+        "0000000000000000000000000000000000000000000000000000000100010001"
+    );
+
+    quintum::Hash256 accumulated{};
+    assert(quintum::consensus::add_chain_work(accumulated, work));
+    assert(accumulated == work);
+
+    assert(quintum::consensus::add_chain_work(accumulated, work));
+    assert(
+        hash_to_hex(accumulated) ==
+        "0000000000000000000000000000000000000000000000000000000200020002"
+    );
+
+    quintum::Hash256 maximum{};
+    maximum.fill(0xffU);
+    const auto minimum_work =
+        quintum::consensus::work_for_target(maximum);
+
+    assert(
+        hash_to_hex(minimum_work) ==
+        "0000000000000000000000000000000000000000000000000000000000000001"
+    );
+}
+
 void test_real_nonce_mining()
 {
     auto header = make_header(0x2100ffffU);
@@ -128,6 +162,7 @@ int main()
 {
     test_compact_target_vectors();
     test_invalid_targets();
+    test_chain_work();
     test_real_nonce_mining();
     test_hash_above_target_is_rejected();
     return 0;
