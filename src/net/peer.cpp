@@ -695,6 +695,40 @@ PeerSession::remote_version() const noexcept
     return remote_;
 }
 
+PeerError PeerSession::send_command(
+    std::string_view command,
+    std::span<const Byte> payload)
+{
+    if (!valid()) {
+        return PeerError::send_failed;
+    }
+
+    WireError wire_error{WireError::none};
+    return send_message(
+        native_socket(socket_),
+        params_,
+        command,
+        payload,
+        wire_error
+    );
+}
+
+PeerError PeerSession::receive_command(
+    WireMessage& message)
+{
+    if (!valid()) {
+        return PeerError::receive_failed;
+    }
+
+    WireError wire_error{WireError::none};
+    return receive_message(
+        native_socket(socket_),
+        params_,
+        message,
+        wire_error
+    );
+}
+
 PeerError PeerSession::ping(
     std::uint64_t nonce)
 {
