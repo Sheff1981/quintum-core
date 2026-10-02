@@ -40,8 +40,17 @@ void test_subsidy_schedule()
     assert(block_subsidy(209'999U) == 50ULL * kAtomicUnitsPerCoin);
     assert(block_subsidy(210'000U) == 25ULL * kAtomicUnitsPerCoin);
     assert(block_subsidy(419'999U) == 25ULL * kAtomicUnitsPerCoin);
-    assert(block_subsidy(420'000U) == 12'5000'0000ULL);
+    assert(block_subsidy(420'000U) == 12ULL * kAtomicUnitsPerCoin + 50'000'000ULL);
     assert(block_subsidy(6'930'000U) == 0U);
+
+    quintum::Amount scheduled_total{0U};
+    for (std::uint32_t era = 0U; era < 33U; ++era) {
+        scheduled_total +=
+            block_subsidy(era * kSubsidyHalvingInterval) *
+            kSubsidyHalvingInterval;
+    }
+
+    assert(scheduled_total == 2'099'999'997'690'000ULL);
 }
 
 void test_coinbase_reward_limit()
