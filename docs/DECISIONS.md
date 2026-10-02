@@ -43,6 +43,17 @@ Use Bitcoin Core's pinned `libsecp256k1` for ECDSA. Initial spend authorization 
 
 Reason: minimize consensus surface area while establishing real cryptographic ownership before addresses, wallet UX or a broader script system.
 
+## D-008 — Network and difficulty candidate
+**State:** DRAFT until genesis freeze.
+
+Current Mainnet candidate uses 150-second target spacing, 2016-block Bitcoin-style periodic retargeting, 1/4x to 4x timespan clamps and PoW limit bits `0x1e0ffff0`.
+
+Testnet uses the same base policy with a delayed-block minimum-difficulty rule. Regtest has fixed easy difficulty.
+
+Every block's expected `bits` is derived from its own parent branch before PoW acceptance; miners cannot lower difficulty by placing an arbitrary target in the header.
+
+Reason: retain a small, deterministic, well-understood retarget design while keeping development and public testing networks operationally distinct.
+
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
