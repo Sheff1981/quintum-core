@@ -16,7 +16,7 @@ Each unspent output stores:
 - the block height where it was created
 - whether it was created by a coinbase transaction
 
-Coinbase maturity is not enforced yet; the metadata is already stored so that rule can be added later without redesigning the record.
+Coinbase maturity is enforced. A coinbase output created at height H cannot be spent before height H + 100.
 
 ## Atomic transaction application
 
@@ -26,7 +26,9 @@ Current checks:
 
 - transaction structure is valid
 - every non-coinbase input exists
-- total input amount does not overflow
+- input and output values remain inside the monetary range
+- total input amount does not exceed the monetary range
+- coinbase inputs have at least 100 blocks of maturity
 - input value covers output value
 - new output keys do not collide with existing UTXOs
 
@@ -60,8 +62,7 @@ This is the foundation for block disconnect and chain reorganization handling.
 ## Not implemented yet
 
 - signature/script verification
-- coinbase subsidy limits
-- coinbase maturity
-- block-level atomic connect/disconnect
 - persistent chainstate database
-- reorg selection
+- fee relay/minimum policy
+
+Coinbase subsidy limits, maturity, block-level atomic connect/disconnect and reorg selection are implemented in the consensus/chainstate layers.
