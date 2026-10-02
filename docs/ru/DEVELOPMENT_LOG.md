@@ -1898,3 +1898,91 @@ Genesis, consensus, monetary policy, PoW, difficulty, network magic и blockchai
 - автоматический outbound peer selection.
 
 После этого — headers-first blockchain synchronization и relay блоков/транзакций.
+
+
+---
+
+## 2026-10-02 — Этап 16. Peer discovery / addrman / seeds
+
+### Цель
+
+Убрать зависимость сетевого слоя от единственного заранее введённого IP и дать QUINTUM механизм накопления, сохранения и автоматического выбора peers.
+
+### Что добавлено
+
+1. **PeerAddress + addr/getaddr**
+   - IPv4 endpoint;
+   - P2P port;
+   - services;
+   - last-seen;
+   - максимум 1 000 адресов в одном `addr`;
+   - фильтрация invalid/non-routable адресов;
+   - loopback/private адреса разрешаются только явно для Regtest/local QA;
+   - duplicate endpoints не размножаются.
+
+2. **Persistent AddrManager**
+   - файл `peers.dat`;
+   - сеть и network magic записываются в файл;
+   - double-SHA-256 checksum;
+   - corrupt/wrong-network database отвергается;
+   - максимум 50 000 адресов;
+   - Windows Unicode-safe durable replacement;
+   - POSIX rename + fsync.
+
+3. **История peer**
+   - last attempt;
+   - last successful connection;
+   - failures;
+   - next retry time.
+
+4. **Retry/backoff**
+   - неработающий peer не атакуется бесконечными reconnect;
+   - задержка растёт экспоненциально;
+   - discovery автоматически пробует следующий доступный адрес.
+
+5. **Seed bootstrap**
+   - готов интерфейс pinned hardcoded IPv4 seeds;
+   - seed можно импортировать в addrman при первом запуске;
+   - built-in seed list пока пуст: реального публичного QUINTUM seed node ещё нет, фиктивный адрес не добавляется;
+   - DNS seeds будут отдельным deployment-слоем.
+
+6. **Автоматическое обучение через peer**
+   - после handshake нода отправляет `getaddr`;
+   - получает `addr`;
+   - валидирует список;
+   - добавляет новые endpoints;
+   - сохраняет их в `peers.dat`;
+   - после restart адреса остаются известны.
+
+### Интеграционный сценарий
+
+Тест строит три реальные TCP peer endpoints на localhost:
+
+1. Node A изначально знает только Node B;
+2. Node B знает адрес Node C;
+3. A подключается к B через Stage 15 handshake;
+4. A отправляет `getaddr`;
+5. B возвращает адрес C через `addr`;
+6. A сохраняет C в `peers.dat`;
+7. B отключается;
+8. A автоматически выбирает C;
+9. A устанавливает с C настоящий TCP + version/verack handshake;
+10. после restart addrman A снова содержит B и C.
+
+Отдельно проверяется fallback: первый peer недоступен → он получает backoff → нода автоматически пробует следующий peer.
+
+### Безопасность
+
+P2P discovery не меняет Genesis, PoW, difficulty, monetary policy, UTXO или Chainstate.
+
+Удалённый peer может только предложить адреса. Он не получает права менять blockchain state.
+
+### Статус
+
+Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+
+### Следующий этап
+
+**Этап 17 — headers-first synchronization + block relay.**
+
+Ноды должны сравнивать цепочки, получать headers, запрашивать недостающие blocks и передавать каждый полученный блок в существующий consensus/Chainstate pipeline.
