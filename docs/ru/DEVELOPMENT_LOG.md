@@ -164,7 +164,7 @@ Hash блока считается не «из объекта C++», а из с�
 
 ### Статус этапа
 
-**Код написан. Ожидается подтверждение CI Windows + Linux.**
+**ГОТОВО.** GitHub Actions: Windows — success, Linux — success. Transaction-тесты прошли.
 
 ### Следующий этап
 
