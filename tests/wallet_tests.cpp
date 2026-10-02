@@ -205,6 +205,7 @@ void test_wallet_persistence_backup_and_network_binding()
         consensus::regtest_params();
 
     std::vector<std::string> expected_addresses;
+    std::string expected_current_address;
 
     {
         Wallet wallet{
@@ -251,6 +252,8 @@ void test_wallet_persistence_backup_and_network_binding()
             wallet.new_receive_address();
 
         assert(another.ok());
+        expected_current_address =
+            another.address;
 
         expected_addresses =
             wallet.addresses();
@@ -289,6 +292,8 @@ void test_wallet_persistence_backup_and_network_binding()
 
         assert(started.ok());
         assert(!started.created);
+        assert(started.receive_address ==
+               expected_current_address);
         assert(reopened.addresses() ==
                expected_addresses);
     }
@@ -933,6 +938,8 @@ void test_network_runtime_wallet_bridge()
         runtime.new_receive_address();
 
     assert(extra_address.ok());
+    assert(runtime.status().receive_address ==
+           extra_address.address);
 
     const auto backup_path =
         backup_directory /
