@@ -101,6 +101,7 @@ NetworkRuntime::NetworkRuntime(
     : params_(params),
       directory_(std::move(directory)),
       node_(params_, directory_),
+      wallet_(params_, directory_),
       addrman_(
           params_,
           directory_,
@@ -139,12 +140,37 @@ NetworkRuntimeStartResult NetworkRuntime::start(
 
     {
         std::scoped_lock lock(state_mutex_);
+
         out.node = node_.start();
+
+        if (out.node.ok()) {
+            out.wallet =
+                wallet_.start();
+
+            if (out.wallet.ok()) {
+                const auto synced =
+                    wallet_.sync(
+                        node_.chain(),
+                        node_.mempool()
+                    );
+
+                out.wallet_sync =
+                    synced.error;
+            }
+        }
     }
 
     if (!out.node.ok()) {
         out.error =
             NetworkRuntimeStartError::node_failed;
+        return out;
+    }
+
+    if (!out.wallet.ok() ||
+        out.wallet_sync !=
+            wallet::WalletSyncError::none) {
+        out.error =
+            NetworkRuntimeStartError::wallet_failed;
         return out;
     }
 
@@ -272,6 +298,16 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     out.tip = node_.chain().tip_hash();
     out.mempool_transactions =
         node_.mempool().size();
+    out.wallet_balance =
+        wallet_.balance();
+
+    const auto wallet_addresses =
+        wallet_.addresses();
+
+    if (!wallet_addresses.empty()) {
+        out.receive_address =
+            wallet_addresses.front();
+    }
 
     return out;
 }
@@ -287,6 +323,10 @@ NetworkRuntime::submit_transaction(
         out = node_.submit_transaction(
             transaction
         );
+
+        if (out.ok()) {
+            (void)sync_wallet_locked();
+        }
     }
 
     if (out.ok()) {
@@ -295,6 +335,89 @@ NetworkRuntime::submit_transaction(
             out.mempool.txid
         );
     }
+
+    return out;
+}
+
+wallet::WalletKeyResult
+NetworkRuntime::new_receive_address()
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.new_receive_address();
+}
+
+wallet::WalletStoreError
+NetworkRuntime::backup_wallet(
+    const std::filesystem::path& destination,
+    bool overwrite)
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.backup(
+        destination,
+        overwrite
+    );
+}
+
+NetworkWalletSendResult
+NetworkRuntime::send_to_address(
+    std::string_view destination,
+    Amount amount,
+    Amount fee)
+{
+    NetworkWalletSendResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        out.wallet =
+            wallet_.create_transaction(
+                destination,
+                amount,
+                fee,
+                node_.chain(),
+                node_.mempool()
+            );
+
+        if (!out.wallet.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    wallet_create_failed;
+            return out;
+        }
+
+        out.node =
+            node_.submit_transaction(
+                out.wallet.transaction
+            );
+
+        if (!out.node.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    node_rejected;
+            return out;
+        }
+
+        const auto synced =
+            wallet_.sync(
+                node_.chain(),
+                node_.mempool()
+            );
+
+        out.wallet_sync =
+            synced.error;
+
+        if (!synced.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    wallet_sync_failed;
+            return out;
+        }
+    }
+
+    queue_announcement(
+        kInventoryTransaction,
+        out.node.mempool.txid
+    );
 
     return out;
 }
@@ -326,6 +449,10 @@ NetworkRuntime::mine_mempool_block_at(
             adjusted_time,
             max_attempts
         );
+
+        if (out.ok()) {
+            (void)sync_wallet_locked();
+        }
     }
 
     if (out.ok()) {
@@ -649,6 +776,10 @@ bool NetworkRuntime::prepare_live_peer(
             synchronized_tip =
                 node_.chain().tip_hash();
         }
+
+        if (!sync_wallet_locked()) {
+            return false;
+        }
     }
 
     if (synchronized_tip) {
@@ -684,6 +815,10 @@ bool NetworkRuntime::prepare_live_peer(
             );
 
         if (!mempool_sync.ok()) {
+            return false;
+        }
+
+        if (!sync_wallet_locked()) {
             return false;
         }
     }
@@ -1040,6 +1175,11 @@ bool NetworkRuntime::process_transaction(
             node_.submit_transaction(
                 *transaction
             );
+
+        if (submitted.ok() &&
+            !sync_wallet_locked()) {
+            return false;
+        }
     }
 
     if (!submitted.ok()) {
@@ -1113,6 +1253,10 @@ bool NetworkRuntime::process_block(
                 return false;
             }
 
+            if (!sync_wallet_locked()) {
+                return false;
+            }
+
             const auto synchronized_tip =
                 node_.chain().tip_hash();
 
@@ -1124,6 +1268,11 @@ bool NetworkRuntime::process_block(
             }
 
             return true;
+        }
+
+        if (submitted.ok() &&
+            !sync_wallet_locked()) {
+            return false;
         }
     }
 
@@ -1312,6 +1461,17 @@ void NetworkRuntime::update_peer_counts() noexcept
 
     peer_count_.store(peers_.size());
     outbound_count_.store(outbound);
+}
+
+bool NetworkRuntime::sync_wallet_locked()
+{
+    const auto synced =
+        wallet_.sync(
+            node_.chain(),
+            node_.mempool()
+        );
+
+    return synced.ok();
 }
 
 } // namespace quintum::net
