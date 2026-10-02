@@ -186,14 +186,74 @@ NodeMineResult NodeRuntime::mine_mempool_block_at(
     std::uint64_t adjusted_time,
     std::uint64_t max_attempts)
 {
-    const auto transactions =
-        mempool_.transactions();
+    if (!started_) {
+        NodeMineResult out;
+        out.error = NodeMineError::not_started;
+        return out;
+    }
+
+    mempool_.reconcile(persistent_.chain());
+
+    const std::size_t block_transaction_limit =
+        params_.limits.max_block_transactions > 0U
+            ? static_cast<std::size_t>(
+                  params_.limits.max_block_transactions - 1U)
+            : 0U;
+
+    auto transactions =
+        mempool_.transactions(
+            block_transaction_limit
+        );
+
+    std::size_t low{0U};
+    std::size_t high{transactions.size()};
+    std::size_t best{0U};
+
+    while (low <= high) {
+        const std::size_t mid =
+            low + (high - low) / 2U;
+
+        const auto candidate =
+            mining::create_block_template(
+                persistent_.chain(),
+                payout_script,
+                adjusted_time,
+                std::span<const Transaction>(
+                    transactions.data(),
+                    mid
+                )
+            );
+
+        if (candidate.ok()) {
+            best = mid;
+            low = mid + 1U;
+            continue;
+        }
+
+        if (candidate.error ==
+            mining::BlockTemplateError::
+                resource_limits_exceeded) {
+            if (mid == 0U) {
+                break;
+            }
+            high = mid - 1U;
+            continue;
+        }
+
+        NodeMineResult out;
+        out.error = NodeMineError::template_failed;
+        out.template_error = candidate.error;
+        return out;
+    }
 
     return mine_block_at(
         payout_script,
         adjusted_time,
         max_attempts,
-        transactions
+        std::span<const Transaction>(
+            transactions.data(),
+            best
+        )
     );
 }
 
