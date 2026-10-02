@@ -37,16 +37,32 @@ See `docs/TRANSACTION_AUTHORIZATION.md`.
 
 See `docs/MONETARY_POLICY.md`.
 
+## Network and difficulty candidate — implemented, not mainnet-frozen
+
+Mainnet candidate:
+
+- target block spacing: 150 seconds
+- retarget interval: 2016 blocks
+- retarget timespan: 302400 seconds
+- per-period target change clamp: 1/4x through 4x
+- PoW limit bits: `0x1e0ffff0`
+- contextual `bits` validation is branch-specific
+- arbitrary miner-selected easier difficulty is rejected
+
+Testnet uses the same base schedule with the documented delayed-block minimum-difficulty exception. Regtest keeps a fixed easy target.
+
+Network-specific message-start bytes and draft P2P/RPC ports are also present in ChainParams.
+
+See `docs/CHAIN_PARAMS.md` and `docs/DIFFICULTY.md`.
+
 ## Parameters not frozen yet
 
 - ticker / smallest-unit public name
-- block target interval
-- difficulty adjustment algorithm
-- PoW limit
 - maximum block weight/size
 - fee policy
 - address encoding and prefixes
-- network magic
-- mainnet/testnet P2P and RPC ports
+- timestamp consensus rules
+- final review of network magic and ports
+- exact Mainnet/Testnet genesis blocks
 
 These values will not be guessed and silently embedded. Each will be documented, tested, then frozen before mainnet genesis.
