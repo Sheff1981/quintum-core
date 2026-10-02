@@ -2350,7 +2350,17 @@ UPnP/NAT-PMP и DNS seed deployment также остаются отдельны
 
 ### Статус
 
-Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+**ГОТОВО.**
+
+GitHub Actions на финальном коде этапа:
+
+- Linux — success;
+- Windows — success;
+- **19/19 test suites passed**;
+- отдельный `network_runtime` suite — passed на обеих ОС;
+- automatic startup sync, live tx/block relay, ping/pong, disconnect detection, reconnect и propagation после reconnect — passed.
+
+Genesis, consensus parameters, network magic, P2P/RPC ports, PoW, difficulty, monetary policy и подтверждённый blockchain storage format не изменялись.
 
 ### Следующий этап
 
