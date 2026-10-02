@@ -14,9 +14,15 @@ This document becomes normative only when explicitly marked **MAINNET FROZEN**.
 
 ## Candidate cryptographic baseline
 
-- Block/transaction digest family: SHA-256
-- Signatures: secp256k1
-- Exact serialization and domain-separation rules: to be frozen before genesis
+- block/transaction digest family: SHA-256
+- signatures: ECDSA over secp256k1 via pinned Bitcoin Core libsecp256k1 v0.8.0
+- public keys: compressed 33-byte secp256k1 keys
+- initial locking model: versioned P2PK
+- current sighash: QUINTUM-domain-separated SIGHASH_ALL
+- high-S signatures: rejected
+- exact rules remain DRAFT until genesis freeze
+
+See `docs/TRANSACTION_AUTHORIZATION.md`.
 
 ## Monetary consensus candidate — implemented, not mainnet-frozen
 
