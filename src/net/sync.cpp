@@ -553,7 +553,6 @@ parse_inventory(
     const auto count = reader.compact();
 
     if (!count ||
-        *count == 0U ||
         *count > kMaxGetDataItems ||
         !count_fits_remaining(
             *count,
