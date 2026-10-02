@@ -670,14 +670,14 @@ AddrStoreError AddrManager::save() const
         checksum.end()
     );
 
-    const auto temporary =
-        path_.string() + ".tmp";
+    std::filesystem::path temporary = path_;
+    temporary += ".tmp";
 
 #ifdef _WIN32
     std::FILE* file{nullptr};
     if (fopen_s(
             &file,
-            temporary.c_str(),
+            temporary.string().c_str(),
             "wb") != 0) {
         file = nullptr;
     }
