@@ -39,6 +39,7 @@ enum class ChainConnectError {
     none,
     invalid_block_structure,
     bad_previous_block,
+    wrong_genesis,
     unknown_parent,
     duplicate_block,
     invalid_ancestor,
