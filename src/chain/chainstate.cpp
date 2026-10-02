@@ -531,6 +531,7 @@ ChainConnectResult Chainstate::connect_block(
         greater_work(new_chain_work, cumulative_work());
 
     if (!should_activate) {
+        acceptance_order_.push_back(hash);
         return result;
     }
 
@@ -679,6 +680,7 @@ ChainConnectResult Chainstate::connect_block(
     result.total_fees = activated_fees;
     result.activated = true;
     result.reorganized = was_reorg;
+    acceptance_order_.push_back(hash);
     return result;
 }
 
