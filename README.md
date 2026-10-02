@@ -39,6 +39,8 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M1 — Local blockchain:** consensus validation, UTXO state, Proof of Work, pinned Genesis, durable blockchain storage, restart recovery, reorg handling and persistent node/mining runtime.
+**M3 — P2P network foundation:** real TCP transport, version/verack handshake, ping/pong, network isolation, persistent peer address manager, addr/getaddr exchange, seed bootstrap hooks, retry/backoff and automatic outbound peer selection.
 
-Next: **M3 — P2P foundation** after development-network runtime hardening: handshake, peer discovery, address management and headers/block synchronization.
+The public QUINTUM seed list is intentionally empty until real independent seed nodes exist; no fake or developer-only endpoint is embedded.
+
+Next: **M4 — headers-first synchronization and relay:** exchange chain headers, request missing blocks, validate every received block through the existing consensus/Chainstate path, then add block/transaction relay.
