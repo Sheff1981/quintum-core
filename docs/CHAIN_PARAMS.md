@@ -4,7 +4,7 @@ Status: **DRAFT — pre-mainnet**
 
 QUINTUM uses explicit parameter sets so Mainnet, Testnet and Regtest cannot silently share network identity or Proof-of-Work policy.
 
-These values are implemented and tested, but remain changeable until the corresponding genesis blocks are frozen.
+These values are implemented and tested. Genesis constants are now code-pinned; changing them creates a different network identity. Other pre-launch parameters remain subject to explicit review.
 
 ## Mainnet candidate
 
@@ -62,12 +62,18 @@ A node must be created with exactly one ChainParams set. Consensus validation re
 
 A Mainnet node must never accept a Testnet or Regtest difficulty policy merely because a block's raw hash satisfies some target.
 
-## Not frozen yet
+## Genesis identity
 
-Before Mainnet genesis:
+Exact Genesis hashes, Merkle roots, timestamps, bits, nonces and messages are recorded in `docs/GENESIS.md` and stored directly in `ChainParams`.
 
-- all message-start bytes will be reviewed once more;
-- ports will be checked as part of P2P deployment;
-- the Mainnet/Testnet genesis blocks will be uniquely generated;
-- final genesis hashes will be inserted into ChainParams;
-- the parameter documents will change from DRAFT to the appropriate frozen state.
+Built-in networks set `genesis.enforce = true`: the first block must equal the configured Genesis hash.
+
+## Still subject to pre-launch review
+
+- network magic bytes;
+- P2P/RPC ports;
+- address prefixes/encoding;
+- fee policy;
+- public-testnet operational behavior.
+
+Changing Genesis itself is no longer a parameter tweak; it defines another network.
