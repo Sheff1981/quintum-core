@@ -398,7 +398,7 @@ Hash блока считается не «из объекта C++», а из с�
 
 ### Статус этапа
 
-**Код написан. Ожидается финальное подтверждение CI Windows + Linux для chain-work тестов.**
+**ГОТОВО.** GitHub Actions: Windows — success, Linux — success. PoW, mining loop, compact target и chain-work тесты прошли.
 
 ### Следующий этап
 
