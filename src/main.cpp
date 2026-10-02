@@ -1,11 +1,12 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
-#include "node/node.hpp"
+#include "net/runtime.hpp"
 
 #include <array>
 #include <charconv>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -13,11 +14,19 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace {
 
 using quintum::Byte;
 using quintum::Hash256;
+
+volatile std::sig_atomic_t g_stop_requested{0};
+
+void handle_signal(int) noexcept
+{
+    g_stop_requested = 1;
+}
 
 std::uint64_t unix_time_now() noexcept
 {
@@ -89,6 +98,21 @@ bool parse_u64(
            parsed.ptr == end;
 }
 
+bool parse_u16(
+    std::string_view text,
+    std::uint16_t& value) noexcept
+{
+    std::uint64_t parsed{0U};
+    if (!parse_u64(text, parsed) ||
+        parsed >
+            std::numeric_limits<std::uint16_t>::max()) {
+        return false;
+    }
+
+    value = static_cast<std::uint16_t>(parsed);
+    return true;
+}
+
 std::string hash_hex(const Hash256& hash)
 {
     constexpr std::array<char, 16> digits{
@@ -113,8 +137,10 @@ void print_usage()
         << "QUINTUM Core development node\n"
         << "Usage: quintumd [--regtest|--testnet|--mainnet]"
         << " [--datadir PATH]"
+        << " [--listen-port N]"
         << " [--mine-blocks N --miner-pubkey HEX]"
-        << " [--max-attempts N]\n";
+        << " [--max-attempts N]\n"
+        << "The node keeps running until Ctrl+C.\n";
 }
 
 } // namespace
@@ -132,6 +158,7 @@ int main(int argc, char* argv[])
 
     std::uint64_t mine_blocks{0U};
     std::uint64_t max_attempts{5'000'000U};
+    std::optional<std::uint16_t> listen_port;
     std::optional<crypto::PublicKey> miner_public_key;
 
     for (int i = 1; i < argc; ++i) {
@@ -163,6 +190,22 @@ int main(int argc, char* argv[])
                 return 2;
             }
             data_root = argv[++i];
+            continue;
+        }
+
+        if (arg == "--listen-port") {
+            std::uint16_t parsed_port{0U};
+
+            if (i + 1 >= argc ||
+                !parse_u16(
+                    argv[++i],
+                    parsed_port)) {
+                std::cerr
+                    << "Invalid --listen-port value\n";
+                return 2;
+            }
+
+            listen_port = parsed_port;
             continue;
         }
 
@@ -218,89 +261,149 @@ int main(int argc, char* argv[])
     const std::filesystem::path network_directory =
         data_root / std::string(params.name);
 
-    NodeRuntime node{params, network_directory};
-    const auto start = node.start();
+    net::NetworkRuntime runtime{
+        params,
+        network_directory
+    };
 
-    if (!start.ok()) {
+    net::NetworkRuntimeConfig network_config;
+    network_config.listen_port = listen_port;
+
+    const auto start_result =
+        runtime.start(network_config);
+
+    if (!start_result.ok()) {
         std::cerr
             << "Node startup failed: "
-            << static_cast<int>(start.error)
-            << " storage="
-            << static_cast<int>(start.storage_error)
-            << " chain="
-            << static_cast<int>(start.chain_error)
+            << static_cast<int>(
+                   start_result.error)
+            << " node="
+            << static_cast<int>(
+                   start_result.node.error)
+            << " addr="
+            << static_cast<int>(
+                   start_result.address_store)
+            << " peer="
+            << static_cast<int>(
+                   start_result.peer_error)
             << '\n';
         return 1;
     }
+
+    const auto initial_status =
+        runtime.status();
 
     std::cout
         << "QUINTUM Core 0.0.1-dev\n"
         << "Network: " << params.name << '\n'
         << "Data directory: "
-        << network_directory.string() << '\n';
+        << network_directory.string() << '\n'
+        << "P2P listen port: "
+        << initial_status.listen_port << '\n'
+        << "Known peers: "
+        << initial_status.known_addresses << '\n';
 
-    if (node.chain().height()) {
+    if (initial_status.height) {
         std::cout
-            << "Height: " << *node.chain().height()
+            << "Height: "
+            << *initial_status.height
             << '\n';
     }
 
-    if (node.chain().tip_hash()) {
+    if (initial_status.tip) {
         std::cout
             << "Tip: "
-            << hash_hex(*node.chain().tip_hash())
+            << hash_hex(*initial_status.tip)
             << '\n';
     }
 
-    if (mine_blocks == 0U) {
-        return 0;
-    }
-
-    const Bytes payout_script =
-        consensus::make_p2pk_locking_script(
-            *miner_public_key
-        );
-
-    const std::uint64_t base_time =
-        unix_time_now();
-
-    for (std::uint64_t i = 0U; i < mine_blocks; ++i) {
-        if (i >
-            std::numeric_limits<std::uint64_t>::max() -
-                base_time) {
-            std::cerr << "Mining timestamp overflow\n";
-            return 1;
-        }
-
-        const auto mined =
-            node.mine_mempool_block_at(
-                payout_script,
-                base_time + i,
-                max_attempts
+    if (mine_blocks > 0U) {
+        const Bytes payout_script =
+            consensus::make_p2pk_locking_script(
+                *miner_public_key
             );
 
-        if (!mined.ok()) {
-            std::cerr
-                << "Mining failed: "
-                << static_cast<int>(mined.error)
-                << " template="
-                << static_cast<int>(mined.template_error)
-                << " chain="
-                << static_cast<int>(mined.connect.chain.error)
-                << " storage="
-                << static_cast<int>(mined.connect.storage_error)
-                << '\n';
-            return 1;
-        }
+        const std::uint64_t base_time =
+            unix_time_now();
 
+        for (std::uint64_t i = 0U;
+             i < mine_blocks;
+             ++i) {
+            if (i >
+                std::numeric_limits<
+                    std::uint64_t>::max() -
+                    base_time) {
+                std::cerr
+                    << "Mining timestamp overflow\n";
+                runtime.stop();
+                return 1;
+            }
+
+            const auto mined =
+                runtime.mine_mempool_block_at(
+                    payout_script,
+                    base_time + i,
+                    max_attempts
+                );
+
+            if (!mined.ok()) {
+                std::cerr
+                    << "Mining failed: "
+                    << static_cast<int>(
+                           mined.error)
+                    << " template="
+                    << static_cast<int>(
+                           mined.template_error)
+                    << " chain="
+                    << static_cast<int>(
+                           mined.connect.chain.error)
+                    << " storage="
+                    << static_cast<int>(
+                           mined.connect.storage_error)
+                    << '\n';
+                runtime.stop();
+                return 1;
+            }
+
+            std::cout
+                << "Mined height="
+                << mined.height
+                << " nonce="
+                << mined.mining.nonce
+                << " attempts="
+                << mined.mining.attempts
+                << " hash="
+                << hash_hex(
+                       block_hash(
+                           mined.block.header))
+                << '\n';
+        }
+    }
+
+    std::signal(SIGINT, handle_signal);
+    std::signal(SIGTERM, handle_signal);
+
+    std::cout
+        << "P2P runtime active. Press Ctrl+C to stop.\n";
+
+    while (g_stop_requested == 0) {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(250)
+        );
+    }
+
+    runtime.stop();
+
+    const auto final_status =
+        runtime.status();
+
+    if (final_status.height) {
         std::cout
-            << "Mined height=" << mined.height
-            << " nonce=" << mined.mining.nonce
-            << " attempts=" << mined.mining.attempts
-            << " hash="
-            << hash_hex(block_hash(mined.block.header))
+            << "Stopped at height "
+            << *final_status.height
             << '\n';
     }
 
+    return 0;
     return 0;
 }
