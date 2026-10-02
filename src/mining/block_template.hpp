@@ -15,6 +15,8 @@ enum class BlockTemplateError {
     empty_chain,
     height_overflow,
     invalid_payout_script,
+    timestamp_overflow,
+    timestamp_too_far_future,
     difficulty_unavailable,
     candidate_is_coinbase,
     transaction_failed,
