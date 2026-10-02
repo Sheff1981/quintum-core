@@ -4,10 +4,23 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <vector>
 
 namespace quintum {
 namespace {
+
+bool checked_add(
+    std::size_t& total,
+    std::size_t value) noexcept
+{
+    if (value >
+        std::numeric_limits<std::size_t>::max() - total) {
+        return false;
+    }
+    total += value;
+    return true;
+}
 
 Hash256 hash_pair(const Hash256& left, const Hash256& right)
 {
@@ -18,6 +31,34 @@ Hash256 hash_pair(const Hash256& left, const Hash256& right)
 }
 
 } // namespace
+
+std::optional<std::size_t> serialized_block_size(
+    const Block& block) noexcept
+{
+    constexpr std::size_t header_size = 88U;
+
+    std::size_t total = header_size;
+
+    if (!checked_add(
+            total,
+            compact_size_serialized_size(
+                static_cast<std::uint64_t>(
+                    block.transactions.size())))) {
+        return std::nullopt;
+    }
+
+    for (const auto& tx : block.transactions) {
+        const auto tx_size =
+            serialized_transaction_size(tx);
+
+        if (!tx_size ||
+            !checked_add(total, *tx_size)) {
+            return std::nullopt;
+        }
+    }
+
+    return total;
+}
 
 Bytes serialize_block_header(const BlockHeader& header)
 {
