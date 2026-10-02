@@ -203,6 +203,53 @@ bool Chainstate::is_on_active_chain(const Hash256& hash) const
     );
 }
 
+std::optional<Hash256> Chainstate::active_hash(
+    std::uint32_t height) const
+{
+    const auto index = static_cast<std::size_t>(height);
+    if (index >= chain_.size() ||
+        chain_[index].height != height) {
+        return std::nullopt;
+    }
+    return chain_[index].hash;
+}
+
+std::optional<BlockHeader> Chainstate::active_header(
+    std::uint32_t height) const
+{
+    const auto index = static_cast<std::size_t>(height);
+    if (index >= chain_.size() ||
+        chain_[index].height != height) {
+        return std::nullopt;
+    }
+    return chain_[index].header;
+}
+
+std::optional<std::uint32_t> Chainstate::active_height(
+    const Hash256& hash) const
+{
+    const auto it = std::find_if(
+        chain_.begin(),
+        chain_.end(),
+        [&](const ChainEntry& entry) {
+            return entry.hash == hash;
+        }
+    );
+
+    return it == chain_.end()
+        ? std::nullopt
+        : std::optional<std::uint32_t>{it->height};
+}
+
+const Block* Chainstate::block(
+    const Hash256& hash) const noexcept
+{
+    const auto it = block_index_.find(hash);
+    return it == block_index_.end()
+        ? nullptr
+        : &it->second.block;
+}
+
 std::optional<std::uint32_t> Chainstate::next_work_required(
     std::uint64_t candidate_timestamp) const
 {
