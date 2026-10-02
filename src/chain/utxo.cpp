@@ -1,5 +1,7 @@
 #include "chain/utxo.hpp"
 
+#include "consensus/monetary.hpp"
+
 #include <limits>
 
 namespace quintum {
@@ -47,8 +49,23 @@ UtxoApplyResult UtxoSet::apply_transaction(
                 return result;
             }
 
+            if (!consensus::money_range(it->second.output.value)) {
+                result.error = UtxoApplyError::money_out_of_range;
+                return result;
+            }
+
+            if (it->second.coinbase) {
+                if (height < it->second.height ||
+                    height - it->second.height <
+                        consensus::kCoinbaseMaturity) {
+                    result.error =
+                        UtxoApplyError::premature_coinbase_spend;
+                    return result;
+                }
+            }
+
             if (it->second.output.value >
-                std::numeric_limits<Amount>::max() - input_total) {
+                consensus::kMaxMoney - input_total) {
                 result.error = UtxoApplyError::input_sum_overflow;
                 return result;
             }
@@ -58,11 +75,15 @@ UtxoApplyResult UtxoSet::apply_transaction(
         }
     }
 
-    Amount output_total{0};
-    for (const auto& output : tx.outputs) {
-        // validate_transaction_structure() already guarantees this cannot overflow.
-        output_total += output.value;
+    const auto output_total_value =
+        consensus::transaction_output_total(tx);
+
+    if (!output_total_value) {
+        result.error = UtxoApplyError::money_out_of_range;
+        return result;
     }
+
+    const Amount output_total = *output_total_value;
 
     if (!is_coinbase && input_total < output_total) {
         result.error = UtxoApplyError::insufficient_input_value;
