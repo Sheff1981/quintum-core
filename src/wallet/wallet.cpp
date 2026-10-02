@@ -86,10 +86,10 @@ bool replace_file(
         return false;
     }
 
-    if (!restrict_permissions(destination)) {
-        return false;
-    }
-
+    // The temporary file is chmod(0600) before the rename.
+    // rename() preserves that mode, so there is no fallible
+    // post-commit permission change that could report failure
+    // after the durable file has already replaced the old one.
     std::filesystem::path directory =
         destination.parent_path();
 
