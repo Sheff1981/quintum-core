@@ -1,5 +1,6 @@
 #include "chain/chainstate.hpp"
 
+#include "consensus/difficulty.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
 
@@ -37,7 +38,8 @@ ApplyBlockResult apply_block_to_view(
     const Block& block,
     UtxoSet& utxos,
     std::uint32_t height,
-    const Hash256& parent_work)
+    const Hash256& parent_work,
+    const consensus::PowParams& pow_params)
 {
     ApplyBlockResult out;
 
@@ -46,7 +48,9 @@ ApplyBlockResult apply_block_to_view(
         return out;
     }
 
-    if (consensus::check_proof_of_work(block.header) !=
+    if (consensus::check_proof_of_work(
+            block.header,
+            pow_params) !=
         consensus::PowCheckError::none) {
         out.result.error = ChainConnectError::invalid_proof_of_work;
         return out;
@@ -112,6 +116,17 @@ ApplyBlockResult apply_block_to_view(
 }
 
 } // namespace
+
+Chainstate::Chainstate(
+    const consensus::ChainParams& params)
+    : params_(&params)
+{
+}
+
+const consensus::ChainParams& Chainstate::params() const noexcept
+{
+    return *params_;
+}
 
 bool Chainstate::empty() const noexcept
 {
