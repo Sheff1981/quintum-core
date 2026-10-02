@@ -1131,3 +1131,185 @@ Difficulty зависит от block timestamps, поэтому до Genesis с�
 **Этап 11 — timestamp consensus + block limits.**
 
 После него consensus-фундамент будет достаточно закрыт, чтобы переходить к уникальным Genesis для Mainnet, Testnet и Regtest.
+
+
+---
+
+## 2026-10-02 — Этап 11. Timestamp consensus и block/resource limits
+
+### Цель
+
+Закрыть ещё два consensus-риска до Genesis:
+
+1. майнер не должен иметь возможность произвольно манипулировать временем блока;
+2. блок не должен быть безразмерным и заставлять ноду расходовать неограниченную память/CPU.
+
+### Коррекция параметров Mainnet/Testnet
+
+До Genesis изменён прежний draft:
+
+- было: **150 секунд на блок**;
+- стало: **600 секунд / 10 минут на блок**.
+
+Retarget interval остаётся 2016 блоков.
+
+Поэтому новый target retarget period:
+
+**1 209 600 секунд = 14 дней.**
+
+Это изменение сделано безопасно: Mainnet/Testnet Genesis ещё не существуют, поэтому совместимость реальной сети не нарушается.
+
+### Median Time Past
+
+Добавлено Bitcoin-подобное правило MTP.
+
+Для нового блока берутся timestamps:
+
+- parent;
+- до 10 его предыдущих ancestors;
+- всего максимум **11 блоков**.
+
+Они сортируются, берётся медиана.
+
+Новый блок обязан иметь:
+
+`timestamp > Median Time Past`.
+
+Равенство запрещено.
+
+Важно: MTP считается по **собственной ветке блока**. При fork ветка B не использует timestamps ветки A.
+
+### Future time
+
+Добавлено правило:
+
+`block timestamp <= adjusted time + 2 часа`.
+
+Если блок дальше чем на 7200 секунд в будущем:
+
+- он отклоняется;
+- в block index не попадает;
+- future reorg-кандидатом стать не может.
+
+Для production node обычный вызов пока использует системное время ОС.
+
+Для тестов есть deterministic overload, куда adjusted time передаётся явно.
+
+Peer-adjusted network time будет подключён позже вместе с P2P.
+
+### Лимит размера блока
+
+Добавлен consensus ceiling:
+
+**1 000 000 serialized bytes.**
+
+Размер считается точно по текущей сериализации QUINTUM:
+
+- 88-byte header;
+- CompactSize transaction count;
+- точный serialized size всех transactions.
+
+Размер вычисляется без обязательной сборки гигантского временного byte-buffer.
+
+Все size calculations имеют overflow checks.
+
+### Дополнительные resource limits
+
+Добавлено:
+
+- максимум **10 000 transactions** в одном блоке;
+- максимум **10 000 bytes** для отдельного script;
+- максимум **100 bytes** для coinbase unlocking script.
+
+Это не заменяет будущие P2P parser limits, но уже не позволяет consensus принять объект с неограниченным payload.
+
+### Порядок проверки
+
+До добавления блока в block index выполняются:
+
+1. структура блока;
+2. resource limits;
+3. future-time;
+4. parent/ancestor;
+5. Median Time Past;
+6. expected difficulty;
+7. Proof of Work;
+8. chain-work arithmetic.
+
+Только прошедший эти правила блок может быть сохранён как active или side branch.
+
+### Тест Median Time Past
+
+Строится цепь с timestamps:
+
+100, 101, 102, ..., 110.
+
+Median последних 11 = 105.
+
+Проверяется:
+
+- новый блок с timestamp 105 — **отклонён**;
+- новый блок с timestamp 106 — **принят**;
+- при этом timestamp 106 меньше timestamp непосредственного parent 110, что допустимо, потому что consensus требует > MTP, а не > parent time.
+
+### Тест future-time
+
+При adjusted time = 10 000:
+
+- timestamp = 17 200 — разрешён;
+- timestamp = 17 201 — отклонён.
+
+То есть граница +2 часа проверяется точно.
+
+### Resource-limit tests
+
+Проверяется:
+
+- 10 001 transaction → reject;
+- script 10 001 byte → reject;
+- coinbase unlocking script 101 byte → reject;
+- serialized block > 1 000 000 bytes → reject;
+- resource-invalid block не попадает в block index.
+
+### Изменённые файлы
+
+- `src/consensus/chainparams.hpp`
+- `src/consensus/chainparams.cpp`
+- `src/consensus/time.hpp`
+- `src/consensus/time.cpp`
+- `src/consensus/block_limits.hpp`
+- `src/consensus/block_limits.cpp`
+- `src/core/serialize.hpp`
+- `src/primitives/transaction.hpp`
+- `src/primitives/transaction.cpp`
+- `src/primitives/block.hpp`
+- `src/primitives/block.cpp`
+- `src/chain/chainstate.hpp`
+- `src/chain/chainstate.cpp`
+- `tests/difficulty_tests.cpp`
+- `tests/timestamp_limits_tests.cpp`
+- `CMakeLists.txt`
+- `docs/CHAIN_PARAMS.md`
+- `docs/DIFFICULTY.md`
+- `docs/TIMESTAMP_AND_LIMITS.md`
+- `docs/CONSENSUS.md`
+- `docs/DECISIONS.md`
+
+### Статус этапа
+
+Код и документация готовы. Финальный Windows + Linux CI должен подтвердить новый 11-й test suite.
+
+### Следующий этап
+
+После зелёного CI следующий этап — **Genesis preparation**:
+
+- отдельные Genesis для Mainnet/Testnet/Regtest;
+- immutable genesis message;
+- coinbase construction;
+- Merkle root;
+- mining nonce;
+- фиксированные block hash;
+- независимые verification tests;
+- запись genesis constants в ChainParams.
+
+После Genesis изменение этих параметров уже будет считаться созданием другой несовместимой сети.
