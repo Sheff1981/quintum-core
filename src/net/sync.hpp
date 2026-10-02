@@ -108,6 +108,12 @@ parse_inventory(
     const consensus::ResourceLimits& limits
 );
 
+[[nodiscard]] SyncServiceResult serve_sync_message(
+    PeerSession& peer,
+    const Chainstate& chain,
+    const WireMessage& message
+);
+
 [[nodiscard]] SyncServiceResult serve_sync_once(
     PeerSession& peer,
     const Chainstate& chain
