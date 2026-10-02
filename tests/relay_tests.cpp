@@ -215,6 +215,29 @@ void test_local_mempool_validation_and_mining()
     assert(conflict_result.mempool.transaction_error ==
            UtxoApplyError::missing_input);
 
+    auto oversized_script =
+        make_spend(coin, 1U, fee + 2U);
+    oversized_script.outputs.front().locking_script.assign(
+        static_cast<std::size_t>(
+            params.limits.max_script_bytes) + 1U,
+        0x51U
+    );
+    assert(consensus::sign_p2pk_input(
+               oversized_script,
+               0U,
+               coin.output,
+               private_key(1U)) ==
+           consensus::InputAuthError::none);
+
+    const auto oversized_result =
+        mirror.submit_transaction(
+            oversized_script
+        );
+
+    assert(!oversized_result.ok());
+    assert(oversized_result.mempool.error ==
+           MempoolError::script_too_large);
+
     const auto mined =
         node.mine_mempool_block_at(
             payout,
