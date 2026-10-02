@@ -1152,6 +1152,19 @@ PeerListener::accept_and_handshake(
     const VersionMessage& local,
     std::uint32_t timeout_ms)
 {
+    return accept_and_handshake(
+        local,
+        timeout_ms,
+        timeout_ms
+    );
+}
+
+PeerHandshakeResult
+PeerListener::accept_and_handshake(
+    const VersionMessage& local,
+    std::uint32_t accept_timeout_ms,
+    std::uint32_t io_timeout_ms)
+{
     PeerHandshakeResult out;
 
     if (!active()) {
@@ -1165,7 +1178,7 @@ PeerListener::accept_and_handshake(
     if (!wait_socket(
             listener,
             false,
-            timeout_ms)) {
+            accept_timeout_ms)) {
         out.error = PeerError::timeout;
         return out;
     }
@@ -1196,7 +1209,7 @@ PeerListener::accept_and_handshake(
 
     if (!set_io_timeout(
             accepted,
-            timeout_ms)) {
+            io_timeout_ms)) {
         close_native(accepted);
         out.error = PeerError::accept_failed;
         return out;
