@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <string_view>
+#include <utility>
 
 namespace quintum::consensus {
 namespace {
