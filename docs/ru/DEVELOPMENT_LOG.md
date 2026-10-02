@@ -2104,3 +2104,114 @@ Genesis, consensus parameters, network magic, порты, PoW, difficulty, monet
 **Этап 18 — live block announcements + mempool/transaction relay.**
 
 Нужно добавить `inv`/announcement новых blocks, чтобы уже подключённым peers не приходилось вручную запускать catch-up, а затем mempool и распространение валидных transactions.
+
+
+---
+
+## 2026-10-02 — Этап 18. Live block relay + mempool + transaction relay
+
+### Цель
+
+Сделать сеть событийной: после первоначальной синхронизации новая транзакция или найденный блок должны распространяться между подключёнными нодами без повторной ручной полной синхронизации.
+
+### Что добавлено
+
+1. **Настоящий mempool**
+   - только non-coinbase transactions;
+   - duplicate txid rejection;
+   - проверка через staged active UTXO;
+   - double-spend/conflict rejection;
+   - проверка authorization/signature существующим UTXO pipeline;
+   - coinbase maturity;
+   - money range;
+   - script-size/resource policy;
+   - поддержка цепочек неподтверждённых транзакций в порядке приёма;
+   - лимит 50 000 tx / 64 MiB.
+
+2. **Mempool reconcile**
+   - после принятого block;
+   - после reorg;
+   - confirmed tx удаляется;
+   - conflicting/invalid tx удаляется;
+   - валидные оставшиеся transactions повторно применяются к новой active UTXO view.
+
+3. **Mining from mempool**
+   - майнер берёт реальные mempool transactions;
+   - fees входят в coinbase;
+   - transaction-count limit соблюдается;
+   - если pool больше блока, выбирается максимальный помещающийся prefix по настоящему block-template resource limit;
+   - после подтверждения mempool очищается от вошедших/конфликтующих tx.
+
+4. **Transaction relay**
+   - `inv(txid)`;
+   - `getdata(txid)`;
+   - `tx`;
+   - вычисленный txid должен совпасть с announced hash;
+   - полный tx затем проходит локальную mempool validation.
+
+5. **Block live relay**
+   - `inv(blockhash)`;
+   - `getdata(blockhash)`;
+   - `block`;
+   - hash полученного block должен совпасть с inventory;
+   - затем block идёт через существующий `NodeRuntime::submit_block_at -> PersistentChainstate::connect_block`;
+   - consensus bypass отсутствует.
+
+6. **Mempool catch-up**
+   - новый peer может отправить `mempool`;
+   - получает `inv` известных неподтверждённых tx;
+   - недостающие tx скачиваются обычным `getdata -> tx`.
+
+7. **Broadcast**
+   - transaction/block inventory можно отправить всем активным peers из `ConnectionManager`;
+   - failed peers закрываются и удаляются.
+
+### End-to-end QA
+
+Новый suite `relay` проверяет:
+
+- создание реального зрелого coinbase UTXO;
+- signed spend;
+- mempool admission и fee;
+- duplicate rejection;
+- mempool double-spend rejection;
+- oversized script rejection;
+- mining transaction из mempool;
+- fee добавляется в coinbase;
+- tx исчезает из mempool после подтверждения;
+- две реальные TCP-ноды на одинаковой цепи;
+- `inv(tx) -> getdata -> tx`;
+- remote mempool принимает tx;
+- майнинг нового блока;
+- `inv(block) -> getdata -> block`;
+- remote node валидирует и сохраняет block;
+- remote mempool очищается после подтверждения;
+- обе ноды имеют одинаковые height/tip;
+- restart получателя сохраняет подтверждённый blockchain tip;
+- отдельный `mempool -> inv -> getdata -> tx` catch-up сценарий.
+
+### Важное ограничение
+
+Mempool сейчас **memory-only**: неподтверждённые tx не записываются на диск. Это не затрагивает подтверждённый blockchain и private keys. После restart unconfirmed tx могут быть заново получены от peers.
+
+Также discovery/sync/relay пока являются готовыми сетевыми компонентами, но ещё не объединены в постоянно работающий автоматический event loop `quintumd`.
+
+### Статус
+
+Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+
+### Следующий этап
+
+**Этап 19 — long-running network runtime / peer scheduler.**
+
+Объединить уже готовые P2P-компоненты в постоянно работающую ноду:
+
+- listener на собственном P2P port;
+- automatic outbound connections из addrman;
+- inbound servicing;
+- reconnect/backoff;
+- startup sync;
+- live `inv` handling;
+- periodic ping/liveness;
+- graceful shutdown;
+- автоматическое распространение новых blocks/transactions без ручного вызова сетевых функций.
