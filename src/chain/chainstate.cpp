@@ -188,6 +188,26 @@ bool Chainstate::is_on_active_chain(const Hash256& hash) const
     );
 }
 
+std::optional<std::uint32_t> Chainstate::next_work_required(
+    std::uint64_t candidate_timestamp) const
+{
+    Block candidate;
+    candidate.header.timestamp = candidate_timestamp;
+
+    if (chain_.empty()) {
+        return expected_bits(candidate, nullptr);
+    }
+
+    const auto it =
+        block_index_.find(chain_.back().hash);
+
+    if (it == block_index_.end()) {
+        return std::nullopt;
+    }
+
+    return expected_bits(candidate, &it->second);
+}
+
 bool Chainstate::has_failed_ancestor(const Hash256& hash) const
 {
     auto it = block_index_.find(hash);
