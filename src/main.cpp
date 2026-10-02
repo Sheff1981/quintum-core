@@ -138,7 +138,10 @@ void print_usage()
         << "Usage: quintumd [--regtest|--testnet|--mainnet]"
         << " [--datadir PATH]"
         << " [--listen-port N]"
-        << " [--mine-blocks N --miner-pubkey HEX]"
+        << " [--new-address]"
+        << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
+        << " [--backup-wallet PATH]"
+        << " [--mine-blocks N [--miner-pubkey HEX]]"
         << " [--max-attempts N]\n"
         << "The node keeps running until Ctrl+C.\n";
 }
@@ -160,6 +163,12 @@ int main(int argc, char* argv[])
     std::uint64_t max_attempts{5'000'000U};
     std::optional<std::uint16_t> listen_port;
     std::optional<crypto::PublicKey> miner_public_key;
+    bool new_address_requested{false};
+    std::optional<std::string> send_to;
+    std::optional<Amount> send_amount;
+    Amount send_fee{0U};
+    bool fee_was_set{false};
+    std::optional<std::filesystem::path> wallet_backup;
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -209,6 +218,71 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        if (arg == "--new-address") {
+            new_address_requested = true;
+            continue;
+        }
+
+        if (arg == "--send-to") {
+            if (i + 1 >= argc) {
+                std::cerr
+                    << "Missing value for --send-to\n";
+                return 2;
+            }
+
+            send_to =
+                std::string{argv[++i]};
+            continue;
+        }
+
+        if (arg == "--amount") {
+            std::uint64_t value{0U};
+
+            if (i + 1 >= argc ||
+                !parse_u64(
+                    argv[++i],
+                    value)) {
+                std::cerr
+                    << "Invalid --amount value\n";
+                return 2;
+            }
+
+            send_amount =
+                static_cast<Amount>(value);
+            continue;
+        }
+
+        if (arg == "--fee") {
+            std::uint64_t value{0U};
+
+            if (i + 1 >= argc ||
+                !parse_u64(
+                    argv[++i],
+                    value)) {
+                std::cerr
+                    << "Invalid --fee value\n";
+                return 2;
+            }
+
+            send_fee =
+                static_cast<Amount>(value);
+            fee_was_set = true;
+            continue;
+        }
+
+        if (arg == "--backup-wallet") {
+            if (i + 1 >= argc) {
+                std::cerr
+                    << "Missing value for --backup-wallet\n";
+                return 2;
+            }
+
+            wallet_backup =
+                std::filesystem::path{
+                    argv[++i]};
+            continue;
+        }
+
         if (arg == "--mine-blocks") {
             if (i + 1 >= argc ||
                 !parse_u64(argv[++i], mine_blocks)) {
@@ -249,9 +323,16 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    if (mine_blocks > 0U && !miner_public_key) {
+    if (send_to.has_value() !=
+        send_amount.has_value()) {
         std::cerr
-            << "--miner-pubkey is required when mining\n";
+            << "--send-to and --amount must be used together\n";
+        return 2;
+    }
+
+    if (fee_was_set && !send_to) {
+        std::cerr
+            << "--fee requires --send-to and --amount\n";
         return 2;
     }
 
@@ -280,6 +361,15 @@ int main(int argc, char* argv[])
             << " node="
             << static_cast<int>(
                    start_result.node.error)
+            << " wallet="
+            << static_cast<int>(
+                   start_result.wallet.error)
+            << " wallet_store="
+            << static_cast<int>(
+                   start_result.wallet.store_error)
+            << " wallet_sync="
+            << static_cast<int>(
+                   start_result.wallet_sync)
             << " addr="
             << static_cast<int>(
                    start_result.address_store)
@@ -317,10 +407,140 @@ int main(int argc, char* argv[])
             << '\n';
     }
 
+    if (!initial_status.receive_address.empty()) {
+        std::cout
+            << "Receive address: "
+            << initial_status.receive_address
+            << '\n';
+    }
+
+    std::cout
+        << "Wallet confirmed: "
+        << initial_status.wallet_balance.confirmed
+        << " atomic\n"
+        << "Wallet available: "
+        << initial_status.wallet_balance.available
+        << " atomic\n"
+        << "Wallet pending: "
+        << initial_status.wallet_balance.pending
+        << " atomic\n"
+        << "Wallet immature: "
+        << initial_status.wallet_balance.immature
+        << " atomic\n";
+
+    if (new_address_requested) {
+        const auto generated =
+            runtime.new_receive_address();
+
+        if (!generated.ok()) {
+            std::cerr
+                << "New address failed: "
+                << static_cast<int>(
+                       generated.error)
+                << " store="
+                << static_cast<int>(
+                       generated.store_error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "New receive address: "
+            << generated.address
+            << '\n';
+    }
+
+    if (wallet_backup) {
+        const auto backup_error =
+            runtime.backup_wallet(
+                *wallet_backup,
+                false
+            );
+
+        if (backup_error !=
+            wallet::WalletStoreError::none) {
+            std::cerr
+                << "Wallet backup failed: "
+                << static_cast<int>(
+                       backup_error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "Wallet backup: "
+            << wallet_backup->string()
+            << '\n';
+    }
+
+    if (send_to && send_amount) {
+        const auto sent =
+            runtime.send_to_address(
+                *send_to,
+                *send_amount,
+                send_fee
+            );
+
+        if (!sent.ok()) {
+            std::cerr
+                << "Wallet send failed: "
+                << static_cast<int>(
+                       sent.error)
+                << " create="
+                << static_cast<int>(
+                       sent.wallet.error)
+                << " address="
+                << static_cast<int>(
+                       sent.wallet.address_error)
+                << " node="
+                << static_cast<int>(
+                       sent.node.error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "Transaction submitted: "
+            << hash_hex(
+                   sent.node.mempool.txid)
+            << " fee="
+            << sent.node.mempool.fee
+            << " atomic\n";
+    }
+
     if (mine_blocks > 0U) {
+        crypto::PublicKey payout_key{};
+
+        if (miner_public_key) {
+            payout_key =
+                *miner_public_key;
+        } else {
+            const auto status =
+                runtime.status();
+
+            const auto decoded =
+                wallet::decode_address(
+                    params.network,
+                    status.receive_address
+                );
+
+            if (!decoded.ok()) {
+                std::cerr
+                    << "Wallet mining address unavailable\n";
+                runtime.stop();
+                return 1;
+            }
+
+            payout_key =
+                decoded.public_key;
+        }
+
         const Bytes payout_script =
             consensus::make_p2pk_locking_script(
-                *miner_public_key
+                payout_key
             );
 
         const std::uint64_t base_time =
