@@ -1803,9 +1803,10 @@ bool Wallet::generate_pool_records(
     const std::size_t original_size =
         records.size();
 
-    if (count >
-        kMaxWalletKeys -
-            original_size) {
+    if (original_size > kMaxWalletKeys ||
+        count >
+            kMaxWalletKeys -
+                original_size) {
         return false;
     }
 
