@@ -77,3 +77,16 @@ Built-in networks set `genesis.enforce = true`: the first block must equal the c
 - public-testnet operational behavior.
 
 Changing Genesis itself is no longer a parameter tweak; it defines another network.
+
+
+## Wallet address encoding candidate
+
+Stage 20 implements network-separated Bech32m wallet addresses:
+
+- Mainnet HRP: `qtm`
+- Testnet HRP: `tqtm`
+- Regtest HRP: `rqtm`
+
+The payload currently contains address type `0x01` followed by the 33-byte compressed secp256k1 public key and maps directly to the existing P2PK v1 locking model.
+
+These prefixes and encoding rules are implemented and regression-tested, but remain **pre-mainnet candidates** until the public network specification is deliberately frozen.
