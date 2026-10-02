@@ -524,6 +524,22 @@ WalletSyncResult Wallet::sync(
         WalletCoin,
         OutPointLess> confirmed;
 
+    std::vector<crypto::PublicKey>
+        discovered_keys;
+
+    const auto remember_key =
+        [&](const crypto::PublicKey& public_key) {
+            if (std::find(
+                    discovered_keys.begin(),
+                    discovered_keys.end(),
+                    public_key) ==
+                discovered_keys.end()) {
+                discovered_keys.push_back(
+                    public_key
+                );
+            }
+        };
+
     for (std::uint64_t current = 0U;
          current <=
              static_cast<std::uint64_t>(
@@ -588,6 +604,8 @@ WalletSyncResult Wallet::sync(
                         *public_key)) {
                     continue;
                 }
+
+                remember_key(*public_key);
 
                 const OutPoint outpoint{
                     .txid = txid,
@@ -784,6 +802,56 @@ WalletSyncResult Wallet::sync(
                 std::move(owned)
             );
         }
+    }
+
+    bool metadata_changed{false};
+    std::vector<KeyRecord> updated_keys =
+        keys_;
+
+    for (auto& key : updated_keys) {
+        if (key.used) {
+            continue;
+        }
+
+        if (std::find(
+                discovered_keys.begin(),
+                discovered_keys.end(),
+                key.public_key) !=
+            discovered_keys.end()) {
+            key.used = true;
+            metadata_changed = true;
+        }
+    }
+
+    if (metadata_changed) {
+        const auto store_error =
+            save_keys(updated_keys);
+
+        if (store_error !=
+            WalletStoreError::none) {
+            for (auto& key : updated_keys) {
+                crypto::secure_erase(
+                    key.private_key
+                );
+            }
+
+            out.error =
+                WalletSyncError::store_failed;
+            return out;
+        }
+
+        for (std::size_t i = 0U;
+             i < keys_.size();
+             ++i) {
+            keys_[i].used =
+                updated_keys[i].used;
+        }
+    }
+
+    for (auto& key : updated_keys) {
+        crypto::secure_erase(
+            key.private_key
+        );
     }
 
     confirmed_coins_ =
@@ -1455,12 +1523,17 @@ WalletStoreError Wallet::save_keys(
     );
 
     for (const auto& key : keys) {
-        if (!crypto::
-                is_valid_private_key(
-                    key.private_key) ||
+        const auto derived =
+            crypto::derive_public_key(
+                key.private_key
+            );
+
+        if (!derived ||
+            *derived != key.public_key ||
             !crypto::
                 is_valid_public_key(
                     key.public_key)) {
+            crypto::secure_erase(body);
             return WalletStoreError::corrupt;
         }
 
