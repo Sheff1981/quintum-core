@@ -32,13 +32,16 @@ std::optional<T> read_little_endian(std::span<const Byte> data, std::size_t& off
         return std::nullopt;
     }
 
-    T value{0};
+    static_assert(sizeof(T) <= sizeof(std::uint64_t));
+
+    std::uint64_t wide_value{0U};
     for (std::size_t i = 0; i < sizeof(T); ++i) {
-        value |= static_cast<T>(data[offset + i]) << (8U * i);
+        wide_value |=
+            static_cast<std::uint64_t>(data[offset + i]) << (8U * i);
     }
 
     offset += sizeof(T);
-    return value;
+    return static_cast<T>(wide_value);
 }
 
 // Canonical CompactSize encoding, compatible with the proven Bitcoin wire pattern.
