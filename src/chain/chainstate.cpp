@@ -319,6 +319,7 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
         forward_path.push_back(walk);
 
         if (it->second.height == 0U) {
+            walk = it->second.parent;
             break;
         }
 
