@@ -63,6 +63,8 @@ add_library(quintum_core STATIC
     src/consensus/pow.cpp
     src/consensus/chainparams.cpp
     src/consensus/difficulty.cpp
+    src/consensus/block_limits.cpp
+    src/consensus/time.cpp
     src/consensus/monetary.cpp
     src/chain/chainstate.cpp
 )
