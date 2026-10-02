@@ -18,6 +18,7 @@
 namespace quintum::wallet {
 
 inline constexpr std::size_t kMaxWalletKeys = 100'000U;
+inline constexpr std::size_t kWalletKeypoolSize = 100U;
 
 enum class WalletStoreError {
     none,
@@ -38,6 +39,7 @@ struct WalletStartResult {
     WalletStartError error{WalletStartError::none};
     WalletStoreError store_error{WalletStoreError::none};
     bool created{false};
+    bool backup_recommended{false};
     std::string receive_address{};
 
     [[nodiscard]] bool ok() const noexcept
@@ -61,6 +63,7 @@ struct WalletKeyResult {
     WalletStoreError store_error{WalletStoreError::none};
     crypto::PublicKey public_key{};
     std::string address{};
+    bool backup_recommended{false};
 
     [[nodiscard]] bool ok() const noexcept
     {
@@ -140,6 +143,7 @@ struct WalletCreateResult {
     Amount fee{0U};
     Amount change{0U};
     Amount selected_value{0U};
+    bool backup_recommended{false};
 
     [[nodiscard]] bool ok() const noexcept
     {
@@ -201,6 +205,7 @@ private:
         crypto::PrivateKey private_key{};
         crypto::PublicKey public_key{};
         bool internal{false};
+        bool used{false};
     };
 
     [[nodiscard]] WalletStoreError load();
@@ -210,12 +215,19 @@ private:
 
     [[nodiscard]] WalletKeyResult append_key(
         const crypto::PrivateKey& private_key,
+        bool internal,
+        bool used
+    );
+
+    [[nodiscard]] WalletKeyResult reserve_key(
         bool internal
     );
 
-    [[nodiscard]] WalletKeyResult generate_key(
-        bool internal
-    );
+    [[nodiscard]] bool generate_pool_records(
+        std::vector<KeyRecord>& records,
+        bool internal,
+        std::size_t count
+    ) const;
 
     [[nodiscard]] const crypto::PrivateKey*
     private_key_for(
