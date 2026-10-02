@@ -786,6 +786,171 @@ PeerError PeerSession::service_once()
     );
 }
 
+PeerError PeerSession::request_addresses(
+    bool allow_local,
+    std::vector<PeerAddress>& addresses)
+{
+    addresses.clear();
+
+    if (!valid()) {
+        return PeerError::receive_failed;
+    }
+
+    WireError wire_error{WireError::none};
+    auto error = send_message(
+        native_socket(socket_),
+        params_,
+        "getaddr",
+        {},
+        wire_error
+    );
+
+    if (error != PeerError::none) {
+        return error;
+    }
+
+    for (std::size_t handled = 0U;
+         handled < 8U;
+         ++handled) {
+        WireMessage message;
+        error = receive_message(
+            native_socket(socket_),
+            params_,
+            message,
+            wire_error
+        );
+
+        if (error != PeerError::none) {
+            return error;
+        }
+
+        if (message.command == "ping") {
+            const auto nonce =
+                parse_nonce(message.payload);
+            if (!nonce) {
+                return PeerError::malformed_ping;
+            }
+
+            const auto pong =
+                serialize_nonce(*nonce);
+            error = send_message(
+                native_socket(socket_),
+                params_,
+                "pong",
+                pong,
+                wire_error
+            );
+
+            if (error != PeerError::none) {
+                return error;
+            }
+            continue;
+        }
+
+        if (message.command != "addr") {
+            return PeerError::unexpected_message;
+        }
+
+        const auto parsed =
+            parse_addresses(
+                message.payload,
+                allow_local
+            );
+
+        if (!parsed) {
+            return PeerError::unexpected_message;
+        }
+
+        addresses = *parsed;
+        return PeerError::none;
+    }
+
+    return PeerError::unexpected_message;
+}
+
+PeerError PeerSession::service_discovery_once(
+    std::span<const PeerAddress> advertised,
+    bool allow_local,
+    std::vector<PeerAddress>* learned)
+{
+    if (!valid()) {
+        return PeerError::receive_failed;
+    }
+
+    WireError wire_error{WireError::none};
+    WireMessage message;
+
+    auto error = receive_message(
+        native_socket(socket_),
+        params_,
+        message,
+        wire_error
+    );
+
+    if (error != PeerError::none) {
+        return error;
+    }
+
+    if (message.command == "ping") {
+        const auto nonce =
+            parse_nonce(message.payload);
+        if (!nonce) {
+            return PeerError::malformed_ping;
+        }
+
+        const auto pong =
+            serialize_nonce(*nonce);
+        return send_message(
+            native_socket(socket_),
+            params_,
+            "pong",
+            pong,
+            wire_error
+        );
+    }
+
+    if (message.command == "getaddr") {
+        if (!message.payload.empty()) {
+            return PeerError::unexpected_message;
+        }
+
+        const auto payload =
+            serialize_addresses(advertised);
+
+        return send_message(
+            native_socket(socket_),
+            params_,
+            "addr",
+            payload,
+            wire_error
+        );
+    }
+
+    if (message.command == "addr") {
+        const auto parsed =
+            parse_addresses(
+                message.payload,
+                allow_local
+            );
+
+        if (!parsed) {
+            return PeerError::unexpected_message;
+        }
+
+        if (learned != nullptr) {
+            learned->insert(
+                learned->end(),
+                parsed->begin(),
+                parsed->end()
+            );
+        }
+
+        return PeerError::none;
+    }
+
+    return PeerError::unexpected_message;
+}
+
 void PeerSession::close() noexcept
 {
     if (!valid()) {
