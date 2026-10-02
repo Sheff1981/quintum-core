@@ -675,10 +675,10 @@ AddrStoreError AddrManager::save() const
 
 #ifdef _WIN32
     std::FILE* file{nullptr};
-    if (fopen_s(
+    if (_wfopen_s(
             &file,
-            temporary.string().c_str(),
-            "wb") != 0) {
+            temporary.c_str(),
+            L"wb") != 0) {
         file = nullptr;
     }
 #else
