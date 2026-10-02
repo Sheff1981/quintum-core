@@ -31,7 +31,7 @@ constexpr std::array<Byte, 8> kPeerMagic{
 constexpr std::uint32_t kPeerStoreVersion = 1U;
 constexpr std::size_t kChecksumSize = 32U;
 constexpr std::size_t kPeerRecordSize =
-    4U + 2U + 8U + 8U + 8U + 8U + 4U;
+    4U + 2U + 8U + 8U + 8U + 8U + 8U + 4U;
 
 bool same_endpoint(
     const PeerAddress& a,
@@ -493,7 +493,7 @@ AddrStoreError AddrManager::load()
     const auto count =
         read_compact_size(body, offset);
     if (!count ||
-        *count > 1'000'000ULL ||
+        *count > kMaxAddrManagerEntries ||
         *count >
             static_cast<std::uint64_t>(
                 (body.size() - offset) /
@@ -739,6 +739,11 @@ bool AddrManager::add(
                 existing->address.last_seen,
                 address.last_seen
             );
+        return false;
+    }
+
+    if (entries_.size() >=
+        kMaxAddrManagerEntries) {
         return false;
     }
 
