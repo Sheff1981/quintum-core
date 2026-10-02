@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <vector>
@@ -93,6 +94,15 @@ public:
     [[nodiscard]] std::size_t block_index_size() const noexcept;
     [[nodiscard]] std::optional<std::uint32_t> height() const noexcept;
     [[nodiscard]] std::optional<Hash256> tip_hash() const;
+    [[nodiscard]] std::optional<std::uint64_t> tip_timestamp() const noexcept
+    {
+        if (chain_.empty() ||
+            chain_.back().header.timestamp ==
+                std::numeric_limits<std::uint64_t>::max()) {
+            return std::nullopt;
+        }
+        return chain_.back().header.timestamp;
+    }
     [[nodiscard]] Hash256 cumulative_work() const noexcept;
     [[nodiscard]] const UtxoSet& utxos() const noexcept;
     [[nodiscard]] bool has_block(const Hash256& hash) const;
