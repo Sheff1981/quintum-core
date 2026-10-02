@@ -106,23 +106,26 @@ For every non-coinbase input, validation now performs:
 
 No UTXO mutation begins until authorization succeeds.
 
-## Key generation
+## Key generation and wallet addresses
 
-Consensus supports secret-key validation, public-key derivation, signing and verification.
+Wallet private keys are now generated from explicit operating-system cryptographic randomness rather than `std::random_device`:
 
-Secure random private-key generation is intentionally **not** implemented with `std::random_device` or another weak convenience RNG.
+- Windows: BCrypt system-preferred RNG;
+- Linux: `getrandom()`;
+- POSIX fallback: `/dev/urandom`.
 
-Wallet key creation will be added with an explicit operating-system CSPRNG and wallet backup/recovery design. Until then, no production wallet should generate user funds.
+Every generated key still must pass libsecp256k1 secret-key validation.
+
+Stage 20 also adds network-specific Bech32m wallet addresses that encode the existing compressed public key used by P2PK v1. This does not change transaction authorization consensus. See `docs/WALLET.md`.
 
 ## Current limitations
 
-Not yet implemented:
+Not yet production-complete:
 
-- address encoding
-- P2PKH/P2WPKH-style address locking
-- HD wallet derivation
-- secure OS-backed private-key generation
-- encrypted wallet storage
-- key backup/recovery
-- hardware-wallet support
-- general script engine
+- P2PKH/P2WPKH-style locking;
+- HD deterministic seed/mnemonic recovery;
+- password-encrypted wallet storage;
+- hardware-wallet support;
+- general script engine.
+
+The current wallet has durable backup/recovery plus a pre-generated keypool, but unencrypted private-key storage remains a pre-mainnet limitation.
