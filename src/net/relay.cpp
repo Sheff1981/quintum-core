@@ -495,6 +495,62 @@ PeerError announce_block(
     );
 }
 
+std::size_t broadcast_transaction(
+    ConnectionManager& peers,
+    const Hash256& txid)
+{
+    std::size_t sent{0U};
+
+    for (std::size_t i = 0U;
+         i < peers.size();
+         ++i) {
+        auto* peer = peers.peer(i);
+        if (peer == nullptr) {
+            continue;
+        }
+
+        if (announce_transaction(
+                *peer,
+                txid) ==
+            PeerError::none) {
+            ++sent;
+        } else {
+            peer->close();
+        }
+    }
+
+    peers.prune_closed();
+    return sent;
+}
+
+std::size_t broadcast_block(
+    ConnectionManager& peers,
+    const Hash256& block_hash_value)
+{
+    std::size_t sent{0U};
+
+    for (std::size_t i = 0U;
+         i < peers.size();
+         ++i) {
+        auto* peer = peers.peer(i);
+        if (peer == nullptr) {
+            continue;
+        }
+
+        if (announce_block(
+                *peer,
+                block_hash_value) ==
+            PeerError::none) {
+            ++sent;
+        } else {
+            peer->close();
+        }
+    }
+
+    peers.prune_closed();
+    return sent;
+}
+
 PeerError request_mempool_inventory(
     PeerSession& peer)
 {
