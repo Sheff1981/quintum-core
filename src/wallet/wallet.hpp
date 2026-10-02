@@ -2,6 +2,7 @@
 
 #include "chain/chainstate.hpp"
 #include "consensus/tx_auth.hpp"
+#include "crypto/random.hpp"
 #include "crypto/secp256k1.hpp"
 #include "node/mempool.hpp"
 #include "wallet/address.hpp"
@@ -207,6 +208,60 @@ private:
         crypto::PublicKey public_key{};
         bool internal{false};
         bool used{false};
+
+        KeyRecord() = default;
+
+        KeyRecord(
+            const crypto::PrivateKey& secret,
+            const crypto::PublicKey& public_value,
+            bool internal_value,
+            bool used_value
+        ) noexcept
+            : private_key(secret),
+              public_key(public_value),
+              internal(internal_value),
+              used(used_value)
+        {
+        }
+
+        KeyRecord(const KeyRecord&) = default;
+        KeyRecord& operator=(const KeyRecord&) = default;
+
+        KeyRecord(KeyRecord&& other) noexcept
+            : private_key(other.private_key),
+              public_key(other.public_key),
+              internal(other.internal),
+              used(other.used)
+        {
+            crypto::secure_erase(
+                other.private_key
+            );
+        }
+
+        KeyRecord& operator=(KeyRecord&& other) noexcept
+        {
+            if (this == &other) {
+                return *this;
+            }
+
+            crypto::secure_erase(private_key);
+
+            private_key = other.private_key;
+            public_key = other.public_key;
+            internal = other.internal;
+            used = other.used;
+
+            crypto::secure_erase(
+                other.private_key
+            );
+
+            return *this;
+        }
+
+        ~KeyRecord()
+        {
+            crypto::secure_erase(private_key);
+        }
     };
 
     [[nodiscard]] WalletStoreError load();
