@@ -1313,3 +1313,287 @@ Median последних 11 = 105.
 - запись genesis constants в ChainParams.
 
 После Genesis изменение этих параметров уже будет считаться созданием другой несовместимой сети.
+
+
+---
+
+## 2026-10-02 — Этап 12. Рождение Genesis QUINTUM
+
+### Цель
+
+Создать три реальных, воспроизводимых первых блока:
+
+- Mainnet;
+- Testnet;
+- Regtest.
+
+Genesis теперь является не тестовой заглушкой, а идентификатором конкретной сети QUINTUM.
+
+### Публичный якорь
+
+До создания Genesis уже существовал публичный итоговый commit этапа 11:
+
+`1bac54a3f46c`
+
+Его prefix встроен в Genesis coinbase message.
+
+Общий текст:
+
+`QUINTUM 02/Oct/2026 1bac54a3f46c Independent PoW digital cash`
+
+Далее добавляется `mainnet`, `testnet` или `regtest`.
+
+Это связывает Genesis с публично существовавшим состоянием репозитория до его создания.
+
+### Timestamp
+
+Все три сети используют:
+
+- Unix time: `1790960400`;
+- UTC: **2026-10-02 17:00:00**.
+
+### Genesis coinbase
+
+Genesis содержит одну coinbase transaction.
+
+Она создаёт стандартную награду height 0:
+
+**50 QUINTUM**.
+
+Но эта награда **не принадлежит создателю**.
+
+Добавлен специальный consensus locking-script version:
+
+`0x00`
+
+Он навсегда зарезервирован как **provably unspendable**.
+
+Genesis output использует marker:
+
+`QUINTUM-GENESIS`.
+
+Любая попытка потратить output с lock version `0x00` отклоняется до ECDSA/public-key проверки.
+
+То есть:
+
+- private key Genesis не существует;
+- developer key не существует;
+- восстановить эту награду нельзя;
+- будущий wallet не сможет её получить;
+- reinterpret `0x00` как spendable означал бы создание другой несовместимой сети.
+
+### Mainnet Genesis
+
+Message:
+
+`QUINTUM 02/Oct/2026 1bac54a3f46c Independent PoW digital cash | mainnet`
+
+- version: 1
+- previous hash: zero
+- timestamp: 1790960400
+- bits: `0x1e0ffff0`
+- nonce: **591080**
+
+Merkle root:
+
+`b1d9e1aedbe90d5b88148d4af6b0a64d6fb20c286d72192713147869e69580c5`
+
+Genesis hash:
+
+`0000008b82073109dc079e6c5b7eac0c2fba8a5633822f87fc33719633ebab8c`
+
+Nonce найден настоящим PoW-перебором. Hash реально удовлетворяет target.
+
+### Testnet Genesis
+
+Message:
+
+`QUINTUM 02/Oct/2026 1bac54a3f46c Independent PoW digital cash | testnet`
+
+- version: 1
+- previous hash: zero
+- timestamp: 1790960400
+- bits: `0x1e0ffff0`
+- nonce: **969294**
+
+Merkle root:
+
+`d5be95629c8ce60e22e817bc54accc3ed75983d5267b89724cd808f422a8c179`
+
+Genesis hash:
+
+`0000039bf09b49dfa4c9bcb924c0c38257fdeef9952021baabceb86fa099e872`
+
+### Regtest Genesis
+
+Message:
+
+`QUINTUM 02/Oct/2026 1bac54a3f46c Independent PoW digital cash | regtest`
+
+- version: 1
+- previous hash: zero
+- timestamp: 1790960400
+- bits: `0x2100ffff`
+- nonce: **0**
+
+Merkle root:
+
+`01b9f141fff566d6d50e700ff0c59f07ff0a89123921340bd946f30386c09d89`
+
+Genesis hash:
+
+`211c0cdb97dfb8bc2f0190e40132d1eb3be5ab9a03c9717aa3b2e90a98b3fcd6`
+
+### Детерминированный Genesis builder
+
+Добавлен единый consensus-код:
+
+- `create_genesis_coinbase()`;
+- `create_genesis_block()`;
+- `verify_genesis()`.
+
+Нода сама пересобирает Genesis из:
+
+- message;
+- coinbase;
+- subsidy;
+- unspendable script;
+- timestamp;
+- bits;
+- nonce.
+
+После этого она независимо проверяет:
+
+- Merkle root;
+- block hash;
+- PoW;
+- block structure;
+- resource limits;
+- coinbase reward;
+- unspendable Genesis output.
+
+### Exact first-block enforcement
+
+Раньше пустой development Chainstate принимал любой PoW-блок с zero previous hash.
+
+Для встроенных сетей это больше невозможно.
+
+Mainnet/Testnet/Regtest имеют:
+
+`genesis.enforce = true`.
+
+Первый блок обязан иметь **точно configured Genesis hash**.
+
+Другой первый блок получает:
+
+`wrong_genesis`.
+
+Для искусственных unit-test цепей можно явно поставить:
+
+`genesis.enforce = false`.
+
+Так production network identity и лабораторные тесты не смешиваются.
+
+### Денежное следствие
+
+Теоретическая scheduled subsidy остаётся:
+
+**20 999 999.9769 QUINTUM**.
+
+Но 50 QUINTUM Genesis навсегда неспендируемы.
+
+Поэтому максимальная теоретически spendable subsidy supply:
+
+**20 999 949.9769 QUINTUM**,
+
+ещё до учёта будущих добровольно сожжённых или недополученных наград.
+
+### Новый genesis test suite
+
+Добавлен 12-й test suite: `genesis`.
+
+Он независимо проверяет:
+
+- точный Mainnet hash;
+- точный Testnet hash;
+- точный Regtest hash;
+- все Merkle roots;
+- все nonces;
+- exact coinbase message;
+- height-0 subsidy;
+- unspendable output;
+- Proof of Work;
+- txid == Merkle root для единственной Genesis transaction;
+- отказ изменённого альтернативного первого блока;
+- успешное подключение точного Genesis в Chainstate.
+
+### QA
+
+Старые unit tests раньше создавали произвольный первый Regtest-блок.
+
+После включения exact Genesis enforcement они корректно начали падать.
+
+Исправление сделано архитектурно правильно:
+
+- production Regtest продолжает требовать реальный Regtest Genesis;
+- synthetic test ChainParams явно отключают Genesis enforcement.
+
+Production consensus ради старых тестов не ослаблялся.
+
+### Изменённые файлы
+
+- `src/consensus/chainparams.hpp`
+- `src/consensus/chainparams.cpp`
+- `src/consensus/genesis.hpp`
+- `src/consensus/genesis.cpp`
+- `src/consensus/tx_auth.hpp`
+- `src/consensus/tx_auth.cpp`
+- `src/chain/chainstate.hpp`
+- `src/chain/chainstate.cpp`
+- `tests/genesis_tests.cpp`
+- `tests/chainstate_tests.cpp`
+- `tests/timestamp_limits_tests.cpp`
+- `CMakeLists.txt`
+- `docs/GENESIS.md`
+- `docs/MONETARY_POLICY.md`
+- `docs/TRANSACTION_AUTHORIZATION.md`
+- `docs/CHAIN_PARAMS.md`
+- `docs/CONSENSUS.md`
+- `docs/DECISIONS.md`
+
+### Статус этапа
+
+**GENESIS PINNED / ГОТОВО.**
+
+GitHub Actions:
+
+- Windows — success;
+- Linux — success;
+- **12/12 test suites passed**;
+- отдельный Genesis suite — passed.
+
+### Что это означает
+
+У QUINTUM теперь есть собственная точка рождения.
+
+Нода больше не может начать Mainnet, Testnet или Regtest с произвольного первого блока.
+
+Genesis стал частью идентичности сети.
+
+### Следующий этап
+
+**Этап 13 — persistent blockchain storage / chainstate database.**
+
+Нужно сделать:
+
+- сохранение blocks на диск;
+- сохранение block index;
+- сохранение UTXO/chainstate;
+- сохранение undo;
+- атомарный commit;
+- восстановление после перезапуска;
+- проверку повреждённых/оборванных записей;
+- startup reconstruction;
+- тест: нода принимает блоки → завершается → запускается → получает тот же tip/height/UTXO/chain work.
+
+После этого QUINTUM перестанет быть только in-memory blockchain и станет настоящей перезапускаемой нодой.
