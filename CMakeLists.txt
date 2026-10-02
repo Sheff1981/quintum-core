@@ -151,6 +151,15 @@ quintum_test_assertions(quintum_tx_auth_tests)
 
 add_test(NAME tx_auth COMMAND quintum_tx_auth_tests)
 
+add_executable(quintum_difficulty_tests
+    tests/difficulty_tests.cpp
+)
+target_link_libraries(quintum_difficulty_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_difficulty_tests)
+quintum_test_assertions(quintum_difficulty_tests)
+
+add_test(NAME difficulty COMMAND quintum_difficulty_tests)
+
 add_executable(quintum_chainstate_tests
     tests/chainstate_tests.cpp
 )
