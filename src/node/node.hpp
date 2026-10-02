@@ -3,6 +3,7 @@
 #include "chain/storage.hpp"
 #include "consensus/pow.hpp"
 #include "mining/block_template.hpp"
+#include "node/mempool.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -26,6 +27,22 @@ struct NodeStartResult {
     [[nodiscard]] bool ok() const noexcept
     {
         return error == NodeStartError::none;
+    }
+};
+
+enum class NodeTransactionError {
+    none,
+    not_started,
+    mempool_rejected,
+};
+
+struct NodeTransactionResult {
+    NodeTransactionError error{NodeTransactionError::none};
+    MempoolAcceptResult mempool{};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == NodeTransactionError::none;
     }
 };
 
@@ -88,6 +105,11 @@ public:
     [[nodiscard]] bool started() const noexcept;
     [[nodiscard]] const Chainstate& chain() const noexcept;
     [[nodiscard]] const ChainstateStore& store() const noexcept;
+    [[nodiscard]] const Mempool& mempool() const noexcept;
+
+    [[nodiscard]] NodeTransactionResult submit_transaction(
+        const Transaction& transaction
+    );
 
     [[nodiscard]] NodeSubmitResult submit_block(
         const Block& block
@@ -95,6 +117,17 @@ public:
     [[nodiscard]] NodeSubmitResult submit_block_at(
         const Block& block,
         std::uint64_t adjusted_time
+    );
+
+    [[nodiscard]] NodeMineResult mine_mempool_block(
+        const Bytes& payout_script,
+        std::uint64_t max_attempts
+    );
+
+    [[nodiscard]] NodeMineResult mine_mempool_block_at(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time,
+        std::uint64_t max_attempts
     );
 
     [[nodiscard]] NodeMineResult mine_block(
@@ -113,6 +146,7 @@ public:
 private:
     consensus::ChainParams params_{};
     PersistentChainstate persistent_;
+    Mempool mempool_{};
     bool started_{false};
 };
 
