@@ -1,5 +1,7 @@
 #include "wallet/address.hpp"
 
+#include "core/serialize.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
