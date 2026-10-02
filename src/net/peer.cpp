@@ -268,7 +268,7 @@ bool send_all(
             socket,
             bytes.data() + sent,
             static_cast<std::size_t>(chunk),
-            0
+            MSG_NOSIGNAL
         ));
 #endif
 
