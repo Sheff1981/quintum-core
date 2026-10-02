@@ -44,6 +44,21 @@ std::optional<T> read_little_endian(std::span<const Byte> data, std::size_t& off
     return static_cast<T>(wide_value);
 }
 
+[[nodiscard]] constexpr std::size_t compact_size_serialized_size(
+    std::uint64_t value) noexcept
+{
+    if (value < 253U) {
+        return 1U;
+    }
+    if (value <= std::numeric_limits<std::uint16_t>::max()) {
+        return 3U;
+    }
+    if (value <= std::numeric_limits<std::uint32_t>::max()) {
+        return 5U;
+    }
+    return 9U;
+}
+
 // Canonical CompactSize encoding, compatible with the proven Bitcoin wire pattern.
 inline void append_compact_size(Bytes& out, std::uint64_t value)
 {
