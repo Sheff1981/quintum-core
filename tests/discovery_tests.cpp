@@ -454,13 +454,16 @@ void test_connect_any_skips_failed_peer()
 
     const auto bad_port =
         temporary_bad.local_port();
-    temporary_bad.close();
 
     PeerListener good_listener{params};
     assert(good_listener.listen(
                "127.0.0.1",
                0U) ==
            PeerError::none);
+    assert(good_listener.local_port() !=
+           bad_port);
+
+    temporary_bad.close();
 
     AddrManager manager{
         params,
