@@ -2198,7 +2198,16 @@ Mempool сейчас **memory-only**: неподтверждённые tx не �
 
 ### Статус
 
-Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+**ГОТОВО.**
+
+GitHub Actions на финальном коде этапа:
+
+- Linux — success;
+- Windows — success;
+- **18/18 test suites passed**;
+- отдельный `relay` suite — passed на обеих ОС.
+
+Genesis, consensus parameters, network magic, порты, PoW, difficulty, monetary policy и подтверждённый blockchain storage format не изменялись.
 
 ### Следующий этап
 
