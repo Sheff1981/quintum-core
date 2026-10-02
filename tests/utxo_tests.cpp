@@ -1,4 +1,5 @@
 #include "chain/utxo.hpp"
+#include "consensus/monetary.hpp"
 
 #include <cassert>
 
@@ -59,13 +60,21 @@ void test_apply_spend_double_spend_and_undo()
     assert(utxos.contains(funding));
 
     const auto spend = make_spend(funding, 600U, 300U);
-    const auto spend_result = utxos.apply_transaction(spend, 2U);
+
+    const auto premature = utxos.apply_transaction(spend, 100U);
+    assert(
+        premature.error ==
+        quintum::UtxoApplyError::premature_coinbase_spend
+    );
+    assert(utxos.contains(funding));
+
+    const auto spend_result = utxos.apply_transaction(spend, 101U);
     assert(spend_result.ok());
     assert(spend_result.fee == 100U);
     assert(utxos.size() == 2U);
     assert(!utxos.contains(funding));
 
-    const auto double_spend = utxos.apply_transaction(spend, 2U);
+    const auto double_spend = utxos.apply_transaction(spend, 101U);
     assert(double_spend.error == quintum::UtxoApplyError::missing_input);
     assert(utxos.size() == 2U);
 
@@ -74,6 +83,22 @@ void test_apply_spend_double_spend_and_undo()
     assert(utxos.contains(funding));
 
     assert(utxos.undo_transaction(coinbase_result.undo));
+    assert(utxos.size() == 0U);
+}
+
+void test_money_range_rejected()
+{
+    quintum::UtxoSet utxos;
+
+    const auto coinbase = make_coinbase(
+        quintum::consensus::kMaxMoney + 1U
+    );
+
+    const auto result = utxos.apply_transaction(coinbase, 1U);
+    assert(
+        result.error ==
+        quintum::UtxoApplyError::money_out_of_range
+    );
     assert(utxos.size() == 0U);
 }
 
@@ -109,7 +134,7 @@ void test_failed_transaction_is_atomic()
         .locking_script = {0x51U},
     });
 
-    const auto result = utxos.apply_transaction(tx, 2U);
+    const auto result = utxos.apply_transaction(tx, 101U);
     assert(result.error == quintum::UtxoApplyError::missing_input);
     assert(utxos.size() == 1U);
     assert(utxos.contains(funding));
@@ -120,6 +145,7 @@ void test_failed_transaction_is_atomic()
 int main()
 {
     test_apply_spend_double_spend_and_undo();
+    test_money_range_rejected();
     test_failed_transaction_is_atomic();
     return 0;
 }
