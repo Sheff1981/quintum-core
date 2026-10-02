@@ -1111,6 +1111,20 @@ WalletCreateResult Wallet::create_transaction(
         return out;
     }
 
+    const auto transaction_size =
+        serialized_transaction_size(tx);
+
+    if (!transaction_size ||
+        *transaction_size >
+            static_cast<std::size_t>(
+                chain.params().limits
+                    .max_block_serialized_bytes)) {
+        out.error =
+            WalletCreateError::
+                validation_failed;
+        return out;
+    }
+
     const auto height =
         chain.height();
 
