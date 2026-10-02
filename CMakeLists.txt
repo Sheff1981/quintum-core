@@ -20,6 +20,7 @@ endfunction()
 
 add_library(quintum_core STATIC
     src/crypto/sha256.cpp
+    src/primitives/transaction.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -40,3 +41,11 @@ target_link_libraries(quintum_tests PRIVATE quintum_core)
 quintum_strict_warnings(quintum_tests)
 
 add_test(NAME foundation COMMAND quintum_tests)
+
+add_executable(quintum_tx_tests
+    tests/transaction_tests.cpp
+)
+target_link_libraries(quintum_tx_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_tx_tests)
+
+add_test(NAME transaction COMMAND quintum_tx_tests)
