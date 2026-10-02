@@ -29,6 +29,7 @@ enum class ChainConnectError {
     bad_previous_block,
     invalid_proof_of_work,
     chain_work_overflow,
+    height_overflow,
     transaction_failed,
     fee_sum_overflow,
 };
