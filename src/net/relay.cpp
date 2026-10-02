@@ -560,20 +560,12 @@ PeerError request_mempool_inventory(
     );
 }
 
-RelayResult serve_relay_once(
+RelayResult serve_relay_message(
     PeerSession& peer,
-    const NodeRuntime& node)
+    const NodeRuntime& node,
+    const WireMessage& message)
 {
     RelayResult out;
-    WireMessage message;
-
-    out.peer_error =
-        peer.receive_command(message);
-
-    if (out.peer_error != PeerError::none) {
-        out.error = RelayError::transport_failed;
-        return out;
-    }
 
     if (message.command == "mempool") {
         if (!message.payload.empty()) {
@@ -698,6 +690,29 @@ RelayResult serve_relay_once(
     }
 
     return out;
+
+}
+
+RelayResult serve_relay_once(
+    PeerSession& peer,
+    const NodeRuntime& node)
+{
+    RelayResult out;
+    WireMessage message;
+
+    out.peer_error =
+        peer.receive_command(message);
+
+    if (out.peer_error != PeerError::none) {
+        out.error = RelayError::transport_failed;
+        return out;
+    }
+
+    return serve_relay_message(
+        peer,
+        node,
+        message
+    );
 }
 
 RelayResult receive_relay_once(
