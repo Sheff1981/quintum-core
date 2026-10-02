@@ -273,7 +273,7 @@ int main(int argc, char* argv[])
         }
 
         const auto mined =
-            node.mine_block_at(
+            node.mine_mempool_block_at(
                 payout_script,
                 base_time + i,
                 max_attempts
