@@ -628,6 +628,8 @@ bool NetworkRuntime::prepare_live_peer(
         return true;
     }
 
+    std::optional<Hash256> synchronized_tip;
+
     {
         std::scoped_lock lock(state_mutex_);
 
@@ -641,6 +643,19 @@ bool NetworkRuntime::prepare_live_peer(
         if (!synced.ok()) {
             return false;
         }
+
+        if (synced.blocks_accepted > 0U ||
+            synced.reorganized) {
+            synchronized_tip =
+                node_.chain().tip_hash();
+        }
+    }
+
+    if (synchronized_tip) {
+        queue_announcement(
+            kInventoryBlock,
+            *synchronized_tip
+        );
     }
 
     const auto learned =
@@ -1096,6 +1111,16 @@ bool NetworkRuntime::process_block(
 
             if (!synced.ok()) {
                 return false;
+            }
+
+            const auto synchronized_tip =
+                node_.chain().tip_hash();
+
+            if (synchronized_tip) {
+                queue_announcement(
+                    kInventoryBlock,
+                    *synchronized_tip
+                );
             }
 
             return true;
