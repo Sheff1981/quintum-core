@@ -321,11 +321,17 @@ void test_testnet_min_difficulty_and_restore()
     previous = quintum::block_hash(hard.header);
 
     // More than 2 * spacing after parent: testnet minimum target.
+    const auto delayed_bits =
+        chain.next_work_required(146U);
+
+    assert(delayed_bits);
+    assert(*delayed_bits == 0x2100ffffU);
+
     const auto delayed = make_block(
         previous,
         5U,
         146U,
-        0x2100ffffU,
+        *delayed_bits,
         0x61U
     );
 
@@ -338,11 +344,17 @@ void test_testnet_min_difficulty_and_restore()
         quintum::block_hash(delayed.header);
 
     // A normally timed block must restore the last non-minimum target.
+    const auto restored_bits =
+        chain.next_work_required(156U);
+
+    assert(restored_bits);
+    assert(*restored_bits == hard_bits);
+
     const auto restored = make_block(
         previous,
         6U,
         156U,
-        hard_bits,
+        *restored_bits,
         0x62U
     );
 
