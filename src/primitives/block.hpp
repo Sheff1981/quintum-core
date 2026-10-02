@@ -4,7 +4,9 @@
 #include "core/types.hpp"
 #include "primitives/transaction.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -38,6 +40,9 @@ enum class BlockStructureError {
     mutated_merkle_tree,
 };
 
+[[nodiscard]] std::optional<std::size_t> serialized_block_size(
+    const Block& block
+) noexcept;
 [[nodiscard]] Bytes serialize_block_header(const BlockHeader& header);
 [[nodiscard]] Hash256 block_hash(const BlockHeader& header);
 [[nodiscard]] MerkleResult compute_merkle_root(std::span<const Transaction> transactions);
