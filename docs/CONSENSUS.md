@@ -18,14 +18,25 @@ This document becomes normative only when explicitly marked **MAINNET FROZEN**.
 - Signatures: secp256k1
 - Exact serialization and domain-separation rules: to be frozen before genesis
 
+## Monetary consensus candidate — implemented, not mainnet-frozen
+
+- atomic precision: 100,000,000 units per QUINTUM
+- money range ceiling: 21,000,000 QUINTUM
+- initial subsidy: 50 QUINTUM
+- halving interval: 210,000 blocks
+- exact scheduled subsidy maximum: 20,999,999.9769 QUINTUM
+- coinbase maturity: 100 blocks
+- coinbase reward ceiling: subsidy + transaction fees
+- no privileged issuance path
+
+See `docs/MONETARY_POLICY.md`.
+
 ## Parameters not frozen yet
 
-- ticker / smallest-unit name
+- ticker / smallest-unit public name
 - block target interval
-- initial block subsidy
-- halving interval and maximum issuance
 - difficulty adjustment algorithm
-- coinbase maturity
+- PoW limit
 - maximum block weight/size
 - fee policy
 - address encoding and prefixes
