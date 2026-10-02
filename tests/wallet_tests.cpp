@@ -17,6 +17,10 @@
 #include <string_view>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 namespace {
 
 std::filesystem::path unique_dir(
@@ -218,6 +222,14 @@ void test_wallet_persistence_backup_and_network_binding()
             wallet.path()
         ));
 
+#ifndef _WIN32
+        struct stat wallet_stat{};
+        assert(::stat(
+                   wallet.path().c_str(),
+                   &wallet_stat) == 0);
+        assert((wallet_stat.st_mode & 0777) == 0600);
+#endif
+
         const auto imported =
             wallet.import_private_key(
                 key_from_scalar(9U)
@@ -252,6 +264,14 @@ void test_wallet_persistence_backup_and_network_binding()
         assert(wallet.backup(
                    backup_path) ==
                WalletStoreError::none);
+
+#ifndef _WIN32
+        struct stat backup_stat{};
+        assert(::stat(
+                   backup_path.c_str(),
+                   &backup_stat) == 0);
+        assert((backup_stat.st_mode & 0777) == 0600);
+#endif
 
         assert(wallet.backup(
                    backup_path) ==
