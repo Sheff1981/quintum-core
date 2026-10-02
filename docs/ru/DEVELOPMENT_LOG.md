@@ -1788,3 +1788,113 @@ Genesis, consensus parameters, network magic, порты и денежная п�
 ### Следующий этап
 
 **Этап 15 — P2P foundation:** wire framing, version/verack handshake, peer lifecycle и базовый connection manager. После этого — peer discovery/addrman/seeds и headers-first synchronization.
+
+
+---
+
+## 2026-10-02 — Этап 15. P2P foundation
+
+### Цель
+
+Дать двум независимым QUINTUM-нódам настоящий сетевой транспорт и безопасный базовый handshake, не смешивая networking с consensus.
+
+### Что добавлено
+
+1. **QUINTUM wire framing**
+   - 4-byte network magic;
+   - 12-byte command;
+   - payload length;
+   - 4-byte checksum от double-SHA-256 payload;
+   - ограничение payload до 2 000 000 bytes;
+   - malformed/oversized/corrupted frames отклоняются до обработки команды.
+
+2. **Настоящий TCP transport**
+   - Windows Winsock2;
+   - Linux/POSIX sockets;
+   - IPv4 bind/listen/accept;
+   - outbound hostname/IP resolution;
+   - non-blocking connect с timeout;
+   - send/receive timeouts;
+   - безопасное закрытие socket;
+   - защита POSIX от SIGPIPE при внезапном disconnect peer.
+
+3. **Bitcoin-подобный handshake**
+   - `version`;
+   - `verack`;
+   - protocol version;
+   - services;
+   - timestamp;
+   - connection nonce;
+   - blockchain height;
+   - inbound/outbound roles;
+   - self-connection detection.
+
+4. **Liveness**
+   - `ping`;
+   - `pong`;
+   - точное совпадение nonce.
+
+5. **Peer lifecycle**
+   - `PeerSession`;
+   - `PeerListener`;
+   - `ConnectionManager`;
+   - add/close/prune/disconnect-all;
+   - повторное подключение после disconnect.
+
+6. **Network isolation**
+   - Regtest peer отвергает Testnet frame уже по network magic;
+   - Mainnet/Testnet/Regtest не могут случайно образовать одну P2P-сеть.
+
+### Важный архитектурный принцип
+
+P2P не получает отдельного пути принятия blockchain state.
+
+Когда на следующих этапах появятся `headers`, `block` и `tx`, данные от peer обязаны проходить существующие consensus/Chainstate/UTXO проверки. Сеть только доставляет данные — она не даёт удалённой ноде права изменять состояние.
+
+### QA
+
+Добавлен 15-й suite: `p2p`.
+
+Проверено:
+
+- encode/decode QUINTUM message frame;
+- checksum corruption rejection;
+- oversized payload rejection;
+- wrong-network magic rejection;
+- две независимые ноды на localhost;
+- реальный TCP inbound/outbound;
+- `version -> version -> verack -> verack`;
+- обмен заявленной blockchain height;
+- `ping -> pong`;
+- self-connection rejection;
+- lifecycle через ConnectionManager;
+- disconnect;
+- повторное TCP-подключение к той же ноде.
+
+### Статус
+
+**ГОТОВО.**
+
+GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **15/15 test suites passed**;
+- P2P suite — passed на обеих ОС.
+
+Genesis, consensus, monetary policy, PoW, difficulty, network magic и blockchain storage не изменялись.
+
+### Следующий этап
+
+**Этап 16 — peer discovery / addrman / seeds.**
+
+Нода должна перестать зависеть от заранее введённого IP:
+
+- persistent peer database;
+- `addr` / `getaddr`;
+- hardcoded seed nodes;
+- позже DNS seeds;
+- retry/backoff;
+- автоматический outbound peer selection.
+
+После этого — headers-first blockchain synchronization и relay блоков/транзакций.
