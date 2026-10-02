@@ -356,6 +356,136 @@ void test_wallet_persistence_backup_and_network_binding()
     );
 }
 
+
+void test_prebacked_keypool_recovers_future_address()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto wallet_directory =
+        unique_dir("keypool-live");
+    const auto backup_directory =
+        unique_dir("keypool-backup");
+    const auto chain_directory =
+        unique_dir("keypool-chain");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    std::string future_address;
+    crypto::PublicKey future_public_key{};
+
+    {
+        Wallet wallet{
+            params,
+            wallet_directory
+        };
+
+        const auto started =
+            wallet.start();
+
+        assert(started.ok());
+        assert(started.created);
+        assert(started.backup_recommended);
+
+        const auto backup_path =
+            backup_directory /
+            "wallet.dat";
+
+        assert(wallet.backup(
+                   backup_path) ==
+               WalletStoreError::none);
+
+        const auto next =
+            wallet.new_receive_address();
+
+        assert(next.ok());
+        assert(!next.backup_recommended);
+
+        future_address =
+            next.address;
+        future_public_key =
+            next.public_key;
+    }
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 3'000U;
+
+    NodeRuntime node{
+        params,
+        chain_directory
+    };
+
+    assert(node.start_at(base_time).ok());
+
+    const auto mined =
+        node.mine_block_at(
+            consensus::make_p2pk_locking_script(
+                future_public_key
+            ),
+            base_time + 1U,
+            4'096U
+        );
+
+    assert(mined.ok());
+    assert(mined.height == 1U);
+
+    {
+        Wallet recovered{
+            params,
+            backup_directory
+        };
+
+        const auto started =
+            recovered.start();
+
+        assert(started.ok());
+        assert(!started.created);
+
+        const auto before =
+            recovered.addresses();
+
+        assert(std::find(
+                   before.begin(),
+                   before.end(),
+                   future_address) ==
+               before.end());
+
+        const auto synced =
+            recovered.sync(
+                node.chain(),
+                node.mempool()
+            );
+
+        assert(synced.ok());
+        assert(synced.balance.immature ==
+               consensus::kInitialSubsidy);
+
+        const auto after =
+            recovered.addresses();
+
+        assert(std::find(
+                   after.begin(),
+                   after.end(),
+                   future_address) !=
+               after.end());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        wallet_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        backup_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        chain_directory,
+        ec
+    );
+}
+
 void test_wallet_balance_build_sign_confirm_and_recover()
 {
     using namespace quintum;
@@ -803,6 +933,7 @@ int main()
 {
     test_addresses();
     test_wallet_persistence_backup_and_network_binding();
+    test_prebacked_keypool_recovers_future_address();
     test_wallet_balance_build_sign_confirm_and_recover();
     test_network_runtime_wallet_bridge();
     return 0;
