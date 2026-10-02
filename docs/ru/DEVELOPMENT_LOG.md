@@ -2377,3 +2377,132 @@ Genesis, consensus parameters, network magic, P2P/RPC ports, PoW, difficulty, mo
 - fee;
 - signing;
 - backup/recovery foundation.
+
+
+---
+
+## 2026-10-02 — Этап 20. Wallet Core
+
+### Цель
+
+Добавить настоящий пользовательский слой владения монетами поверх уже работающих consensus, UTXO, mempool и P2P: безопасно создавать ключи, получать адрес, видеть собственные средства, строить и подписывать перевод, сохранять кошелёк и восстанавливать его после перезапуска/backup.
+
+### Что добавлено
+
+1. **OS-backed private-key generation**
+   - Windows: `BCryptGenRandom`;
+   - Linux: `getrandom()`;
+   - POSIX fallback: `/dev/urandom`;
+   - каждый 32-byte secret дополнительно проверяется libsecp256k1;
+   - контролируемые временные secret buffers затираются после использования.
+
+2. **QUINTUM address format**
+   - Bech32m checksum;
+   - Mainnet HRP: `qtm`;
+   - Testnet HRP: `tqtm`;
+   - Regtest HRP: `rqtm`;
+   - payload = type `0x01` + 33-byte compressed secp256k1 public key;
+   - wrong-network, corrupted checksum, malformed/mixed-case address rejected;
+   - pinned deterministic address vectors added to tests.
+
+3. **Persistent `wallet.dat`**
+   - wallet format/version;
+   - network identity + message magic;
+   - private/public key consistency validation;
+   - double-SHA-256 checksum;
+   - temporary write + flush/fsync + atomic replacement;
+   - POSIX wallet/backup permission `0600`;
+   - wrong-network/corrupt wallet rejected;
+   - restart restores the same keys/addresses.
+
+4. **Backup-safe keypool**
+   - first wallet creation persists one active receive key;
+   - reserves 100 future receive keys;
+   - reserves 100 internal change keys;
+   - new address/change normally consumes a key already present in the old backup;
+   - restored backup rescans active chain/mempool and marks discovered reserved keys as used;
+   - exhausted keypool refills by another batch and explicitly requires a fresh backup;
+   - imported private key also requires a fresh backup.
+
+5. **Wallet balances**
+   - confirmed;
+   - available;
+   - pending;
+   - immature;
+   - 100-block coinbase maturity respected;
+   - mempool spends immediately reduce available balance;
+   - unconfirmed wallet change appears as pending;
+   - active-chain reorg/mempool changes are handled by rescanning authoritative node state.
+
+6. **Transaction creation**
+   - destination address/network validation;
+   - amount/money-range checks;
+   - explicit fee;
+   - deterministic mature-UTXO selection;
+   - recipient output;
+   - internal change output;
+   - every input signed through existing QUINTUM P2PK/SIGHASH code;
+   - complete transaction independently applied to a staged UTXO+mempool view;
+   - actual fee must exactly match requested fee.
+
+7. **NetworkRuntime integration**
+   - wallet is loaded/created together with node startup;
+   - wallet sync follows startup chain sync, mempool catch-up, network block/tx acceptance, local mining and local transaction submission;
+   - `send_to_address()` goes through the normal node mempool and normal P2P `inv/getdata/tx` relay;
+   - wallet transaction gets no consensus bypass.
+
+8. **Development CLI**
+   - current receive address and balances;
+   - `--new-address`;
+   - `--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]`;
+   - `--backup-wallet PATH`;
+   - mining defaults to the wallet receive key when `--miner-pubkey` is omitted.
+
+### End-to-end QA
+
+20-й suite `wallet` проверяет:
+
+- deterministic Mainnet/Testnet/Regtest address vectors;
+- address checksum/network/case rejection;
+- wallet creation/restart;
+- imported private key and duplicate rejection;
+- atomic backup and backup recovery;
+- wrong-network wallet rejection;
+- corrupted wallet rejection;
+- restrictive POSIX wallet/backup permissions;
+- старый backup → новый receive address из pre-generated keypool → funds → recovery старым backup;
+- immature coinbase balance;
+- maturity at 100 blocks;
+- wrong-network send rejection;
+- real 10 QUINTUM spend with exact atomic fee;
+- real ECDSA input signing;
+- mempool pending/change accounting;
+- mining wallet transaction and final confirmed balance;
+- recovered backup sees the same funds;
+- live NetworkRuntime wallet send/mining/backup bridge.
+
+### Безопасность
+
+Stage 20 **не** называет текущий `wallet.dat` зашифрованным.
+
+Private keys сейчас хранятся в crash-safe checksummed wallet file, но без password/KDF encryption at rest. Поэтому это по-прежнему pre-mainnet software.
+
+Перед публичной сетью обязательны дальнейшие wallet-hardening этапы:
+
+- password-encrypted key storage;
+- deterministic/HD seed recovery;
+- production Windows data-directory/secret hardening;
+- persistent transaction history;
+- fee estimation/policy;
+- более эффективный incremental wallet index;
+- adversarial/long-running recovery tests.
+
+Genesis, monetary policy, PoW, difficulty, network magic, P2P/RPC ports и существующий P2PK consensus в этапе 20 не изменялись.
+
+### Статус
+
+Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+
+### Следующий этап
+
+**Этап 21 — Wallet hardening:** encryption + deterministic/HD recovery foundation прежде GUI/installer и mainnet.
