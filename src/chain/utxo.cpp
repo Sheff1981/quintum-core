@@ -1,6 +1,7 @@
 #include "chain/utxo.hpp"
 
 #include "consensus/monetary.hpp"
+#include "consensus/tx_auth.hpp"
 
 #include <limits>
 
@@ -42,7 +43,10 @@ UtxoApplyResult UtxoSet::apply_transaction(
     if (!is_coinbase) {
         result.undo.spent.reserve(tx.inputs.size());
 
-        for (const auto& input : tx.inputs) {
+        for (std::size_t input_index = 0U;
+             input_index < tx.inputs.size();
+             ++input_index) {
+            const auto& input = tx.inputs[input_index];
             const auto it = coins_.find(input.previous_output);
             if (it == coins_.end()) {
                 result.error = UtxoApplyError::missing_input;
@@ -62,6 +66,16 @@ UtxoApplyResult UtxoSet::apply_transaction(
                         UtxoApplyError::premature_coinbase_spend;
                     return result;
                 }
+            }
+
+            if (consensus::verify_input_authorization(
+                    tx,
+                    input_index,
+                    it->second.output) !=
+                consensus::InputAuthError::none) {
+                result.error =
+                    UtxoApplyError::invalid_authorization;
+                return result;
             }
 
             if (it->second.output.value >
