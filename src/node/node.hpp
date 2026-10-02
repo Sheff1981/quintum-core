@@ -29,6 +29,23 @@ struct NodeStartResult {
     }
 };
 
+enum class NodeSubmitError {
+    none,
+    not_started,
+    chain_rejected,
+    storage_failed,
+};
+
+struct NodeSubmitResult {
+    NodeSubmitError error{NodeSubmitError::none};
+    PersistentConnectResult connect{};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == NodeSubmitError::none;
+    }
+};
+
 enum class NodeMineError {
     none,
     not_started,
@@ -71,6 +88,14 @@ public:
     [[nodiscard]] bool started() const noexcept;
     [[nodiscard]] const Chainstate& chain() const noexcept;
     [[nodiscard]] const ChainstateStore& store() const noexcept;
+
+    [[nodiscard]] NodeSubmitResult submit_block(
+        const Block& block
+    );
+    [[nodiscard]] NodeSubmitResult submit_block_at(
+        const Block& block,
+        std::uint64_t adjusted_time
+    );
 
     [[nodiscard]] NodeMineResult mine_block(
         const Bytes& payout_script,
