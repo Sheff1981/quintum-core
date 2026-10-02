@@ -39,8 +39,10 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M3 — P2P network foundation:** real TCP transport, version/verack handshake, ping/pong, network isolation, persistent peer address manager, addr/getaddr exchange, seed bootstrap hooks, retry/backoff and automatic outbound peer selection.
+**M4 — Blockchain synchronization:** real TCP P2P transport, persistent peer discovery, Bitcoin-style block locators, `getheaders/headers`, `getdata/block`, multi-batch catch-up, persistent received-block storage and reorg to the heaviest valid chain.
+
+Every received block enters the existing consensus/Chainstate path; networking cannot bypass PoW, difficulty, timestamps, transactions, UTXO, coinbase reward or storage checks.
 
 The public QUINTUM seed list is intentionally empty until real independent seed nodes exist; no fake or developer-only endpoint is embedded.
 
-Next: **M4 — headers-first synchronization and relay:** exchange chain headers, request missing blocks, validate every received block through the existing consensus/Chainstate path, then add block/transaction relay.
+Next: **M5 — live relay and mempool:** block announcements/inventory relay, transaction mempool and transaction propagation, followed by the long-running node connection scheduler.
