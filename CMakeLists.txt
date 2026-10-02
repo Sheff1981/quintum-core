@@ -3,12 +3,37 @@ cmake_minimum_required(VERSION 3.25)
 project(quintum_core
     VERSION 0.0.1
     DESCRIPTION "QUINTUM Core"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(FetchContent)
+
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_EXHAUSTIVE_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_CTIME_TESTS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_ECDH OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_RECOVERY OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_EXTRAKEYS OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_MUSIG OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_SILENTPAYMENTS OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    secp256k1
+    URL https://github.com/bitcoin-core/secp256k1/releases/download/v0.8.0/libsecp256k1-0.8.0.tar.gz
+    URL_HASH SHA256=dd685546f9e717b9adde329acd5a4cd8083d40f710fdb0a603ee5a83f908132b
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(secp256k1)
 
 function(quintum_strict_warnings target)
     if(MSVC)
@@ -30,6 +55,8 @@ endfunction()
 
 add_library(quintum_core STATIC
     src/crypto/sha256.cpp
+    src/crypto/secp256k1.cpp
+    src/consensus/tx_auth.cpp
     src/primitives/transaction.cpp
     src/chain/utxo.cpp
     src/primitives/block.cpp
@@ -39,6 +66,7 @@ add_library(quintum_core STATIC
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
+target_link_libraries(quintum_core PUBLIC secp256k1)
 quintum_strict_warnings(quintum_core)
 
 add_executable(quintumd
