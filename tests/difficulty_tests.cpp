@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <iostream>
 #include <vector>
 
 namespace {
@@ -268,6 +269,13 @@ void test_chainstate_rejects_wrong_bits()
 
     const auto correct_result =
         chain.connect_block(correct);
+
+    if (!correct_result.ok()) {
+        std::cerr
+            << "retarget connect error="
+            << static_cast<int>(correct_result.error)
+            << "\n";
+    }
 
     assert(correct_result.ok());
     assert(correct_result.activated);
