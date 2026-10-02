@@ -22,6 +22,7 @@ add_library(quintum_core STATIC
     src/crypto/sha256.cpp
     src/primitives/transaction.cpp
     src/chain/utxo.cpp
+    src/primitives/block.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -58,3 +59,11 @@ target_link_libraries(quintum_utxo_tests PRIVATE quintum_core)
 quintum_strict_warnings(quintum_utxo_tests)
 
 add_test(NAME utxo COMMAND quintum_utxo_tests)
+
+add_executable(quintum_block_tests
+    tests/block_tests.cpp
+)
+target_link_libraries(quintum_block_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_block_tests)
+
+add_test(NAME block COMMAND quintum_block_tests)
