@@ -34,6 +34,16 @@ class PeerDiscovery {
 public:
     explicit PeerDiscovery(AddrManager& addrman) noexcept;
 
+    [[nodiscard]] std::size_t bootstrap_seeds(
+        std::span<const SeedEndpoint> seeds,
+        std::uint64_t now
+    );
+
+    [[nodiscard]] std::size_t bootstrap_hardcoded(
+        consensus::Network network,
+        std::uint64_t now
+    );
+
     [[nodiscard]] DiscoveryConnectResult connect_one(
         const consensus::ChainParams& params,
         const VersionMessage& local_version,
