@@ -18,6 +18,14 @@ bool is_zero_hash(const Hash256& value) noexcept
     );
 }
 
+bool compact_is_canonical(
+    std::uint32_t bits,
+    const CompactTarget& compact)
+{
+    return compact.valid() &&
+           encode_compact_target(compact.target) == bits;
+}
+
 } // namespace
 
 bool CompactTarget::is_zero() const noexcept
@@ -134,7 +142,7 @@ bool hash_meets_target(
 PowCheckError check_proof_of_work(const BlockHeader& header)
 {
     const auto compact = decode_compact_target(header.bits);
-    if (!compact.valid()) {
+    if (!compact_is_canonical(header.bits, compact)) {
         return PowCheckError::invalid_target;
     }
 
@@ -155,7 +163,7 @@ MiningResult mine_header(
     MiningResult result;
     result.nonce = header.nonce;
 
-    if (!compact.valid()) {
+    if (!compact_is_canonical(header.bits, compact)) {
         result.status = MineStatus::invalid_target;
         return result;
     }
