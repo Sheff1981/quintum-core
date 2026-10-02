@@ -4,6 +4,7 @@
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
 #include "node/node.hpp"
+#include "wallet/wallet.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -36,6 +37,7 @@ enum class NetworkRuntimeStartError {
     none,
     already_running,
     node_failed,
+    wallet_failed,
     address_store_failed,
     listener_failed,
 };
@@ -45,6 +47,10 @@ struct NetworkRuntimeStartResult {
         NetworkRuntimeStartError::none
     };
     NodeStartResult node{};
+    wallet::WalletStartResult wallet{};
+    wallet::WalletSyncError wallet_sync{
+        wallet::WalletSyncError::none
+    };
     AddrStoreError address_store{
         AddrStoreError::none
     };
@@ -66,6 +72,32 @@ struct NetworkRuntimeStatus {
     std::optional<std::uint32_t> height{};
     std::optional<Hash256> tip{};
     std::size_t mempool_transactions{0U};
+    wallet::WalletBalance wallet_balance{};
+    std::string receive_address{};
+};
+
+enum class NetworkWalletSendError {
+    none,
+    wallet_create_failed,
+    node_rejected,
+    wallet_sync_failed,
+};
+
+struct NetworkWalletSendResult {
+    NetworkWalletSendError error{
+        NetworkWalletSendError::none
+    };
+    wallet::WalletCreateResult wallet{};
+    NodeTransactionResult node{};
+    wallet::WalletSyncError wallet_sync{
+        wallet::WalletSyncError::none
+    };
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error ==
+            NetworkWalletSendError::none;
+    }
 };
 
 class NetworkRuntime {
@@ -92,6 +124,22 @@ public:
 
     [[nodiscard]] NodeTransactionResult submit_transaction(
         const Transaction& transaction
+    );
+
+    [[nodiscard]] wallet::WalletKeyResult
+    new_receive_address();
+
+    [[nodiscard]] wallet::WalletStoreError
+    backup_wallet(
+        const std::filesystem::path& destination,
+        bool overwrite = false
+    );
+
+    [[nodiscard]] NetworkWalletSendResult
+    send_to_address(
+        std::string_view destination,
+        Amount amount,
+        Amount fee
     );
 
     [[nodiscard]] NodeMineResult mine_mempool_block(
@@ -181,12 +229,15 @@ private:
 
     void update_peer_counts() noexcept;
 
+    [[nodiscard]] bool sync_wallet_locked();
+
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
     NetworkRuntimeConfig config_{};
 
     mutable std::mutex state_mutex_{};
     NodeRuntime node_;
+    wallet::Wallet wallet_;
 
     AddrManager addrman_;
     PeerDiscovery discovery_;
