@@ -61,9 +61,23 @@ Use an 11-block Median Time Past rule, a 2-hour maximum future timestamp window,
 
 Reason: keep block validation deterministic and resource-bounded before network/P2P parsing is exposed to untrusted peers.
 
+## D-010 — Genesis identity
+**State:** GENESIS PINNED.
+
+Mainnet, Testnet and Regtest each have a deterministic Genesis block reconstructed from code and matched against pinned hash/Merkle/nonce constants.
+
+The Genesis coinbase embeds the public pre-Genesis Stage 11 commit prefix `1bac54a3f46c` and sends its 50-QUINTUM height-0 subsidy to the permanently unspendable locking-script version `0x00`.
+
+Built-in ChainParams enforce the exact configured Genesis as the only valid first block.
+
+Reason: establish a reproducible, publicly anchored network identity with no creator-owned Genesis premine.
+
+Changing a Genesis field now intentionally defines a different network.
+
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
 - **DRAFT**: value may change during development.
+- **GENESIS PINNED**: identity-defining Genesis constants are fixed in code; changing them creates a different network.
 - **TESTNET FROZEN**: fixed for that test network.
 - **MAINNET FROZEN**: changing it can split the production network.
