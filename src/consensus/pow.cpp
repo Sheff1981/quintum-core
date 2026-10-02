@@ -26,6 +26,75 @@ bool compact_is_canonical(
            encode_compact_target(compact.target) == bits;
 }
 
+bool greater_or_equal(
+    const Hash256& lhs,
+    const Hash256& rhs) noexcept
+{
+    return !std::lexicographical_compare(
+        lhs.begin(),
+        lhs.end(),
+        rhs.begin(),
+        rhs.end()
+    );
+}
+
+void shift_left_one(Hash256& value) noexcept
+{
+    Byte carry{0U};
+
+    for (std::size_t i = value.size(); i-- > 0U;) {
+        const Byte next_carry =
+            static_cast<Byte>((value[i] >> 7U) & 0x01U);
+
+        value[i] = static_cast<Byte>(
+            static_cast<unsigned>(value[i] << 1U) |
+            static_cast<unsigned>(carry)
+        );
+
+        carry = next_carry;
+    }
+}
+
+void subtract_in_place(
+    Hash256& lhs,
+    const Hash256& rhs) noexcept
+{
+    unsigned borrow{0U};
+
+    for (std::size_t i = lhs.size(); i-- > 0U;) {
+        const unsigned left = lhs[i];
+        const unsigned right = static_cast<unsigned>(rhs[i]) + borrow;
+
+        if (left >= right) {
+            lhs[i] = static_cast<Byte>(left - right);
+            borrow = 0U;
+        } else {
+            lhs[i] = static_cast<Byte>((left + 256U) - right);
+            borrow = 1U;
+        }
+    }
+}
+
+bool increment(Hash256& value) noexcept
+{
+    for (std::size_t i = value.size(); i-- > 0U;) {
+        ++value[i];
+        if (value[i] != 0U) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_max_hash(const Hash256& value) noexcept
+{
+    return std::all_of(
+        value.begin(),
+        value.end(),
+        [](Byte byte) { return byte == 0xffU; }
+    );
+}
+
 } // namespace
 
 bool CompactTarget::is_zero() const noexcept
@@ -137,6 +206,78 @@ bool hash_meets_target(
         hash.begin(),
         hash.end()
     );
+}
+
+Hash256 work_for_target(const Hash256& target)
+{
+    Hash256 work{};
+
+    if (is_zero_hash(target)) {
+        return work;
+    }
+
+    if (is_max_hash(target)) {
+        work.back() = 1U;
+        return work;
+    }
+
+    Hash256 numerator{};
+    std::transform(
+        target.begin(),
+        target.end(),
+        numerator.begin(),
+        [](Byte byte) { return static_cast<Byte>(~byte); }
+    );
+
+    Hash256 denominator = target;
+    if (!increment(denominator)) {
+        work.back() = 1U;
+        return work;
+    }
+
+    Hash256 remainder{};
+    Hash256 quotient{};
+
+    for (std::size_t bit = 0U; bit < 256U; ++bit) {
+        shift_left_one(remainder);
+
+        const std::size_t byte_index = bit / 8U;
+        const unsigned bit_index = 7U - static_cast<unsigned>(bit % 8U);
+        const Byte incoming = static_cast<Byte>(
+            (numerator[byte_index] >> bit_index) & 0x01U
+        );
+        remainder.back() = static_cast<Byte>(remainder.back() | incoming);
+
+        if (greater_or_equal(remainder, denominator)) {
+            subtract_in_place(remainder, denominator);
+
+            const Byte mask = static_cast<Byte>(1U << bit_index);
+            quotient[byte_index] =
+                static_cast<Byte>(quotient[byte_index] | mask);
+        }
+    }
+
+    (void)increment(quotient);
+    return quotient;
+}
+
+bool add_chain_work(
+    Hash256& accumulated,
+    const Hash256& work) noexcept
+{
+    unsigned carry{0U};
+
+    for (std::size_t i = accumulated.size(); i-- > 0U;) {
+        const unsigned sum =
+            static_cast<unsigned>(accumulated[i]) +
+            static_cast<unsigned>(work[i]) +
+            carry;
+
+        accumulated[i] = static_cast<Byte>(sum & 0xffU);
+        carry = sum >> 8U;
+    }
+
+    return carry == 0U;
 }
 
 PowCheckError check_proof_of_work(const BlockHeader& header)
