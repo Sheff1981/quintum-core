@@ -101,6 +101,35 @@ const ChainstateStore& NodeRuntime::store() const noexcept
     return persistent_.store();
 }
 
+const Mempool& NodeRuntime::mempool() const noexcept
+{
+    return mempool_;
+}
+
+NodeTransactionResult NodeRuntime::submit_transaction(
+    const Transaction& transaction)
+{
+    NodeTransactionResult out;
+
+    if (!started_) {
+        out.error = NodeTransactionError::not_started;
+        return out;
+    }
+
+    out.mempool =
+        mempool_.accept(
+            persistent_.chain(),
+            transaction
+        );
+
+    if (!out.mempool.ok()) {
+        out.error =
+            NodeTransactionError::mempool_rejected;
+    }
+
+    return out;
+}
+
 NodeSubmitResult NodeRuntime::submit_block(
     const Block& block)
 {
@@ -137,7 +166,35 @@ NodeSubmitResult NodeRuntime::submit_block_at(
         return out;
     }
 
+    mempool_.reconcile(persistent_.chain());
     return out;
+}
+
+NodeMineResult NodeRuntime::mine_mempool_block(
+    const Bytes& payout_script,
+    std::uint64_t max_attempts)
+{
+    return mine_mempool_block_at(
+        payout_script,
+        unix_time_now(),
+        max_attempts
+    );
+}
+
+NodeMineResult NodeRuntime::mine_mempool_block_at(
+    const Bytes& payout_script,
+    std::uint64_t adjusted_time,
+    std::uint64_t max_attempts)
+{
+    const auto transactions =
+        mempool_.transactions();
+
+    return mine_block_at(
+        payout_script,
+        adjusted_time,
+        max_attempts,
+        transactions
+    );
 }
 
 NodeMineResult NodeRuntime::mine_block(
@@ -219,6 +276,7 @@ NodeMineResult NodeRuntime::mine_block_at(
         return out;
     }
 
+    mempool_.reconcile(persistent_.chain());
     return out;
 }
 
