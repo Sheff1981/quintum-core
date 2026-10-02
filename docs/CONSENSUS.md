@@ -41,9 +41,9 @@ See `docs/MONETARY_POLICY.md`.
 
 Mainnet candidate:
 
-- target block spacing: 150 seconds
+- target block spacing: 600 seconds
 - retarget interval: 2016 blocks
-- retarget timespan: 302400 seconds
+- retarget timespan: 1209600 seconds
 - per-period target change clamp: 1/4x through 4x
 - PoW limit bits: `0x1e0ffff0`
 - contextual `bits` validation is branch-specific
@@ -55,13 +55,23 @@ Network-specific message-start bytes and draft P2P/RPC ports are also present in
 
 See `docs/CHAIN_PARAMS.md` and `docs/DIFFICULTY.md`.
 
+## Timestamp and resource candidate — implemented, not mainnet-frozen
+
+- Median Time Past window: 11 blocks
+- candidate timestamp must be strictly greater than MTP
+- maximum future timestamp: adjusted time + 2 hours
+- maximum serialized block size: 1,000,000 bytes
+- maximum transactions per block: 10,000
+- maximum script size: 10,000 bytes
+- maximum coinbase unlocking script: 100 bytes
+
+See `docs/TIMESTAMP_AND_LIMITS.md`.
+
 ## Parameters not frozen yet
 
 - ticker / smallest-unit public name
-- maximum block weight/size
 - fee policy
 - address encoding and prefixes
-- timestamp consensus rules
 - final review of network magic and ports
 - exact Mainnet/Testnet genesis blocks
 
