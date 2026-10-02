@@ -10,6 +10,30 @@ PeerDiscovery::PeerDiscovery(
 {
 }
 
+AddrStoreError PeerDiscovery::initialize(
+    consensus::Network network,
+    std::uint64_t now)
+{
+    const auto loaded = addrman_.load();
+
+    if (loaded == AddrStoreError::none) {
+        return AddrStoreError::none;
+    }
+
+    if (loaded != AddrStoreError::not_found) {
+        return loaded;
+    }
+
+    const auto added =
+        bootstrap_hardcoded(network, now);
+
+    if (added == 0U) {
+        return AddrStoreError::none;
+    }
+
+    return addrman_.save();
+}
+
 std::size_t PeerDiscovery::bootstrap_seeds(
     std::span<const SeedEndpoint> seeds,
     std::uint64_t now)
@@ -75,6 +99,50 @@ PeerDiscovery::learn_from_peer(
     }
 
     return out;
+}
+
+DiscoveryConnectResult
+PeerDiscovery::connect_any(
+    const consensus::ChainParams& params,
+    const VersionMessage& local_version,
+    std::uint64_t now,
+    std::uint32_t timeout_ms,
+    std::size_t max_candidates,
+    std::span<const PeerAddress> excluded)
+{
+    DiscoveryConnectResult last;
+
+    if (max_candidates == 0U) {
+        last.error = DiscoveryError::no_candidate;
+        return last;
+    }
+
+    for (std::size_t i = 0U;
+         i < max_candidates;
+         ++i) {
+        auto current = connect_one(
+            params,
+            local_version,
+            now,
+            timeout_ms,
+            excluded
+        );
+
+        if (current.ok()) {
+            return current;
+        }
+
+        last = std::move(current);
+
+        if (last.error ==
+                DiscoveryError::no_candidate ||
+            last.error ==
+                DiscoveryError::store_failed) {
+            return last;
+        }
+    }
+
+    return last;
 }
 
 DiscoveryConnectResult
