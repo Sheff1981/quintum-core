@@ -74,6 +74,8 @@ add_library(quintum_core STATIC
     src/node/node.cpp
     src/net/protocol.cpp
     src/net/peer.cpp
+    src/net/address.cpp
+    src/net/discovery.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -229,3 +231,15 @@ quintum_strict_warnings(quintum_p2p_tests)
 quintum_test_assertions(quintum_p2p_tests)
 
 add_test(NAME p2p COMMAND quintum_p2p_tests)
+
+add_executable(quintum_discovery_tests
+    tests/discovery_tests.cpp
+)
+target_link_libraries(
+    quintum_discovery_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_discovery_tests)
+quintum_test_assertions(quintum_discovery_tests)
+
+add_test(NAME discovery COMMAND quintum_discovery_tests)
