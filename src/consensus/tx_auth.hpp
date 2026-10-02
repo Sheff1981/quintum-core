@@ -5,9 +5,11 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 
 namespace quintum::consensus {
 
+inline constexpr Byte kProvablyUnspendableLockVersion = 0x00U;
 inline constexpr Byte kP2pkLockVersion = 0x01U;
 inline constexpr Byte kP2pkUnlockVersion = 0x01U;
 inline constexpr std::uint32_t kSighashAll = 1U;
@@ -16,10 +18,19 @@ enum class InputAuthError {
     none,
     input_index_out_of_range,
     malformed_locking_script,
+    provably_unspendable,
     malformed_unlocking_script,
     wrong_private_key,
     invalid_signature,
 };
+
+[[nodiscard]] Bytes make_provably_unspendable_script(
+    std::span<const Byte> payload
+);
+
+[[nodiscard]] bool is_provably_unspendable(
+    const Bytes& script
+) noexcept;
 
 [[nodiscard]] Bytes make_p2pk_locking_script(
     const crypto::PublicKey& public_key
