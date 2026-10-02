@@ -451,30 +451,6 @@ int main(int argc, char* argv[])
             << '\n';
     }
 
-    if (wallet_backup) {
-        const auto backup_error =
-            runtime.backup_wallet(
-                *wallet_backup,
-                false
-            );
-
-        if (backup_error !=
-            wallet::WalletStoreError::none) {
-            std::cerr
-                << "Wallet backup failed: "
-                << static_cast<int>(
-                       backup_error)
-                << '\n';
-            runtime.stop();
-            return 1;
-        }
-
-        std::cout
-            << "Wallet backup: "
-            << wallet_backup->string()
-            << '\n';
-    }
-
     if (send_to && send_amount) {
         const auto sent =
             runtime.send_to_address(
@@ -598,6 +574,30 @@ int main(int argc, char* argv[])
                            mined.block.header))
                 << '\n';
         }
+    }
+
+    if (wallet_backup) {
+        const auto backup_error =
+            runtime.backup_wallet(
+                *wallet_backup,
+                false
+            );
+
+        if (backup_error !=
+            wallet::WalletStoreError::none) {
+            std::cerr
+                << "Wallet backup failed: "
+                << static_cast<int>(
+                       backup_error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "Wallet backup: "
+            << wallet_backup->string()
+            << '\n';
     }
 
     std::signal(SIGINT, handle_signal);
