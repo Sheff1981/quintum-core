@@ -13,7 +13,7 @@ Regtest and testnet parameters, unique genesis blocks, mining and restart/recove
 Handshake, peer database, seeds, address relay, headers-first synchronization, block and transaction propagation.
 
 ## M4 — Wallet
-Key generation, address encoding, receive/send, fee calculation, coin selection, confirmations, backup/recovery.
+**Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery. Before public release: password encryption, HD recovery, fee estimation and persistent wallet history/indexing.
 
 ## M5 — Desktop
 Qt 6 GUI, synchronization state, peers, balances, transaction history and mining status.
