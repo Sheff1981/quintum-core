@@ -204,6 +204,7 @@ private:
     std::atomic<bool> stop_requested_{false};
     std::atomic<std::size_t> peer_count_{0U};
     std::atomic<std::size_t> outbound_count_{0U};
+    std::atomic<std::size_t> known_address_count_{0U};
     std::atomic<std::uint16_t> listen_port_{0U};
 
     std::uint64_t runtime_nonce_{0U};
