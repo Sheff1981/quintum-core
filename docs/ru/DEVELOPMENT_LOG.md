@@ -2088,7 +2088,16 @@ Networking не имеет права напрямую менять:
 
 ### Статус
 
-Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+**ГОТОВО.**
+
+GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **17/17 test suites passed**;
+- отдельный `sync` suite — passed на обеих ОС.
+
+Genesis, consensus parameters, network magic, порты, PoW, difficulty, monetary policy и blockchain storage format не изменялись.
 
 ### Следующий этап
 
