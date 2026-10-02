@@ -695,6 +695,20 @@ PeerSession::remote_version() const noexcept
     return remote_;
 }
 
+bool PeerSession::wait_readable(
+    std::uint32_t timeout_ms) const noexcept
+{
+    if (!valid()) {
+        return false;
+    }
+
+    return wait_socket(
+        native_socket(socket_),
+        false,
+        timeout_ms
+    );
+}
+
 PeerError PeerSession::send_command(
     std::string_view command,
     std::span<const Byte> payload)
