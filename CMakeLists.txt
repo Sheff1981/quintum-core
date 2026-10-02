@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(FetchContent)
+find_package(Threads REQUIRED)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
@@ -71,10 +72,15 @@ add_library(quintum_core STATIC
     src/chain/storage.cpp
     src/mining/block_template.cpp
     src/node/node.cpp
+    src/net/protocol.cpp
+    src/net/peer.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
 target_link_libraries(quintum_core PUBLIC secp256k1)
+if(WIN32)
+    target_link_libraries(quintum_core PUBLIC ws2_32)
+endif()
 quintum_strict_warnings(quintum_core)
 
 add_executable(quintumd
@@ -211,3 +217,15 @@ quintum_strict_warnings(quintum_node_runtime_tests)
 quintum_test_assertions(quintum_node_runtime_tests)
 
 add_test(NAME node_runtime COMMAND quintum_node_runtime_tests)
+
+add_executable(quintum_p2p_tests
+    tests/p2p_tests.cpp
+)
+target_link_libraries(
+    quintum_p2p_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_p2p_tests)
+quintum_test_assertions(quintum_p2p_tests)
+
+add_test(NAME p2p COMMAND quintum_p2p_tests)
