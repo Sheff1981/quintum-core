@@ -14,6 +14,8 @@
 
 namespace quintum {
 
+class ChainstateStore;
+
 struct BlockUndo {
     std::vector<UtxoUndo> transactions{};
 };
@@ -80,6 +82,8 @@ enum class ChainDisconnectError {
 };
 
 class Chainstate {
+    friend class ChainstateStore;
+
 public:
     explicit Chainstate(const consensus::ChainParams& params);
 
@@ -121,6 +125,7 @@ private:
     UtxoSet utxos_{};
     std::vector<ChainEntry> chain_{};
     std::map<Hash256, BlockIndexEntry> block_index_{};
+    std::vector<Hash256> acceptance_order_{};
 };
 
 } // namespace quintum
