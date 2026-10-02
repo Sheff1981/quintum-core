@@ -35,6 +35,10 @@ constexpr std::array<Byte, 8> kWalletMagic{
 constexpr std::uint32_t kWalletVersion{1U};
 constexpr std::size_t kChecksumSize{32U};
 constexpr Byte kInternalFlag{0x01U};
+constexpr Byte kUsedFlag{0x02U};
+constexpr Byte kKnownKeyFlags{
+    kInternalFlag | kUsedFlag
+};
 constexpr std::size_t kKeyRecordSize{
     1U + crypto::PrivateKey{}.size()
 };
@@ -368,45 +372,44 @@ WalletStartResult Wallet::start()
         return out;
     }
 
-    auto key =
-        crypto::generate_private_key();
-
-    if (!key) {
-        out.error =
-            WalletStartError::
-                key_generation_failed;
-        return out;
-    }
-
-    const auto public_key =
-        crypto::derive_public_key(*key);
-
-    if (!public_key) {
-        crypto::secure_erase(*key);
-        out.error =
-            WalletStartError::
-                key_generation_failed;
-        return out;
-    }
-
     std::vector<KeyRecord> initial;
-    initial.push_back(
-        KeyRecord{
-            .private_key = *key,
-            .public_key = *public_key,
-            .internal = false,
+
+    if (!generate_pool_records(
+            initial,
+            false,
+            kWalletKeypoolSize + 1U) ||
+        !generate_pool_records(
+            initial,
+            true,
+            kWalletKeypoolSize)) {
+        for (auto& record : initial) {
+            crypto::secure_erase(
+                record.private_key
+            );
         }
-    );
+
+        out.error =
+            WalletStartError::
+                key_generation_failed;
+        return out;
+    }
+
+    initial.front().used = true;
+
+    const crypto::PublicKey primary =
+        initial.front().public_key;
 
     out.store_error =
         save_keys(initial);
 
     if (out.store_error !=
         WalletStoreError::none) {
-        crypto::secure_erase(
-            initial.front().private_key
-        );
-        crypto::secure_erase(*key);
+        for (auto& record : initial) {
+            crypto::secure_erase(
+                record.private_key
+            );
+        }
+
         out.error =
             WalletStartError::store_failed;
         return out;
@@ -415,13 +418,13 @@ WalletStartResult Wallet::start()
     keys_ = std::move(initial);
     started_ = true;
     out.created = true;
+    out.backup_recommended = true;
     out.receive_address =
         encode_address(
             params_.network,
-            *public_key
+            primary
         );
 
-    crypto::secure_erase(*key);
     return out;
 }
 
@@ -440,7 +443,7 @@ Wallet::new_receive_address()
         return out;
     }
 
-    return generate_key(false);
+    return reserve_key(false);
 }
 
 WalletKeyResult Wallet::import_private_key(
@@ -455,7 +458,8 @@ WalletKeyResult Wallet::import_private_key(
 
     return append_key(
         private_key,
-        false
+        false,
+        true
     );
 }
 
@@ -966,7 +970,7 @@ WalletCreateResult Wallet::create_transaction(
 
     if (out.change > 0U) {
         const auto change_key =
-            generate_key(true);
+            reserve_key(true);
 
         if (!change_key.ok()) {
             out.store_error =
@@ -981,6 +985,9 @@ WalletCreateResult Wallet::create_transaction(
                           key_generation_failed;
             return out;
         }
+
+        out.backup_recommended =
+            change_key.backup_recommended;
 
         tx.outputs.push_back(
             TxOutput{
@@ -1111,7 +1118,8 @@ Wallet::addresses() const
     }
 
     for (const auto& key : keys_) {
-        if (key.internal) {
+        if (key.internal ||
+            !key.used) {
             continue;
         }
 
@@ -1289,7 +1297,7 @@ WalletStoreError Wallet::load()
 
         if ((flags &
              static_cast<Byte>(
-                 ~kInternalFlag)) != 0U ||
+                 ~kKnownKeyFlags)) != 0U ||
             offset +
                 crypto::PrivateKey{}.size() >
                 body.size()) {
@@ -1365,6 +1373,9 @@ WalletStoreError Wallet::load()
                 .internal =
                     (flags &
                      kInternalFlag) != 0U,
+                .used =
+                    (flags &
+                     kUsedFlag) != 0U,
             }
         );
 
@@ -1453,11 +1464,17 @@ WalletStoreError Wallet::save_keys(
             return WalletStoreError::corrupt;
         }
 
-        body.push_back(
-            key.internal
-                ? kInternalFlag
-                : 0U
-        );
+        Byte flags{0U};
+
+        if (key.internal) {
+            flags |= kInternalFlag;
+        }
+
+        if (key.used) {
+            flags |= kUsedFlag;
+        }
+
+        body.push_back(flags);
 
         body.insert(
             body.end(),
@@ -1488,7 +1505,8 @@ WalletStoreError Wallet::save_keys(
 
 WalletKeyResult Wallet::append_key(
     const crypto::PrivateKey& private_key,
-    bool internal)
+    bool internal,
+    bool used)
 {
     WalletKeyResult out;
 
@@ -1542,6 +1560,8 @@ WalletKeyResult Wallet::append_key(
                 *public_key,
             .internal =
                 internal,
+            .used =
+                used,
         }
     );
 
@@ -1569,34 +1589,221 @@ WalletKeyResult Wallet::append_key(
                 *public_key,
             .internal =
                 internal,
+            .used =
+                used,
         }
     );
 
+    out.backup_recommended = true;
     return out;
 }
 
-WalletKeyResult Wallet::generate_key(
+WalletKeyResult Wallet::reserve_key(
     bool internal)
 {
-    auto generated =
-        crypto::generate_private_key();
+    WalletKeyResult out;
 
-    if (!generated) {
-        WalletKeyResult out;
+    if (!started_) {
+        out.error =
+            WalletKeyError::not_started;
+        return out;
+    }
+
+    const auto existing =
+        std::find_if(
+            keys_.begin(),
+            keys_.end(),
+            [&](const KeyRecord& key) {
+                return key.internal ==
+                           internal &&
+                       !key.used;
+            }
+        );
+
+    if (existing != keys_.end()) {
+        const std::size_t index =
+            static_cast<std::size_t>(
+                std::distance(
+                    keys_.begin(),
+                    existing)
+            );
+
+        std::vector<KeyRecord> candidate =
+            keys_;
+        candidate[index].used = true;
+
+        out.public_key =
+            candidate[index].public_key;
+        out.address =
+            encode_address(
+                params_.network,
+                out.public_key
+            );
+
+        out.store_error =
+            save_keys(candidate);
+
+        for (auto& key : candidate) {
+            crypto::secure_erase(
+                key.private_key
+            );
+        }
+
+        if (out.store_error !=
+            WalletStoreError::none) {
+            out.error =
+                WalletKeyError::store_failed;
+            return out;
+        }
+
+        keys_[index].used = true;
+        return out;
+    }
+
+    if (keys_.size() >
+        kMaxWalletKeys -
+            kWalletKeypoolSize) {
+        out.error =
+            WalletKeyError::key_limit;
+        return out;
+    }
+
+    std::vector<KeyRecord> candidate =
+        keys_;
+    const std::size_t first_new =
+        candidate.size();
+
+    if (!generate_pool_records(
+            candidate,
+            internal,
+            kWalletKeypoolSize)) {
+        for (auto& key : candidate) {
+            crypto::secure_erase(
+                key.private_key
+            );
+        }
+
         out.error =
             WalletKeyError::random_failed;
         return out;
     }
 
-    const auto result =
-        append_key(
-            *generated,
-            internal
+    candidate[first_new].used = true;
+
+    out.public_key =
+        candidate[first_new].public_key;
+    out.address =
+        encode_address(
+            params_.network,
+            out.public_key
+        );
+    out.backup_recommended = true;
+
+    out.store_error =
+        save_keys(candidate);
+
+    if (out.store_error !=
+        WalletStoreError::none) {
+        for (auto& key : candidate) {
+            crypto::secure_erase(
+                key.private_key
+            );
+        }
+
+        out.error =
+            WalletKeyError::store_failed;
+        return out;
+    }
+
+    clear_keys();
+    keys_ = std::move(candidate);
+    return out;
+}
+
+bool Wallet::generate_pool_records(
+    std::vector<KeyRecord>& records,
+    bool internal,
+    std::size_t count) const
+{
+    const std::size_t original_size =
+        records.size();
+
+    if (count >
+        kMaxWalletKeys -
+            original_size) {
+        return false;
+    }
+
+    records.reserve(
+        original_size + count
+    );
+
+    while (records.size() <
+           original_size + count) {
+        auto private_key =
+            crypto::generate_private_key();
+
+        if (!private_key) {
+            for (std::size_t i =
+                     original_size;
+                 i < records.size();
+                 ++i) {
+                crypto::secure_erase(
+                    records[i].private_key
+                );
+            }
+
+            records.resize(original_size);
+            return false;
+        }
+
+        const auto public_key =
+            crypto::derive_public_key(
+                *private_key
+            );
+
+        if (!public_key) {
+            crypto::secure_erase(
+                *private_key
+            );
+            continue;
+        }
+
+        const bool duplicate =
+            std::any_of(
+                records.begin(),
+                records.end(),
+                [&](const KeyRecord& key) {
+                    return key.public_key ==
+                           *public_key;
+                }
+            );
+
+        if (duplicate) {
+            crypto::secure_erase(
+                *private_key
+            );
+            continue;
+        }
+
+        records.push_back(
+            KeyRecord{
+                .private_key =
+                    *private_key,
+                .public_key =
+                    *public_key,
+                .internal =
+                    internal,
+                .used = false,
+            }
         );
 
-    crypto::secure_erase(*generated);
+        crypto::secure_erase(
+            *private_key
+        );
+    }
 
-    return result;
+    return true;
 }
 
 const crypto::PrivateKey*
