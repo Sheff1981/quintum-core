@@ -79,7 +79,7 @@ Changing any Genesis field now creates a different network identity. These const
 
 - ticker / smallest-unit public name
 - fee policy
-- address encoding and prefixes
+- final freeze of the implemented Bech32m address encoding/prefixes
 - final review of network magic and ports
 - public-testnet validation before final release freeze
 
