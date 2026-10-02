@@ -756,7 +756,7 @@ Halving работает только с целыми атомарными ед�
 
 ### Статус этапа
 
-**Код готов. Linux уже проходил. Выполняется повторный Windows + Linux CI с принудительно включёнными assertions.**
+**ГОТОВО.** Повторный GitHub Actions CI с принудительно включёнными assertions: Windows — success, Linux — success. Monetary policy, halving, money range, coinbase reward ceiling, 100-block maturity, inflation rejection и reorg после maturity проверены.
 
 ### Следующий этап
 
