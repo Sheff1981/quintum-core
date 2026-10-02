@@ -343,7 +343,7 @@ WalletStartResult Wallet::start()
 
         if (!existing.empty()) {
             out.receive_address =
-                existing.front();
+                existing.back();
         }
 
         return out;
@@ -360,7 +360,7 @@ WalletStartResult Wallet::start()
 
         if (!existing.empty()) {
             out.receive_address =
-                existing.front();
+                existing.back();
         }
 
         return out;
