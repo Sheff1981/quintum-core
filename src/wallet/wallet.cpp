@@ -272,6 +272,7 @@ std::optional<Bytes> read_file(
     }
 
     if (!input) {
+        crypto::secure_erase(bytes);
         return std::nullopt;
     }
 
