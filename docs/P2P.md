@@ -124,22 +124,18 @@ DNS seed resolution is a later network-deployment step.
 
 P2P does not bypass consensus.
 
-Stage 15 transports only handshake/liveness messages. Future block and transaction messages must enter through the same validated Chainstate/UTXO paths already used by local mining and persistent storage.
+Block and transaction bytes received from peers enter the same validated Chainstate/UTXO/mempool paths used by local node operations. A remote peer cannot directly set height, UTXO, chain work, reward, difficulty or active tip.
 
-## Not implemented yet
+## Deployment items not implemented yet
 
-The current network layer does not yet add:
+The network runtime is functional, but public deployment infrastructure is intentionally still absent:
 
-- live public seed infrastructure;
+- live public seed nodes;
 - DNS seeds;
-- headers-first synchronization;
-- block relay;
-- transaction relay;
-- mempool relay;
-- long-running connection scheduler in the final GUI/node runtime;
-- UPnP/NAT-PMP.
+- UPnP/NAT-PMP automatic inbound port mapping;
+- production-grade peer reputation/eviction policy.
 
-Those build on the completed transport and discovery foundation.
+These are deployment/hardening layers and do not replace the completed TCP, discovery, synchronization or relay mechanisms.
 
 
 ## Headers-first blockchain synchronization
@@ -233,3 +229,68 @@ A newly connected peer can send `mempool`. The remote peer answers with transact
 The relay layer can announce a new transaction or block to every currently connected `ConnectionManager` peer. Peers that fail during announcement are closed and pruned.
 
 The continuous event loop that automatically invokes discovery, servicing, synchronization and relay for the lifetime of `quintumd` is the next runtime milestone.
+
+
+## Continuous node runtime
+
+Stage 19 combines the previously independent P2P components into `NetworkRuntime`, the long-running networking service used by `quintumd`.
+
+### Startup lifecycle
+
+1. load or create the validated local blockchain state;
+2. load `peers.dat`;
+3. import configured/hardcoded bootstrap endpoints when present;
+4. bind and listen on the network P2P port;
+5. start the network worker;
+6. accept inbound peers;
+7. automatically select outbound peers from addrman;
+8. perform `version/verack`;
+9. run headers-first catch-up and mempool catch-up on new outbound connections;
+10. enter continuous message servicing.
+
+### Live peer servicing
+
+Each active peer is polled without blocking the whole node on an idle socket. The runtime handles:
+
+- `ping/pong`;
+- `getaddr/addr`;
+- `getheaders/headers`;
+- `inv/getdata`;
+- `tx`;
+- `block`;
+- `mempool`;
+- `notfound`.
+
+Unknown commands are ignored for forward compatibility.
+
+### Automatic relay
+
+Local wallet/API transaction admission queues a transaction inventory announcement. Local mining queues a block inventory announcement. Network-accepted transactions and blocks are re-announced so information propagates beyond the peer that originally supplied it.
+
+The full object is not broadcast blindly: peers first receive `inv` and request unknown objects through `getdata`.
+
+### Liveness and reconnect
+
+The runtime sends asynchronous ping nonces after an idle interval and requires the matching pong before the liveness deadline. A failed outbound peer is removed from the active set and placed into a reconnect schedule while its addrman failure history is updated.
+
+This reconnect path is separate from initial addrman selection, so a previously working live connection can be retried promptly while the persistent address manager still retains longer failure backoff state.
+
+### Graceful shutdown
+
+`quintumd` now remains alive until SIGINT/SIGTERM (for example Ctrl+C). Shutdown requests stop the worker, close peer sockets and the listener, and leave the already durable blockchain/peer databases intact.
+
+### Stage 19 integration QA
+
+The integration suite prepares two persistent nodes with a five-block height difference, starts both continuous runtimes and verifies:
+
+- automatic outbound selection from the peer database/bootstrap set;
+- real inbound acceptance and `version/verack`;
+- automatic synchronization from height 100 to 105;
+- idle `ping/pong` survival;
+- signed transaction relay into the remote mempool;
+- mining that transaction into height 106;
+- live block relay and remote mempool cleanup;
+- deliberate server shutdown and connection-loss detection;
+- automatic reconnect after the server returns on the same endpoint;
+- live propagation of height 107 after reconnect;
+- graceful shutdown of both runtimes.
