@@ -79,6 +79,7 @@ add_library(quintum_core STATIC
     src/net/discovery.cpp
     src/net/sync.cpp
     src/net/relay.cpp
+    src/net/runtime.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
