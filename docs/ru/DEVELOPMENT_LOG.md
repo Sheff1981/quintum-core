@@ -1597,3 +1597,122 @@ Genesis стал частью идентичности сети.
 - тест: нода принимает блоки → завершается → запускается → получает тот же tip/height/UTXO/chain work.
 
 После этого QUINTUM перестанет быть только in-memory blockchain и станет настоящей перезапускаемой нодой.
+
+
+---
+
+## 2026-10-02 — Этап 13. Persistent blockchain storage
+
+### Цель
+
+Перевести QUINTUM из полностью in-memory Chainstate в перезапускаемую ноду, которая после завершения процесса восстанавливает тот же blockchain state без доверия к повреждённым данным на диске.
+
+### Что добавлено
+
+1. **Append-only block storage**
+   - принятые блоки записываются в `blocks.dat`;
+   - каждый record имеет собственный double-SHA-256 checksum;
+   - фиксируется порядок принятия блоков, включая side branches.
+
+2. **Durable chainstate snapshot**
+   - `chainstate.dat` содержит block-index metadata;
+   - active chain;
+   - cumulative chain work;
+   - полный UTXO set;
+   - block undo;
+   - failed flags для известных веток;
+   - identity сети и Genesis;
+   - whole-file double-SHA-256 checksum.
+
+3. **Атомарный commit**
+   - изменение сначала выполняется на копии Chainstate;
+   - новые blocks durable-flush'ятся раньше snapshot;
+   - snapshot пишется во временный файл;
+   - после flush выполняется атомарная замена;
+   - in-memory состояние публикуется только после успешного disk commit.
+
+4. **Crash-tail recovery**
+   - если процесс завершился после append блока, но до commit snapshot, старый `chainstate.dat` остаётся authoritative;
+   - лишний хвост `blocks.dat` при startup не считается подтверждённым;
+   - перед следующим commit хвост обрезается до последней committed границы.
+
+5. **Startup reconstruction**
+   - snapshot не загружается напрямую как доверенное состояние;
+   - сохранённые blocks повторно проходят обычный consensus `Chainstate::connect_block()`;
+   - сверяются parent, height и cumulative work;
+   - active chain независимо пересобирается;
+   - заново вычисленные undo и UTXO сравниваются с дисковым snapshot;
+   - только после полной проверки reconstructed Chainstate становится рабочим.
+
+6. **Network isolation**
+   - snapshot привязан к network enum;
+   - network magic;
+   - Genesis enforcement mode;
+   - Genesis hash;
+   - данные другой сети отвергаются.
+
+7. **Cross-platform durability**
+   - Windows: `MoveFileExW(..., MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`;
+   - Linux/POSIX: `rename()` + fsync каталога;
+   - block/state files flush'ятся перед публикацией commit.
+
+### Новый API
+
+Добавлены:
+
+- `ChainstateStore`;
+- `PersistentChainstate`;
+- `StorageError`;
+- transactional persistent connect/disconnect wrappers.
+
+Если disk commit не удался, ранее подтверждённое in-memory состояние не заменяется.
+
+### QA
+
+Добавлен 13-й suite: `storage`.
+
+Проверено:
+
+- block acceptance → shutdown → restart;
+- тот же tip;
+- та же height;
+- тот же cumulative work;
+- тот же UTXO;
+- сохранение side branch;
+- reorg на более тяжёлую ветку после restart;
+- сохранение undo;
+- disconnect → commit → второй restart;
+- wrong-network rejection;
+- corrupted snapshot checksum rejection;
+- truncated committed block rejection;
+- безопасное игнорирование uncommitted `blocks.dat` tail.
+
+### Изменённые файлы
+
+- `src/chain/storage.hpp`
+- `src/chain/storage.cpp`
+- `src/chain/chainstate.hpp`
+- `src/chain/chainstate.cpp`
+- `src/chain/utxo.hpp`
+- `tests/storage_tests.cpp`
+- `CMakeLists.txt`
+- `docs/STORAGE.md`
+- `docs/ru/DEVELOPMENT_LOG.md`
+
+### Статус этапа
+
+**ГОТОВО.**
+
+Кодовый GitHub Actions CI:
+
+- Linux — success;
+- Windows — success;
+- **13/13 test suites passed**.
+
+Consensus, Genesis, monetary policy, network magic, порты и публичная сериализация блока/транзакции на этапе 13 не изменялись.
+
+### Следующий этап
+
+M1 Local blockchain теперь имеет disk persistence.
+
+Следующий технический блок — **Этап 14: node runtime + block template/mining integration на persistent Chainstate**, чтобы development node после старта автоматически открывал свою базу, продолжал цепь и мог создавать полный валидный блок поверх восстановленного tip. После этого можно переходить к P2P handshake/peer discovery/synchronization.
