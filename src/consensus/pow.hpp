@@ -1,5 +1,6 @@
 #pragma once
 
+#include "consensus/chainparams.hpp"
 #include "core/types.hpp"
 #include "primitives/block.hpp"
 
@@ -19,6 +20,7 @@ struct CompactTarget {
 enum class PowCheckError {
     none,
     invalid_target,
+    target_above_pow_limit,
     hash_above_target,
 };
 
@@ -50,6 +52,11 @@ struct MiningResult {
 
 [[nodiscard]] PowCheckError check_proof_of_work(
     const BlockHeader& header
+);
+
+[[nodiscard]] PowCheckError check_proof_of_work(
+    const BlockHeader& header,
+    const PowParams& params
 );
 
 [[nodiscard]] Hash256 work_for_target(const Hash256& target);
