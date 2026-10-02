@@ -2,6 +2,7 @@
 #include "net/peer.hpp"
 #include "net/protocol.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <thread>
@@ -94,6 +95,25 @@ void test_wire_protocol()
 
     assert(invalid_command.error ==
            WireError::invalid_command);
+
+    auto oversized = encoded.bytes;
+    const std::uint32_t oversized_size =
+        kMaxMessagePayload + 1U;
+
+    for (std::size_t i = 0U;
+         i < sizeof(oversized_size);
+         ++i) {
+        oversized[16U + i] =
+            static_cast<Byte>(
+                oversized_size >> (8U * i)
+            );
+    }
+
+    const auto oversized_result =
+        decode_message(params, oversized);
+
+    assert(oversized_result.error ==
+           WireError::payload_too_large);
 }
 
 void test_two_peer_handshake_and_ping()
@@ -273,6 +293,82 @@ void test_self_connection_rejected()
                PeerError::receive_failed);
 }
 
+void test_disconnect_and_reconnect()
+{
+    using namespace quintum::net;
+
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    std::array<PeerError, 2> server_errors{
+        PeerError::accept_failed,
+        PeerError::accept_failed
+    };
+
+    std::thread server([&] {
+        for (std::size_t i = 0U;
+             i < server_errors.size();
+             ++i) {
+            auto accepted =
+                listener.accept_and_handshake(
+                    version(
+                        0x9000U +
+                            static_cast<std::uint64_t>(i),
+                        10U +
+                            static_cast<std::uint32_t>(i)
+                    ),
+                    5'000U
+                );
+
+            if (!accepted.ok()) {
+                server_errors[i] = accepted.error;
+                return;
+            }
+
+            server_errors[i] =
+                accepted.session->service_once();
+
+            accepted.session->close();
+        }
+    });
+
+    for (std::size_t i = 0U;
+         i < server_errors.size();
+         ++i) {
+        auto connected =
+            connect_and_handshake(
+                params,
+                "127.0.0.1",
+                listener.local_port(),
+                version(
+                    0xa000U +
+                        static_cast<std::uint64_t>(i),
+                    20U +
+                        static_cast<std::uint32_t>(i)
+                ),
+                5'000U
+            );
+
+        assert(connected.ok());
+        assert(connected.session->ping(
+                   0xb000U +
+                       static_cast<std::uint64_t>(i)) ==
+               PeerError::none);
+        connected.session->close();
+    }
+
+    server.join();
+
+    assert(server_errors[0] == PeerError::none);
+    assert(server_errors[1] == PeerError::none);
+}
+
 } // namespace
 
 int main()
@@ -281,5 +377,6 @@ int main()
     test_two_peer_handshake_and_ping();
     test_wrong_network_rejected();
     test_self_connection_rejected();
+    test_disconnect_and_reconnect();
     return 0;
 }
