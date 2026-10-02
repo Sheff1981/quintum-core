@@ -1,0 +1,215 @@
+#pragma once
+
+#include "net/address.hpp"
+#include "net/discovery.hpp"
+#include "net/peer.hpp"
+#include "node/node.hpp"
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace quintum::net {
+
+struct NetworkRuntimeConfig {
+    std::string bind_address{"0.0.0.0"};
+    std::optional<std::uint16_t> listen_port{};
+    bool allow_local_peers{false};
+    std::size_t target_outbound{8U};
+    std::size_t max_connections{32U};
+    std::uint32_t accept_poll_ms{25U};
+    std::uint32_t io_timeout_ms{5'000U};
+    std::uint64_t outbound_retry_seconds{1U};
+    std::uint64_t reconnect_delay_seconds{5U};
+    std::uint64_t ping_interval_seconds{120U};
+    std::uint64_t ping_timeout_seconds{30U};
+    std::vector<PeerAddress> bootstrap_peers{};
+};
+
+enum class NetworkRuntimeStartError {
+    none,
+    already_running,
+    node_failed,
+    address_store_failed,
+    listener_failed,
+};
+
+struct NetworkRuntimeStartResult {
+    NetworkRuntimeStartError error{
+        NetworkRuntimeStartError::none
+    };
+    NodeStartResult node{};
+    AddrStoreError address_store{
+        AddrStoreError::none
+    };
+    PeerError peer_error{PeerError::none};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error ==
+            NetworkRuntimeStartError::none;
+    }
+};
+
+struct NetworkRuntimeStatus {
+    bool running{false};
+    std::uint16_t listen_port{0U};
+    std::size_t peers{0U};
+    std::size_t outbound_peers{0U};
+    std::size_t known_addresses{0U};
+    std::optional<std::uint32_t> height{};
+    std::optional<Hash256> tip{};
+    std::size_t mempool_transactions{0U};
+};
+
+class NetworkRuntime {
+public:
+    NetworkRuntime(
+        const consensus::ChainParams& params,
+        std::filesystem::path directory
+    );
+
+    ~NetworkRuntime();
+
+    NetworkRuntime(const NetworkRuntime&) = delete;
+    NetworkRuntime& operator=(
+        const NetworkRuntime&) = delete;
+
+    [[nodiscard]] NetworkRuntimeStartResult start(
+        NetworkRuntimeConfig config = {}
+    );
+
+    void stop() noexcept;
+
+    [[nodiscard]] bool running() const noexcept;
+    [[nodiscard]] NetworkRuntimeStatus status() const;
+
+    [[nodiscard]] NodeTransactionResult submit_transaction(
+        const Transaction& transaction
+    );
+
+    [[nodiscard]] NodeMineResult mine_mempool_block(
+        const Bytes& payout_script,
+        std::uint64_t max_attempts
+    );
+
+    [[nodiscard]] NodeMineResult mine_mempool_block_at(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time,
+        std::uint64_t max_attempts
+    );
+
+    [[nodiscard]] bool has_mempool_transaction(
+        const Hash256& txid
+    ) const;
+
+private:
+    struct PendingAnnouncement {
+        std::uint32_t type{0U};
+        Hash256 hash{};
+    };
+
+    struct ReconnectCandidate {
+        PeerAddress address{};
+        std::uint64_t next_attempt{0U};
+    };
+
+    struct LivePeer {
+        PeerSession session{};
+        std::optional<PeerAddress> address{};
+        std::uint64_t last_activity{0U};
+        std::uint64_t ping_sent_at{0U};
+        std::optional<std::uint64_t> pending_ping{};
+        std::vector<Hash256> requested_transactions{};
+        std::vector<Hash256> requested_blocks{};
+    };
+
+    [[nodiscard]] VersionMessage local_version(
+        std::uint64_t now
+    ) const;
+
+    void run_loop() noexcept;
+    void accept_inbound(std::uint64_t now);
+    void maintain_outbound(std::uint64_t now);
+    void service_peers(std::uint64_t now);
+    void flush_announcements();
+    void prune_closed(std::uint64_t now);
+
+    [[nodiscard]] bool prepare_live_peer(
+        LivePeer& peer,
+        std::uint64_t now,
+        bool initial_sync
+    );
+
+    [[nodiscard]] bool process_message(
+        LivePeer& peer,
+        const WireMessage& message,
+        std::uint64_t now
+    );
+
+    [[nodiscard]] bool process_inventory(
+        LivePeer& peer,
+        const WireMessage& message
+    );
+
+    [[nodiscard]] bool process_transaction(
+        LivePeer& peer,
+        const WireMessage& message
+    );
+
+    [[nodiscard]] bool process_block(
+        LivePeer& peer,
+        const WireMessage& message,
+        std::uint64_t now
+    );
+
+    void queue_announcement(
+        std::uint32_t type,
+        const Hash256& hash
+    );
+
+    void schedule_reconnect(
+        const PeerAddress& address,
+        std::uint64_t now
+    );
+
+    void update_peer_counts() noexcept;
+
+    consensus::ChainParams params_{};
+    std::filesystem::path directory_{};
+    NetworkRuntimeConfig config_{};
+
+    mutable std::mutex state_mutex_{};
+    NodeRuntime node_;
+
+    AddrManager addrman_;
+    PeerDiscovery discovery_;
+    PeerListener listener_;
+
+    std::vector<LivePeer> peers_{};
+    std::vector<ReconnectCandidate>
+        reconnect_candidates_{};
+
+    mutable std::mutex announcement_mutex_{};
+    std::vector<PendingAnnouncement>
+        announcements_{};
+
+    std::atomic<bool> running_{false};
+    std::atomic<bool> stop_requested_{false};
+    std::atomic<std::size_t> peer_count_{0U};
+    std::atomic<std::size_t> outbound_count_{0U};
+    std::atomic<std::uint16_t> listen_port_{0U};
+
+    std::uint64_t runtime_nonce_{0U};
+    std::uint64_t ping_counter_{0U};
+    std::uint64_t next_outbound_attempt_{0U};
+    std::thread worker_{};
+};
+
+} // namespace quintum::net
