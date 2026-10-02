@@ -120,6 +120,13 @@ Hash256 scale_target_clamped(
         return limit;
     }
 
+    if (numerator != 0U &&
+        divided.remainder >
+            std::numeric_limits<std::uint64_t>::max() /
+            numerator) {
+        return limit;
+    }
+
     const std::uint64_t correction =
         (divided.remainder * numerator) /
         denominator;
@@ -195,11 +202,27 @@ DifficultyResult calculate_retarget_bits(
         return result;
     }
 
-    const std::uint64_t target_timespan =
-        params.target_spacing_seconds *
+    if (!less_or_equal(previous.target, limit.target)) {
+        result.error =
+            DifficultyError::invalid_previous_target;
+        return result;
+    }
+
+    const auto interval =
         static_cast<std::uint64_t>(
             params.retarget_interval
         );
+
+    if (params.target_spacing_seconds >
+        std::numeric_limits<std::uint64_t>::max() /
+            interval) {
+        result.error =
+            DifficultyError::arithmetic_failure;
+        return result;
+    }
+
+    const std::uint64_t target_timespan =
+        params.target_spacing_seconds * interval;
 
     if (target_timespan == 0U) {
         result.error =
