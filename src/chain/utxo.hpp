@@ -40,6 +40,8 @@ enum class UtxoApplyError {
     invalid_structure,
     missing_input,
     input_sum_overflow,
+    money_out_of_range,
+    premature_coinbase_spend,
     insufficient_input_value,
     output_collision,
 };
