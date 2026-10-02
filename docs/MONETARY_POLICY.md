@@ -63,6 +63,18 @@ or:
 
 This is below the 21,000,000 QUINTUM money-range ceiling.
 
+## Genesis subsidy and spendable maximum
+
+The Mainnet Genesis coinbase claims the normal height-0 subsidy of **50 QUINTUM**, but sends it to the consensus-reserved unspendable locking-script version `0x00`.
+
+Therefore:
+
+- scheduled subsidy total remains **20,999,999.9769 QUINTUM**;
+- Genesis subsidy is permanently unspendable;
+- maximum theoretically spendable subsidy supply is **20,999,949.9769 QUINTUM**, before accounting for any later voluntarily burned or under-claimed rewards.
+
+There is no private key, developer key or recovery mechanism for the Genesis output.
+
 ## Coinbase reward rule
 
 A valid block may create at most:
@@ -111,15 +123,12 @@ All issuance must come through a valid coinbase transaction under the same conse
 
 ## Parameters still not frozen
 
-This document defines the current monetary candidate, but mainnet genesis has not been created.
+This document defines the current monetary candidate. Mainnet Genesis has now been constructed and code-pinned as a reproducible candidate.
 
 Before **MAINNET FROZEN**, we still must deliberately confirm:
 
-- block target interval;
-- difficulty adjustment algorithm;
-- PoW limit;
-- exact genesis block;
-- network identifiers and ports;
+- final public-testnet validation;
+- final review of network identifiers and ports;
 - address format;
 - smallest-unit public name;
 - ticker.
