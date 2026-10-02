@@ -73,6 +73,7 @@ public:
         bool allow_local = false
     );
 
+    void set_allow_local(bool allow_local) noexcept;
     [[nodiscard]] AddrStoreError load();
     [[nodiscard]] AddrStoreError save() const;
 
