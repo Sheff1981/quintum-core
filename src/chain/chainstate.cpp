@@ -119,13 +119,13 @@ ApplyBlockResult apply_block_to_view(
 
 Chainstate::Chainstate(
     const consensus::ChainParams& params)
-    : params_(&params)
+    : params_(params)
 {
 }
 
 const consensus::ChainParams& Chainstate::params() const noexcept
 {
-    return *params_;
+    return params_;
 }
 
 bool Chainstate::empty() const noexcept
@@ -211,7 +211,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     const Block& block,
     const BlockIndexEntry* parent) const
 {
-    const auto& pow = params_->pow;
+    const auto& pow = params_.pow;
 
     if (parent == nullptr) {
         return pow.pow_limit_bits;
@@ -364,7 +364,7 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
 
     if (consensus::check_proof_of_work(
             block.header,
-            params_->pow) !=
+            params_.pow) !=
         consensus::PowCheckError::none) {
         result.error = ChainConnectError::invalid_proof_of_work;
         return result;
@@ -513,7 +513,7 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
             staged_utxos,
             staged_height,
             staged_parent_work,
-            params_->pow
+            params_.pow
         );
 
         if (!applied.result.ok()) {
