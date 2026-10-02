@@ -29,6 +29,14 @@ The known private-key-1 vector is tested against the compressed generator public
 
 `0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798`
 
+## Reserved provably-unspendable lock
+
+Locking-script version `0x00` is permanently reserved as **provably unspendable**.
+
+Any UTXO whose locking script begins with this version is rejected by authorization before public-key parsing or signature checking. This version is used by the Genesis coinbase so the creator cannot own or later recover the Genesis subsidy.
+
+Future script extensions must never reinterpret `0x00` as spendable without deliberately creating an incompatible consensus network.
+
 ## Initial locking model: P2PK v1
 
 QUINTUM begins with a deliberately small, auditable locking model.
