@@ -20,9 +20,9 @@ and:
 
 Current Mainnet candidate:
 
-- target spacing: 150 seconds
+- target spacing: 600 seconds
 - interval: 2016 blocks
-- target timespan: 302400 seconds
+- target timespan: 1209600 seconds
 
 At non-retarget heights:
 
@@ -98,4 +98,4 @@ Automated tests cover:
 
 ## Timestamp dependency
 
-Difficulty uses block timestamps, so Mainnet genesis will **not** be frozen until QUINTUM also has explicit timestamp-consensus rules such as Median Time Past and future-time limits.
+Difficulty uses block timestamps. QUINTUM now enforces branch-specific Median Time Past and a maximum future-time window; see `docs/TIMESTAMP_AND_LIMITS.md`.
