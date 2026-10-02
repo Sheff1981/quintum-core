@@ -77,7 +77,17 @@ void test_addresses()
         consensus::Network::regtest,
     };
 
-    for (const auto network : networks) {
+    const std::array<std::string_view, 3> expected{
+        "qtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqq3mxt2",
+        "tqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqfj98rp",
+        "rqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqc3rzan",
+    };
+
+    for (std::size_t network_index = 0U;
+         network_index < networks.size();
+         ++network_index) {
+        const auto network =
+            networks[network_index];
         const std::string address =
             encode_address(
                 network,
@@ -85,6 +95,8 @@ void test_addresses()
             );
 
         assert(!address.empty());
+        assert(address ==
+               expected[network_index]);
         assert(address.starts_with(
             std::string(address_hrp(network)) +
             "1"
