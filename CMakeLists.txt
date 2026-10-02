@@ -24,6 +24,7 @@ add_library(quintum_core STATIC
     src/chain/utxo.cpp
     src/primitives/block.cpp
     src/consensus/pow.cpp
+    src/consensus/monetary.cpp
     src/chain/chainstate.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
