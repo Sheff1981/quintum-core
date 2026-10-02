@@ -14,6 +14,7 @@
 namespace quintum::net {
 
 inline constexpr std::size_t kMaxAddrMessageEntries = 1'000U;
+inline constexpr std::size_t kMaxAddrManagerEntries = 50'000U;
 
 struct PeerAddress {
     std::uint32_t ipv4{0U};
