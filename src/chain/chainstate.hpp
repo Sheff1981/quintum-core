@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chain/utxo.hpp"
+#include "consensus/block_limits.hpp"
 #include "consensus/chainparams.hpp"
 #include "core/types.hpp"
 #include "primitives/block.hpp"
@@ -43,6 +44,9 @@ enum class ChainConnectError {
     invalid_ancestor,
     invalid_proof_of_work,
     unexpected_difficulty,
+    timestamp_too_old,
+    timestamp_too_far_future,
+    resource_limits_exceeded,
     chain_work_overflow,
     height_overflow,
     transaction_failed,
@@ -54,6 +58,9 @@ enum class ChainConnectError {
 struct ChainConnectResult {
     ChainConnectError error{ChainConnectError::none};
     UtxoApplyError transaction_error{UtxoApplyError::none};
+    consensus::BlockResourceError resource_error{
+        consensus::BlockResourceError::none
+    };
     std::size_t transaction_index{0};
     Amount total_fees{0};
     bool activated{false};
@@ -92,6 +99,10 @@ public:
     // Accepts active-tip extensions and side-branch blocks. A side branch is
     // activated only when its cumulative valid work becomes strictly greater.
     [[nodiscard]] ChainConnectResult connect_block(const Block& block);
+    [[nodiscard]] ChainConnectResult connect_block(
+        const Block& block,
+        std::uint64_t adjusted_time
+    );
 
     [[nodiscard]] ChainDisconnectError disconnect_tip();
 
@@ -99,6 +110,9 @@ private:
     [[nodiscard]] bool has_failed_ancestor(const Hash256& hash) const;
     [[nodiscard]] std::optional<std::uint32_t> expected_bits(
         const Block& block,
+        const BlockIndexEntry* parent
+    ) const;
+    [[nodiscard]] std::optional<std::uint64_t> median_time_past(
         const BlockIndexEntry* parent
     ) const;
 
