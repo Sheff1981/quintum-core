@@ -34,6 +34,16 @@ struct ResourceLimits {
     std::uint32_t max_coinbase_script_bytes{100U};
 };
 
+struct GenesisParams {
+    bool enforce{false};
+    std::string_view message{};
+    std::uint64_t timestamp{0U};
+    std::uint32_t bits{0U};
+    std::uint64_t nonce{0U};
+    Hash256 merkle_root{};
+    Hash256 hash{};
+};
+
 struct ChainParams {
     Network network{Network::regtest};
     std::string_view name{};
@@ -43,6 +53,7 @@ struct ChainParams {
     PowParams pow{};
     TimeParams time{};
     ResourceLimits limits{};
+    GenesisParams genesis{};
 };
 
 [[nodiscard]] const ChainParams& mainnet_params() noexcept;
