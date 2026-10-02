@@ -321,18 +321,6 @@ std::vector<BlockHeader> headers_after(
     return out;
 }
 
-bool is_zero_hash(
-    const Hash256& hash) noexcept
-{
-    return std::all_of(
-        hash.begin(),
-        hash.end(),
-        [](Byte value) {
-            return value == 0U;
-        }
-    );
-}
-
 } // namespace
 
 std::vector<Hash256> build_block_locator(
@@ -811,185 +799,239 @@ SyncResult sync_from_peer(
         return out;
     }
 
-    GetHeadersRequest request{
-        .locator =
-            build_block_locator(node.chain()),
-        .stop = {},
-    };
+    std::optional<Hash256> continuation;
 
-    if (request.locator.empty()) {
-        out.error = SyncError::malformed_message;
-        return out;
-    }
+    for (;;) {
+        auto locator =
+            build_block_locator(node.chain());
 
-    const auto request_payload =
-        serialize_getheaders(request);
-
-    out.peer_error =
-        peer.send_command(
-            "getheaders",
-            request_payload
-        );
-
-    if (out.peer_error != PeerError::none) {
-        out.error = SyncError::transport_failed;
-        return out;
-    }
-
-    WireMessage response;
-    out.peer_error =
-        peer.receive_command(response);
-
-    if (out.peer_error != PeerError::none) {
-        out.error = SyncError::transport_failed;
-        return out;
-    }
-
-    if (response.command != "headers") {
-        out.error = SyncError::malformed_message;
-        return out;
-    }
-
-    const auto headers =
-        parse_headers(response.payload);
-
-    if (!headers) {
-        out.error = SyncError::malformed_message;
-        return out;
-    }
-
-    out.headers_received = headers->size();
-
-    if (headers->empty()) {
-        return out;
-    }
-
-    Hash256 previous =
-        headers->front().previous_block;
-
-    if (!node.chain().is_on_active_chain(previous)) {
-        out.error = SyncError::invalid_header_chain;
-        return out;
-    }
-
-    for (const auto& header : *headers) {
-        if (header.previous_block != previous) {
-            out.error = SyncError::invalid_header_chain;
-            return out;
-        }
-
-        if (consensus::check_proof_of_work(
-                header,
-                node.chain().params().pow) !=
-            consensus::PowCheckError::none) {
-            out.error = SyncError::invalid_header_pow;
-            return out;
-        }
-
-        previous = block_hash(header);
-    }
-
-    for (const auto& header : *headers) {
-        const Hash256 expected_hash =
-            block_hash(header);
-
-        if (node.chain().has_block(expected_hash)) {
-            continue;
-        }
-
-        const std::array<InventoryItem, 1>
-            request_items{
-                InventoryItem{
-                    .type = kInventoryBlock,
-                    .hash = expected_hash,
-                }
-            };
-
-        const auto inventory =
-            serialize_inventory(request_items);
-
-        out.peer_error =
-            peer.send_command(
-                "getdata",
-                inventory
-            );
-
-        if (out.peer_error != PeerError::none) {
-            out.error = SyncError::transport_failed;
-            return out;
-        }
-
-        ++out.blocks_requested;
-
-        WireMessage block_message;
-        out.peer_error =
-            peer.receive_command(block_message);
-
-        if (out.peer_error != PeerError::none) {
-            out.error = SyncError::transport_failed;
-            return out;
-        }
-
-        if (block_message.command == "notfound") {
-            out.error = SyncError::block_not_found;
-            return out;
-        }
-
-        if (block_message.command != "block") {
+        if (locator.empty()) {
             out.error = SyncError::malformed_message;
             return out;
         }
 
-        const auto block =
-            parse_block_payload(
-                block_message.payload,
-                node.chain().params().limits
+        if (continuation) {
+            locator.erase(
+                std::remove(
+                    locator.begin(),
+                    locator.end(),
+                    *continuation
+                ),
+                locator.end()
+            );
+            locator.insert(
+                locator.begin(),
+                *continuation
             );
 
-        if (!block) {
-            out.error = SyncError::block_parse_failed;
-            return out;
-        }
-
-        if (!headers_match(
-                block->header,
-                header) ||
-            block_hash(block->header) !=
-                expected_hash) {
-            out.error =
-                SyncError::announced_block_mismatch;
-            return out;
-        }
-
-        const auto submitted =
-            node.submit_block_at(
-                *block,
-                adjusted_time
-            );
-
-        out.submit_error = submitted.error;
-        out.chain_error =
-            submitted.connect.chain.error;
-        out.storage_error =
-            submitted.connect.storage_error;
-
-        if (!submitted.ok()) {
-            if (submitted.error ==
-                NodeSubmitError::storage_failed) {
-                out.error = SyncError::storage_failed;
-            } else {
-                out.error = SyncError::block_rejected;
+            if (locator.size() >
+                kMaxBlockLocators) {
+                locator.resize(
+                    kMaxBlockLocators
+                );
             }
+        }
+
+        GetHeadersRequest request{
+            .locator = std::move(locator),
+            .stop = {},
+        };
+
+        const auto request_payload =
+            serialize_getheaders(request);
+
+        out.peer_error =
+            peer.send_command(
+                "getheaders",
+                request_payload
+            );
+
+        if (out.peer_error != PeerError::none) {
+            out.error = SyncError::transport_failed;
             return out;
         }
 
-        ++out.blocks_accepted;
-        out.reorganized =
-            out.reorganized ||
-            submitted.connect.chain.reorganized;
-    }
+        WireMessage response;
+        out.peer_error =
+            peer.receive_command(response);
 
-    return out;
+        if (out.peer_error != PeerError::none) {
+            out.error = SyncError::transport_failed;
+            return out;
+        }
+
+        if (response.command != "headers") {
+            out.error = SyncError::malformed_message;
+            return out;
+        }
+
+        const auto headers =
+            parse_headers(response.payload);
+
+        if (!headers) {
+            out.error = SyncError::malformed_message;
+            return out;
+        }
+
+        out.headers_received += headers->size();
+
+        if (headers->empty()) {
+            return out;
+        }
+
+        Hash256 previous =
+            headers->front().previous_block;
+
+        if (!node.chain().has_block(previous)) {
+            out.error = SyncError::invalid_header_chain;
+            return out;
+        }
+
+        for (const auto& header : *headers) {
+            if (header.previous_block != previous) {
+                out.error = SyncError::invalid_header_chain;
+                return out;
+            }
+
+            if (consensus::check_proof_of_work(
+                    header,
+                    node.chain().params().pow) !=
+                consensus::PowCheckError::none) {
+                out.error = SyncError::invalid_header_pow;
+                return out;
+            }
+
+            previous = block_hash(header);
+        }
+
+        const auto tip_before =
+            node.chain().tip_hash();
+        const std::size_t accepted_before =
+            out.blocks_accepted;
+
+        for (const auto& header : *headers) {
+            const Hash256 expected_hash =
+                block_hash(header);
+
+            if (node.chain().has_block(
+                    expected_hash)) {
+                continue;
+            }
+
+            const std::array<InventoryItem, 1>
+                request_items{
+                    InventoryItem{
+                        .type = kInventoryBlock,
+                        .hash = expected_hash,
+                    }
+                };
+
+            const auto inventory =
+                serialize_inventory(
+                    request_items
+                );
+
+            out.peer_error =
+                peer.send_command(
+                    "getdata",
+                    inventory
+                );
+
+            if (out.peer_error != PeerError::none) {
+                out.error = SyncError::transport_failed;
+                return out;
+            }
+
+            ++out.blocks_requested;
+
+            WireMessage block_message;
+            out.peer_error =
+                peer.receive_command(
+                    block_message
+                );
+
+            if (out.peer_error != PeerError::none) {
+                out.error = SyncError::transport_failed;
+                return out;
+            }
+
+            if (block_message.command == "notfound") {
+                out.error = SyncError::block_not_found;
+                return out;
+            }
+
+            if (block_message.command != "block") {
+                out.error = SyncError::malformed_message;
+                return out;
+            }
+
+            const auto block =
+                parse_block_payload(
+                    block_message.payload,
+                    node.chain().params().limits
+                );
+
+            if (!block) {
+                out.error = SyncError::block_parse_failed;
+                return out;
+            }
+
+            if (!headers_match(
+                    block->header,
+                    header) ||
+                block_hash(block->header) !=
+                    expected_hash) {
+                out.error =
+                    SyncError::announced_block_mismatch;
+                return out;
+            }
+
+            const auto submitted =
+                node.submit_block_at(
+                    *block,
+                    adjusted_time
+                );
+
+            out.submit_error = submitted.error;
+            out.chain_error =
+                submitted.connect.chain.error;
+            out.storage_error =
+                submitted.connect.storage_error;
+
+            if (!submitted.ok()) {
+                if (submitted.error ==
+                    NodeSubmitError::storage_failed) {
+                    out.error =
+                        SyncError::storage_failed;
+                } else {
+                    out.error =
+                        SyncError::block_rejected;
+                }
+                return out;
+            }
+
+            ++out.blocks_accepted;
+            out.reorganized =
+                out.reorganized ||
+                submitted.connect.chain.reorganized;
+        }
+
+        continuation =
+            block_hash(headers->back());
+
+        if (headers->size() <
+            kMaxHeadersPerMessage) {
+            return out;
+        }
+
+        if (out.blocks_accepted ==
+                accepted_before &&
+            node.chain().tip_hash() ==
+                tip_before) {
+            out.error = SyncError::stalled;
+            return out;
+        }
+    }
 }
 
 } // namespace quintum::net
