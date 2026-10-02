@@ -78,6 +78,7 @@ enum class WalletSyncError {
     height_overflow,
     active_chain_inconsistent,
     amount_overflow,
+    store_failed,
 };
 
 struct WalletBalance {
