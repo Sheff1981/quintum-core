@@ -84,7 +84,7 @@ Hash блока считается не «из объекта C++», а из с�
 
 ### Статус этапа
 
-**Код написан. Проверка CI должна подтвердить Windows + Linux.**
+**ГОТОВО.** GitHub Actions: Windows — success, Linux — success. Все foundation-тесты прошли.
 
 ### Следующий этап
 
