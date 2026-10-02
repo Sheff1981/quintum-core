@@ -906,3 +906,228 @@ QUINTUM подключил официальную библиотеку Bitcoin C
 - подготовка к уникальным Genesis для каждой сети.
 
 Genesis пока не создаём, пока эти параметры не доказаны тестами.
+
+
+---
+
+## 2026-10-02 — Этап 10. ChainParams, Mainnet/Testnet/Regtest и difficulty adjustment
+
+### Цель
+
+Разделить QUINTUM на независимые сетевые режимы и сделать так, чтобы майнер не мог самовольно записать в блок более лёгкую сложность.
+
+До этого PoW уже умел проверять `hash <= target`, но сам target ещё не был полностью привязан к истории конкретной сети.
+
+Теперь каждый блок обязан иметь именно тот `bits`, который QUINTUM сам вычислил из своего parent и правил выбранной сети.
+
+### Создан ChainParams
+
+Добавлены три отдельных набора параметров:
+
+**Mainnet**
+- target spacing: 150 секунд;
+- retarget interval: 2016 блоков;
+- target retarget period: 302400 секунд, то есть примерно 3.5 суток;
+- PoW limit bits: `0x1e0ffff0`;
+- minimum-difficulty exception: запрещён;
+- retargeting: включён;
+- draft network magic: `51 b7 4c a3`;
+- draft P2P/RPC ports: 28444 / 28445.
+
+**Testnet**
+- target spacing: 150 секунд;
+- retarget interval: 2016 блоков;
+- PoW limit bits: `0x1e0ffff0`;
+- minimum-difficulty exception: разрешён после длительной паузы;
+- retargeting: включён;
+- draft network magic: `b7 d7 16 5a`;
+- draft P2P/RPC ports: 38444 / 38445.
+
+**Regtest**
+- target spacing: 1 секунда;
+- fixed easy PoW;
+- PoW limit bits: `0x2100ffff`;
+- retargeting фактически выключен;
+- draft network magic: `33 20 e2 ee`;
+- draft P2P/RPC ports: 48444 / 48445.
+
+### Difficulty adjustment
+
+Mainnet-кандидат использует простой периодический retarget.
+
+На обычных блоках:
+
+`next_bits = previous_bits`
+
+На границе каждого периода из 2016 блоков:
+
+1. берётся первая высота закончившегося периода;
+2. берётся последний блок периода;
+3. измеряется фактическое время;
+4. фактическое время ограничивается диапазоном от 1/4 до 4 целевых периодов;
+5. новый target считается как:
+   `old_target * actual_timespan / target_timespan`;
+6. результат не может быть легче `powLimit`;
+7. target переводится обратно в canonical compact `bits`.
+
+Floating point не используется.
+
+### Почему ограничиваем изменение ×4
+
+Один странный период timestamps не должен мгновенно изменить сложность в сотни раз.
+
+Clamp ограничивает один retarget максимум четырёхкратным изменением target в любую сторону.
+
+Это не заменяет timestamp-consensus. Median Time Past и ограничение слишком будущих timestamps будут отдельным этапом до Genesis.
+
+### Branch-specific difficulty
+
+Difficulty считается по истории **конкретной ветки**.
+
+Если есть fork A и fork B, блок на B не получает difficulty из active tip A. QUINTUM идёт по parent-цепочке B и вычисляет target из её собственной истории.
+
+Это необходимо для корректного reorg.
+
+### Защита от поддельной лёгкой сложности
+
+Теперь нода делает две независимые проверки:
+
+1. `block.bits == expected_bits_for_this_parent`;
+2. `block_hash <= decoded_target`.
+
+Поэтому майнер не может поставить лёгкий target, быстро найти hash и выдать блок за валидный.
+
+Такой блок получает `unexpected_difficulty`, даже если hash действительно удовлетворяет записанному в нём лёгкому target.
+
+### PoW limit
+
+Добавлена отдельная проверка:
+
+`target <= network powLimit`.
+
+Target выше сетевого максимума отвергается.
+
+### Testnet minimum difficulty
+
+Testnet имеет специальное правило для ситуации, когда сеть почти никто не майнит.
+
+Если новый блок имеет timestamp более чем на 2 target spacings после parent, разрешается minimum difficulty.
+
+При 150-секундном target spacing это означает паузу более 300 секунд.
+
+Следующий нормально пришедший блок не обязан продолжать minimum difficulty: QUINTUM находит предыдущий нормальный target этой ветки и восстанавливает его, кроме обычной retarget-границы.
+
+### Regtest
+
+Regtest специально не меняет difficulty.
+
+Он нужен для:
+- автоматических тестов;
+- локальных разработчиков;
+- мгновенного майнинга тестовых блоков;
+- воспроизведения reorg;
+- будущих wallet/P2P тестов.
+
+Regtest не является публичной денежной сетью.
+
+### Интерфейс для майнера
+
+Добавлен:
+
+`Chainstate::next_work_required(candidate_timestamp)`
+
+Будущий block-template/miner получает правильный `bits` непосредственно из Chainstate.
+
+Майнеру не придётся копировать формулу difficulty у себя отдельно.
+
+Это уменьшает риск, что майнер и валидатор начнут считать разные target.
+
+### Безопасность хранения ChainParams
+
+Сначала Chainstate хранил ссылку/указатель на внешний ChainParams.
+
+До финализации это было заменено на собственную копию параметров внутри Chainstate.
+
+Это исключает dangling reference при использовании временного или тестового набора параметров.
+
+### Контрольные тесты
+
+Добавлен десятый test suite: `difficulty`.
+
+Проверяются:
+
+- различие Mainnet/Testnet/Regtest;
+- различие network magic;
+- различие сетевых портов;
+- Mainnet spacing 150 секунд;
+- Mainnet interval 2016;
+- правильный `powLimit`;
+- unchanged target при идеальном времени;
+- ускоренный период;
+- 1/4 clamp;
+- медленный период;
+- 4x clamp;
+- ограничение `powLimit`;
+- отказ target выше `powLimit`;
+- Regtest no-retarget;
+- contextual difficulty внутри настоящего Chainstate;
+- блок с неправильным более лёгким `bits` отклоняется;
+- блок с правильным retarget принимается;
+- Testnet minimum-difficulty блок принимается после паузы;
+- следующий нормально пришедший Testnet-блок возвращается к предыдущей сложности;
+- `next_work_required()` выдаёт тот же target, который затем требует валидатор.
+
+### QA-находка
+
+Первый integration-тест ожидал quarter-target при периоде 15 секунд из целевых 40.
+
+Это было ошибкой самого тестового ожидания: minimum clamp равнялся 10 секунд, но фактические 15 секунд уже выше clamp, поэтому правильное масштабирование равно 15/40.
+
+Consensus-код вернул правильное значение, тест упал и тем самым подтвердил, что формула не подгоняется под заранее записанный ответ.
+
+Эталон теста исправлен на фактическую consensus-математику.
+
+### Изменённые файлы
+
+- `src/consensus/chainparams.hpp`
+- `src/consensus/chainparams.cpp`
+- `src/consensus/difficulty.hpp`
+- `src/consensus/difficulty.cpp`
+- `src/consensus/pow.hpp`
+- `src/consensus/pow.cpp`
+- `src/chain/chainstate.hpp`
+- `src/chain/chainstate.cpp`
+- `tests/difficulty_tests.cpp`
+- `tests/chainstate_tests.cpp`
+- `CMakeLists.txt`
+- `docs/CHAIN_PARAMS.md`
+- `docs/DIFFICULTY.md`
+- `docs/CONSENSUS.md`
+- `docs/DECISIONS.md`
+
+### Статус этапа
+
+**ГОТОВО.**
+
+Финальный кодовый GitHub Actions CI:
+
+- Windows — success;
+- Linux — success;
+- **10/10 test suites passed**.
+
+### Что ещё НЕ фиксируем
+
+Genesis QUINTUM пока не создаём.
+
+Difficulty зависит от block timestamps, поэтому до Genesis сначала должны быть закреплены:
+
+- Median Time Past;
+- максимально допустимое время блока в будущем;
+- максимальный размер/вес блока;
+- базовые resource/DoS limits.
+
+### Следующий этап
+
+**Этап 11 — timestamp consensus + block limits.**
+
+После него consensus-фундамент будет достаточно закрыт, чтобы переходить к уникальным Genesis для Mainnet, Testnet и Regtest.
