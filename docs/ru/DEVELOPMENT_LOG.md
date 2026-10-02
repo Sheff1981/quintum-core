@@ -2224,3 +2224,146 @@ Genesis, consensus parameters, network magic, порты, PoW, difficulty, monet
 - periodic ping/liveness;
 - graceful shutdown;
 - автоматическое распространение новых blocks/transactions без ручного вызова сетевых функций.
+
+
+---
+
+## 2026-10-02 — Этап 19. Постоянно работающий Network Runtime
+
+### Цель
+
+Перестать запускать discovery, sync и relay как отдельные тестовые операции и объединить этапы 15–18 в одну реально постоянно работающую P2P-ноду.
+
+### Что добавлено
+
+1. **NetworkRuntime**
+   - владеет жизненным циклом сетевой ноды;
+   - запускает blockchain runtime;
+   - загружает `peers.dat`;
+   - поднимает P2P listener;
+   - запускает постоянный worker loop;
+   - корректно останавливается без повреждения blockchain/peer database.
+
+2. **Постоянный inbound listener**
+   - bind на собственный QUINTUM P2P port;
+   - короткий accept polling отдельно от handshake I/O timeout;
+   - несколько последовательных inbound peers;
+   - idle socket не блокирует обслуживание всей ноды.
+
+3. **Automatic outbound**
+   - адрес выбирается из AddrManager автоматически;
+   - manual IP обычному пользователю не нужен;
+   - `version/verack`;
+   - новый outbound peer автоматически получает startup headers/block sync;
+   - затем выполняется mempool catch-up.
+
+4. **Единый message loop**
+   - `ping/pong`;
+   - `getaddr/addr`;
+   - `getheaders`;
+   - `getdata`;
+   - `inv`;
+   - `tx`;
+   - `block`;
+   - `mempool`;
+   - `notfound`.
+
+5. **Live relay**
+   - локально принятая transaction автоматически ставит `inv(txid)` в outbound queue;
+   - locally mined block автоматически ставит `inv(blockhash)`;
+   - transaction/block, принятые от одного peer, могут распространяться дальше;
+   - full object отправляется только после `getdata`.
+
+6. **Liveness**
+   - asynchronous ping nonce;
+   - matching pong;
+   - idle interval;
+   - timeout;
+   - зависший/оборванный socket удаляется из active peers.
+
+7. **Reconnect**
+   - live outbound connection после обрыва ставится в reconnect schedule;
+   - адрес остаётся в persistent AddrManager;
+   - failure history/backoff сохраняются;
+   - после возвращения peer соединение восстанавливается автоматически.
+
+8. **`quintumd` стал долгоживущей нодой**
+   - при обычном запуске не завершается сразу;
+   - слушает P2P;
+   - обслуживает сеть постоянно;
+   - SIGINT/SIGTERM / Ctrl+C запускает graceful shutdown;
+   - `--listen-port` доступен как development override;
+   - mining CLI использует уже общий mempool/runtime.
+
+### End-to-end QA
+
+Новый 19-й suite `network_runtime`:
+
+1. заранее создаёт одну общую валидную цепь до height 100;
+2. первая нода имеет ещё 5 валидных блоков — height 105;
+3. обе базы закрываются и затем запускаются через настоящий continuous NetworkRuntime;
+4. client знает endpoint server через bootstrap/addrman;
+5. client автоматически устанавливает TCP + version/verack;
+6. автоматически догоняется с 100 до 105;
+7. соединение остаётся живым через asynchronous ping/pong;
+8. server принимает реальную signed spend transaction;
+9. transaction сама распространяется в mempool client;
+10. server майнит её в block 106;
+11. block автоматически распространяется client;
+12. обе ноды получают одинаковый tip, remote mempool очищается;
+13. server намеренно выключается;
+14. client обнаруживает disconnect;
+15. server запускается снова на том же endpoint;
+16. client автоматически reconnect;
+17. server майнит block 107;
+18. block 107 автоматически появляется у client;
+19. обе ноды корректно завершаются.
+
+При первом прогоне тест намеренно выявил корректную consensus-защиту: тестовые timestamps случайно были выставлены более чем на 2 часа в будущее, поэтому remote node законно отвергала blocks. Исправлен только тестовый timestamp; consensus future-time rule не ослаблялся.
+
+### Безопасность
+
+NetworkRuntime не получает привилегированного пути изменения blockchain.
+
+Remote data проходит существующие:
+
+- wire limits;
+- transaction parser;
+- mempool/UTXO validation;
+- signature authorization;
+- block parser;
+- PoW;
+- difficulty;
+- timestamp rules;
+- Merkle/transaction checks;
+- Chainstate;
+- cumulative-work/reorg rules;
+- persistent storage commit.
+
+Genesis, monetary policy, network magic, P2P/RPC ports, PoW и difficulty parameters не изменялись.
+
+### Ограничение перед публичной сетью
+
+Механизм bootstrap готов, но built-in public seed list остаётся пустым, пока реально не существует независимых публичных QUINTUM seed nodes. Фиктивный developer endpoint не добавляется.
+
+UPnP/NAT-PMP и DNS seed deployment также остаются отдельными инфраструктурными этапами.
+
+### Статус
+
+Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+
+### Следующий этап
+
+**Этап 20 — Wallet Core.**
+
+Следующий фундаментальный слой:
+
+- secure private-key storage;
+- QUINTUM addresses;
+- wallet-owned UTXO discovery;
+- confirmed/unconfirmed balance;
+- receive addresses;
+- transaction construction;
+- fee;
+- signing;
+- backup/recovery foundation.
