@@ -1979,7 +1979,16 @@ P2P discovery не меняет Genesis, PoW, difficulty, monetary policy, UTXO 
 
 ### Статус
 
-Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+**ГОТОВО.**
+
+GitHub Actions на финальном коде этапа:
+
+- Linux — success;
+- Windows — success;
+- **16/16 test suites passed**;
+- отдельный `discovery` suite — passed на обеих ОС.
+
+Genesis, consensus parameters, network magic, порты, PoW, monetary policy и blockchain storage не изменялись.
 
 ### Следующий этап
 
