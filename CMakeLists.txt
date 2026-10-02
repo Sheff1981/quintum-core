@@ -68,6 +68,7 @@ add_library(quintum_core STATIC
     src/consensus/time.cpp
     src/consensus/monetary.cpp
     src/chain/chainstate.cpp
+    src/chain/storage.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -189,3 +190,13 @@ quintum_strict_warnings(quintum_chainstate_tests)
 quintum_test_assertions(quintum_chainstate_tests)
 
 add_test(NAME chainstate COMMAND quintum_chainstate_tests)
+
+
+add_executable(quintum_storage_tests
+    tests/storage_tests.cpp
+)
+target_link_libraries(quintum_storage_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_storage_tests)
+quintum_test_assertions(quintum_storage_tests)
+
+add_test(NAME storage COMMAND quintum_storage_tests)
