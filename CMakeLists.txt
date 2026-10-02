@@ -72,11 +72,13 @@ add_library(quintum_core STATIC
     src/chain/storage.cpp
     src/mining/block_template.cpp
     src/node/node.cpp
+    src/node/mempool.cpp
     src/net/protocol.cpp
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
     src/net/sync.cpp
+    src/net/relay.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
@@ -256,3 +258,15 @@ quintum_strict_warnings(quintum_sync_tests)
 quintum_test_assertions(quintum_sync_tests)
 
 add_test(NAME sync COMMAND quintum_sync_tests)
+
+add_executable(quintum_relay_tests
+    tests/relay_tests.cpp
+)
+target_link_libraries(
+    quintum_relay_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_relay_tests)
+quintum_test_assertions(quintum_relay_tests)
+
+add_test(NAME relay COMMAND quintum_relay_tests)
