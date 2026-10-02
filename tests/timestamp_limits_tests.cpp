@@ -11,6 +11,13 @@
 
 namespace {
 
+quintum::consensus::ChainParams development_regtest_params()
+{
+    auto params = quintum::consensus::regtest_params();
+    params.genesis.enforce = false;
+    return params;
+}
+
 quintum::Transaction make_coinbase(
     std::uint32_t height,
     quintum::Byte tag,
@@ -49,7 +56,7 @@ quintum::Block make_block(
     block.header.previous_block = previous;
     block.header.timestamp = timestamp;
     block.header.bits =
-        quintum::consensus::regtest_params()
+        development_regtest_params()
             .pow.pow_limit_bits;
     block.transactions.push_back(
         make_coinbase(height, tag)
@@ -71,7 +78,7 @@ quintum::Block make_block(
 void test_median_time_past()
 {
     quintum::Chainstate chain{
-        quintum::consensus::regtest_params()
+        development_regtest_params()
     };
 
     quintum::Hash256 previous{};
@@ -139,7 +146,7 @@ void test_median_time_past()
 void test_future_time_limit()
 {
     const auto params =
-        quintum::consensus::regtest_params();
+        development_regtest_params();
 
     constexpr std::uint64_t adjusted_time = 10'000U;
     const auto maximum =
@@ -196,7 +203,7 @@ void test_future_time_limit()
 void test_resource_limits()
 {
     const auto& params =
-        quintum::consensus::regtest_params();
+        development_regtest_params();
 
     {
         quintum::Block block;
@@ -311,7 +318,7 @@ void test_resource_limits()
 void test_chainstate_rejects_resource_violation()
 {
     auto params =
-        quintum::consensus::regtest_params();
+        development_regtest_params();
 
     quintum::Chainstate chain{params};
     quintum::Hash256 zero{};
