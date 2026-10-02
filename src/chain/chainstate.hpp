@@ -45,6 +45,7 @@ enum class ChainConnectError {
     height_overflow,
     transaction_failed,
     fee_sum_overflow,
+    invalid_coinbase_reward,
     reorg_undo_failed,
 };
 
