@@ -9,6 +9,7 @@
 #include <fstream>
 #include <limits>
 #include <system_error>
+#include <utility>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
