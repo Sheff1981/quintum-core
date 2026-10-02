@@ -143,6 +143,12 @@ public:
         std::uint32_t timeout_ms
     );
 
+    [[nodiscard]] PeerHandshakeResult accept_and_handshake(
+        const VersionMessage& local,
+        std::uint32_t accept_timeout_ms,
+        std::uint32_t io_timeout_ms
+    );
+
     void close() noexcept;
 
 private:
