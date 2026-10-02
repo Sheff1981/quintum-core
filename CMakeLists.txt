@@ -57,6 +57,7 @@ endfunction()
 add_library(quintum_core STATIC
     src/crypto/sha256.cpp
     src/crypto/secp256k1.cpp
+    src/crypto/random.cpp
     src/consensus/tx_auth.cpp
     src/primitives/transaction.cpp
     src/chain/utxo.cpp
@@ -80,12 +81,14 @@ add_library(quintum_core STATIC
     src/net/sync.cpp
     src/net/relay.cpp
     src/net/runtime.cpp
+    src/wallet/address.cpp
+    src/wallet/wallet.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
 target_link_libraries(quintum_core PUBLIC secp256k1)
 if(WIN32)
-    target_link_libraries(quintum_core PUBLIC ws2_32)
+    target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt)
 endif()
 quintum_strict_warnings(quintum_core)
 
