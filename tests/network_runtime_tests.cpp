@@ -193,7 +193,7 @@ void test_continuous_runtime_sync_relay_reconnect()
         unique_dir("client");
 
     const std::uint64_t base_time =
-        params.genesis.timestamp + 60'000U;
+        params.genesis.timestamp + 1'000U;
 
     const auto payout =
         payout_script(9U);
