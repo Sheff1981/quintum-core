@@ -21,6 +21,21 @@ Reason: deterministic spend tracking, explicit double-spend validation and a pro
 ## D-005 — No privileged monetary controls
 **Decision:** no premine hidden from documentation, master mint key, balance override, or developer-only consensus bypass.
 
+## D-006 — Monetary policy candidate
+**State:** DRAFT until mainnet genesis freeze.
+
+Current candidate:
+
+- 8 decimal places;
+- 50 QUINTUM initial block subsidy;
+- halving every 210,000 blocks;
+- 100-block coinbase maturity;
+- 21,000,000 QUINTUM money-range ceiling;
+- exact scheduled subsidy maximum 20,999,999.9769 QUINTUM;
+- coinbase may claim at most subsidy + transaction fees.
+
+Reason: conservative, audit-friendly fixed issuance with no privileged mint path.
+
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
