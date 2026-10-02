@@ -29,6 +29,7 @@ Current checks:
 - input and output values remain inside the monetary range
 - total input amount does not exceed the monetary range
 - coinbase inputs have at least 100 blocks of maturity
+- every non-coinbase input has valid cryptographic authorization for the referenced UTXO
 - input value covers output value
 - new output keys do not collide with existing UTXOs
 
@@ -61,7 +62,7 @@ This is the foundation for block disconnect and chain reorganization handling.
 
 ## Not implemented yet
 
-- signature/script verification
+- additional script/address types beyond the current P2PK v1 authorization
 - persistent chainstate database
 - fee relay/minimum policy
 
