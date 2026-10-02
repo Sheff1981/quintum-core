@@ -39,10 +39,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M4 — Blockchain synchronization:** real TCP P2P transport, persistent peer discovery, Bitcoin-style block locators, `getheaders/headers`, `getdata/block`, multi-batch catch-up, persistent received-block storage and reorg to the heaviest valid chain.
+**M5 — Live transaction/block relay:** real TCP P2P transport, persistent peer discovery, headers-first blockchain synchronization, an in-memory validated mempool, transaction inventory relay, block inventory relay and mempool catch-up for newly connected peers.
 
-Every received block enters the existing consensus/Chainstate path; networking cannot bypass PoW, difficulty, timestamps, transactions, UTXO, coinbase reward or storage checks.
+Transactions admitted to the mempool are checked against the active UTXO set plus earlier mempool entries, including authorization, coinbase maturity, double-spend conflicts, money range and script/resource policy. Miners can build blocks directly from the mempool, and confirmed/conflicting entries are revalidated and removed after block activation or reorg.
+
+Every received block still enters the existing consensus/Chainstate path; networking cannot bypass PoW, difficulty, timestamps, transactions, UTXO, coinbase reward or storage checks.
 
 The public QUINTUM seed list is intentionally empty until real independent seed nodes exist; no fake or developer-only endpoint is embedded.
 
-Next: **M5 — live relay and mempool:** block announcements/inventory relay, transaction mempool and transaction propagation, followed by the long-running node connection scheduler.
+Next: **M6 — long-running network runtime:** combine discovery, reconnect, inbound/outbound peer servicing, headers/block sync and live relay into the continuously running node process.
