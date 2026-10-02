@@ -179,3 +179,57 @@ A received block is passed through `NodeRuntime::submit_block_at()`, which deleg
 Therefore a peer cannot directly set height, UTXO, chain work or active tip. If a downloaded branch becomes strictly heavier and is fully valid, the already-existing Chainstate reorg mechanism activates it. The resulting state is durably committed before the sync operation treats the block as accepted.
 
 Stage 17 integration QA covers both ordinary catch-up and a competing-branch reorg followed by restart recovery.
+
+
+## Live inventory relay and mempool
+
+Stage 18 adds the live object-relay layer used after initial blockchain synchronization.
+
+### Transaction mempool
+
+`NodeRuntime` now owns an in-memory mempool. A candidate transaction is accepted only when:
+
+- it is not a coinbase transaction;
+- its txid is not already in the mempool;
+- its serialized size and scripts stay within policy/consensus resource ceilings;
+- all existing mempool entries can still be applied to a copy of the current active UTXO set;
+- the new transaction then applies successfully to that same staged UTXO view.
+
+Because admission uses `UtxoSet::apply_transaction()`, the same authorization, missing-input, coinbase-maturity, amount and double-spend rules used for blocks are reused for mempool admission.
+
+The mempool is bounded to 50,000 transactions and 64 MiB. It is intentionally memory-only at this stage; a restart drops unconfirmed transactions, which can be learned again from connected peers.
+
+After a block is accepted or a reorg changes the active chain, the mempool is reconciled against the new UTXO view. Confirmed, conflicting or otherwise invalidated transactions are removed while still-valid dependent transactions are retained.
+
+### Mining from mempool
+
+A miner can build a block directly from mempool transactions. Selection is bounded by the consensus transaction-count and serialized-block limits. If the mempool is larger than one block, the node chooses the largest valid prefix that fits the real block template rather than attempting to place the whole pool into one block.
+
+### Inventory relay
+
+Stage 18 uses Bitcoin-style inventory types:
+
+- transaction inventory type 1;
+- block inventory type 2.
+
+A live transaction relay is:
+
+`inv(txid) -> getdata(txid) -> tx`
+
+A live block relay is:
+
+`inv(blockhash) -> getdata(blockhash) -> block`
+
+Only the hash is announced first. The receiving peer requests the full object only when it does not already have it.
+
+The receiver verifies that the downloaded object's computed hash matches the announced inventory hash before local admission.
+
+### Mempool catch-up
+
+A newly connected peer can send `mempool`. The remote peer answers with transaction inventory, after which the requester fetches missing transactions through the normal `getdata -> tx` path.
+
+### Broadcast
+
+The relay layer can announce a new transaction or block to every currently connected `ConnectionManager` peer. Peers that fail during announcement are closed and pruned.
+
+The continuous event loop that automatically invokes discovery, servicing, synchronization and relay for the lifetime of `quintumd` is the next runtime milestone.
