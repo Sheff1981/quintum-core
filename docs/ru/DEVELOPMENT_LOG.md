@@ -771,3 +771,138 @@ Halving работает только с целыми атомарными ед�
 - невозможность потратить чужой UTXO без private key.
 
 До этого момента UTXO и экономика уже работают, но право владения ещё не криптографически защищено.
+
+
+---
+
+## 2026-10-02 — Этап 9. Private key, secp256k1 и право собственности
+
+### Цель
+
+Сделать главное свойство цифровых денег: недостаточно знать, какой UTXO существует. Чтобы его потратить, узел должен получить криптографическое доказательство владения private key.
+
+### Криптографическая база
+
+QUINTUM подключил официальную библиотеку Bitcoin Core **libsecp256k1 v0.8.0**.
+
+Зависимость закреплена воспроизводимо:
+
+- release: `v0.8.0`;
+- архив скачивается с официального Bitcoin Core GitHub release;
+- SHA-256 архива:
+  `dd685546f9e717b9adde329acd5a4cd8083d40f710fdb0a603ee5a83f908132b`.
+
+Сборка не использует плавающий `master` или `latest`.
+
+### Что добавлено
+
+1. **Private key**
+   - 32 байта;
+   - обязательная проверка допустимости secret key через libsecp256k1.
+
+2. **Public key**
+   - из private key выводится compressed secp256k1 public key;
+   - размер 33 байта.
+
+3. **ECDSA**
+   - подписание 32-байтного digest;
+   - проверка подписи;
+   - compact signature 64 байта;
+   - high-S форма отклоняется как malleable.
+
+4. **Контрольный ключ**
+   - private key = 1 обязан дать известный compressed generator public key:
+     `0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798`.
+
+5. **P2PK v1**
+   - первый locking format специально сделан маленьким и проверяемым;
+   - locking script: version byte + 33-byte public key;
+   - unlocking script: version byte + 64-byte signature;
+   - неизвестный или битый формат отвергается.
+
+6. **QUINTUM SIGHASH v1**
+   - domain tag: `QUINTUM-SIGHASH-V1`;
+   - подпись фиксирует всю транзакцию;
+   - фиксирует конкретный input index;
+   - фиксирует amount расходуемого UTXO;
+   - фиксирует locking script расходуемого UTXO;
+   - unlocking scripts в preimage не входят;
+   - текущий режим: `SIGHASH_ALL = 1`.
+
+7. **UTXO ownership**
+   - для каждого обычного input сначала находится UTXO;
+   - проверяется maturity и money range;
+   - затем проверяется ECDSA authorization;
+   - только после успешной подписи вход участвует в расчёте суммы;
+   - неверная подпись возвращает `invalid_authorization`;
+   - live UTXO при ошибке не меняется.
+
+### Что проверено
+
+Автоматические тесты проверяют:
+
+- корректность private key;
+- известный public-key vector для secret key 1;
+- невозможность использовать нулевой private key;
+- ECDSA sign/verify;
+- изменение digest ломает подпись;
+- изменение подписи ломает verification;
+- правильный private key подписывает P2PK UTXO;
+- чужой private key не подходит к locking public key;
+- malformed locking/unlocking scripts отклоняются;
+- изменение суммы выхода после подписи делает signature invalid;
+- UTXO реально отвергает tampered signed transaction;
+- coinbase maturity + signed spend работают совместно;
+- signed spends работают внутри chainstate;
+- signed spends корректно переживают fork/reorg сценарии.
+
+### Важное решение по безопасности
+
+**Генерацию пользовательских private keys пока не делаем через удобный псевдослучайный API.**
+
+Использовать `std::random_device` как основу кошелька было бы плохим фундаментом.
+
+При создании wallet будет отдельный этап:
+
+- OS-backed CSPRNG;
+- безопасное создание private key;
+- backup/recovery;
+- encrypted wallet storage;
+- затем адреса.
+
+До этого криптографическая проверка владения уже работает, но production-wallet ещё не выпускает пользовательские ключи.
+
+### Изменённые файлы
+
+- `CMakeLists.txt`
+- `src/crypto/secp256k1.hpp`
+- `src/crypto/secp256k1.cpp`
+- `src/consensus/tx_auth.hpp`
+- `src/consensus/tx_auth.cpp`
+- `src/chain/utxo.hpp`
+- `src/chain/utxo.cpp`
+- `tests/crypto_tests.cpp`
+- `tests/tx_auth_tests.cpp`
+- `tests/utxo_tests.cpp`
+- `tests/chainstate_tests.cpp`
+- `docs/TRANSACTION_AUTHORIZATION.md`
+- `docs/UTXO.md`
+- `docs/CONSENSUS.md`
+- `docs/DECISIONS.md`
+
+### Статус этапа
+
+**ГОТОВО.** Финальный кодовый CI: Windows — success, Linux — success. Все 9 test suites, включая crypto, tx_auth, UTXO и chainstate/reorg с реальными подписями, прошли.
+
+### Следующий этап
+
+Следующим должен быть **сетевой consensus-параметрический слой (ChainParams) + difficulty adjustment**:
+
+- mainnet/testnet/regtest как отдельные наборы параметров;
+- target block interval;
+- powLimit;
+- difficulty retarget;
+- проверка ожидаемого `bits` каждого нового блока;
+- подготовка к уникальным Genesis для каждой сети.
+
+Genesis пока не создаём, пока эти параметры не доказаны тестами.
