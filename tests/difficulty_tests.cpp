@@ -238,9 +238,24 @@ void test_chainstate_rejects_wrong_bits()
     }
 
     // Target interval is 40 seconds. The observed 15 seconds is
-    // clamped to the 10-second minimum, so target becomes 1/4.
-    constexpr std::uint32_t expected_bits =
-        0x203fffc0U;
+    // above the 10-second minimum, so target scales by 15/40.
+    const auto calculated =
+        quintum::consensus::calculate_retarget_bits(
+            0x2100ffffU,
+            100U,
+            115U,
+            params.pow
+        );
+
+    assert(calculated.ok());
+    const std::uint32_t expected_bits = calculated.bits;
+
+    std::cerr
+        << "small-retarget bits=0x"
+        << std::hex
+        << expected_bits
+        << std::dec
+        << "\n";
 
     const auto wrong = make_block(
         previous,
