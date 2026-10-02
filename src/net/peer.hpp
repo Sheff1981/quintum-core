@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net/address.hpp"
 #include "net/protocol.hpp"
 
 #include <cstddef>
@@ -50,6 +51,17 @@ public:
 
     [[nodiscard]] PeerError ping(std::uint64_t nonce);
     [[nodiscard]] PeerError service_once();
+
+    [[nodiscard]] PeerError request_addresses(
+        bool allow_local,
+        std::vector<PeerAddress>& addresses
+    );
+
+    [[nodiscard]] PeerError service_discovery_once(
+        std::span<const PeerAddress> advertised,
+        bool allow_local,
+        std::vector<PeerAddress>* learned = nullptr
+    );
 
     void close() noexcept;
 
