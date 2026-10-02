@@ -77,6 +77,16 @@ parse_transaction_payload(
     const Hash256& block_hash_value
 );
 
+[[nodiscard]] std::size_t broadcast_transaction(
+    ConnectionManager& peers,
+    const Hash256& txid
+);
+
+[[nodiscard]] std::size_t broadcast_block(
+    ConnectionManager& peers,
+    const Hash256& block_hash_value
+);
+
 [[nodiscard]] PeerError request_mempool_inventory(
     PeerSession& peer
 );
