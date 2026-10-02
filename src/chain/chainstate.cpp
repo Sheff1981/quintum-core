@@ -93,6 +93,12 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
         return result;
     }
 
+    if (!chain_.empty() &&
+        chain_.back().height == std::numeric_limits<std::uint32_t>::max()) {
+        result.error = ChainConnectError::height_overflow;
+        return result;
+    }
+
     const std::uint32_t next_height =
         chain_.empty() ? 0U : chain_.back().height + 1U;
 
