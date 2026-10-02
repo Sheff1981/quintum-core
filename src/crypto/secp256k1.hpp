@@ -12,6 +12,7 @@ using PublicKey = std::array<Byte, 33>;
 using CompactSignature = std::array<Byte, 64>;
 
 [[nodiscard]] bool is_valid_private_key(const PrivateKey& key) noexcept;
+[[nodiscard]] bool is_valid_public_key(const PublicKey& key) noexcept;
 
 [[nodiscard]] std::optional<PublicKey> derive_public_key(
     const PrivateKey& key
