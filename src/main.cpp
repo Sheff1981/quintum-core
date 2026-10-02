@@ -386,13 +386,24 @@ int main(int argc, char* argv[])
     std::cout
         << "P2P runtime active. Press Ctrl+C to stop.\n";
 
-    while (g_stop_requested == 0) {
+    while (g_stop_requested == 0 &&
+           runtime.running()) {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(250)
         );
     }
 
+    const bool unexpected_stop =
+        g_stop_requested == 0 &&
+        !runtime.running();
+
     runtime.stop();
+
+    if (unexpected_stop) {
+        std::cerr
+            << "P2P runtime stopped unexpectedly\n";
+        return 1;
+    }
 
     const auto final_status =
         runtime.status();
