@@ -32,6 +32,28 @@ void append_domain(Bytes& out)
 
 } // namespace
 
+Bytes make_provably_unspendable_script(
+    std::span<const Byte> payload)
+{
+    Bytes script;
+    script.reserve(1U + payload.size());
+    script.push_back(kProvablyUnspendableLockVersion);
+    script.insert(
+        script.end(),
+        payload.begin(),
+        payload.end()
+    );
+    return script;
+}
+
+bool is_provably_unspendable(
+    const Bytes& script) noexcept
+{
+    return !script.empty() &&
+           script.front() ==
+               kProvablyUnspendableLockVersion;
+}
+
 Bytes make_p2pk_locking_script(
     const crypto::PublicKey& public_key)
 {
@@ -175,6 +197,11 @@ InputAuthError sign_p2pk_input(
         return InputAuthError::input_index_out_of_range;
     }
 
+    if (is_provably_unspendable(
+            previous_output.locking_script)) {
+        return InputAuthError::provably_unspendable;
+    }
+
     const auto expected_public_key =
         parse_p2pk_locking_script(
             previous_output.locking_script
@@ -219,6 +246,11 @@ InputAuthError verify_input_authorization(
 {
     if (input_index >= tx.inputs.size()) {
         return InputAuthError::input_index_out_of_range;
+    }
+
+    if (is_provably_unspendable(
+            previous_output.locking_script)) {
+        return InputAuthError::provably_unspendable;
     }
 
     const auto public_key =
