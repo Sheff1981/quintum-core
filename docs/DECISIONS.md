@@ -36,6 +36,13 @@ Current candidate:
 
 Reason: conservative, audit-friendly fixed issuance with no privileged mint path.
 
+## D-007 — Initial ownership primitive
+**State:** DRAFT until mainnet genesis freeze.
+
+Use Bitcoin Core's pinned `libsecp256k1` for ECDSA. Initial spend authorization is a minimal versioned P2PK construction with compressed public keys, compact low-S signatures and a QUINTUM-specific domain-separated SIGHASH_ALL preimage.
+
+Reason: minimize consensus surface area while establishing real cryptographic ownership before addresses, wallet UX or a broader script system.
+
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
