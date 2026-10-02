@@ -101,6 +101,45 @@ const ChainstateStore& NodeRuntime::store() const noexcept
     return persistent_.store();
 }
 
+NodeSubmitResult NodeRuntime::submit_block(
+    const Block& block)
+{
+    return submit_block_at(
+        block,
+        unix_time_now()
+    );
+}
+
+NodeSubmitResult NodeRuntime::submit_block_at(
+    const Block& block,
+    std::uint64_t adjusted_time)
+{
+    NodeSubmitResult out;
+
+    if (!started_) {
+        out.error = NodeSubmitError::not_started;
+        return out;
+    }
+
+    out.connect =
+        persistent_.connect_block(
+            block,
+            adjusted_time
+        );
+
+    if (!out.connect.chain.ok()) {
+        out.error = NodeSubmitError::chain_rejected;
+        return out;
+    }
+
+    if (out.connect.storage_error != StorageError::none) {
+        out.error = NodeSubmitError::storage_failed;
+        return out;
+    }
+
+    return out;
+}
+
 NodeMineResult NodeRuntime::mine_block(
     const Bytes& payout_script,
     std::uint64_t max_attempts,
