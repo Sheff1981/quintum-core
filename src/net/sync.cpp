@@ -678,20 +678,12 @@ std::optional<Block> parse_block_payload(
     return block;
 }
 
-SyncServiceResult serve_sync_once(
+SyncServiceResult serve_sync_message(
     PeerSession& peer,
-    const Chainstate& chain)
+    const Chainstate& chain,
+    const WireMessage& message)
 {
     SyncServiceResult out;
-    WireMessage message;
-
-    out.peer_error =
-        peer.receive_command(message);
-
-    if (out.peer_error != PeerError::none) {
-        out.error = SyncError::transport_failed;
-        return out;
-    }
 
     if (message.command == "getheaders") {
         const auto request =
@@ -784,6 +776,29 @@ SyncServiceResult serve_sync_once(
 
     out.error = SyncError::malformed_message;
     return out;
+
+}
+
+SyncServiceResult serve_sync_once(
+    PeerSession& peer,
+    const Chainstate& chain)
+{
+    SyncServiceResult out;
+    WireMessage message;
+
+    out.peer_error =
+        peer.receive_command(message);
+
+    if (out.peer_error != PeerError::none) {
+        out.error = SyncError::transport_failed;
+        return out;
+    }
+
+    return serve_sync_message(
+        peer,
+        chain,
+        message
+    );
 }
 
 SyncResult sync_from_peer(
