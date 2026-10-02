@@ -1297,7 +1297,7 @@ Median последних 11 = 105.
 
 ### Статус этапа
 
-Код и документация готовы. Финальный Windows + Linux CI должен подтвердить новый 11-й test suite.
+**ГОТОВО.** Кодовый GitHub Actions CI: Windows — success, Linux — success. Всего **11/11 test suites passed**. MTP, future-time boundary, serialized block limit, transaction/script limits и запрет попадания resource-invalid блока в block index проверены.
 
 ### Следующий этап
 
