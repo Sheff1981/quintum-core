@@ -85,6 +85,9 @@ public:
     [[nodiscard]] const UtxoSet& utxos() const noexcept;
     [[nodiscard]] bool has_block(const Hash256& hash) const;
     [[nodiscard]] bool is_on_active_chain(const Hash256& hash) const;
+    [[nodiscard]] std::optional<std::uint32_t> next_work_required(
+        std::uint64_t candidate_timestamp
+    ) const;
 
     // Accepts active-tip extensions and side-branch blocks. A side branch is
     // activated only when its cumulative valid work becomes strictly greater.
