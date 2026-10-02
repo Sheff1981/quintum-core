@@ -1,0 +1,94 @@
+#pragma once
+
+#include "chain/storage.hpp"
+#include "consensus/pow.hpp"
+#include "mining/block_template.hpp"
+
+#include <cstdint>
+#include <filesystem>
+#include <span>
+
+namespace quintum {
+
+enum class NodeStartError {
+    none,
+    storage_failed,
+    invalid_genesis,
+    genesis_connect_failed,
+};
+
+struct NodeStartResult {
+    NodeStartError error{NodeStartError::none};
+    StorageError storage_error{StorageError::none};
+    ChainConnectError chain_error{ChainConnectError::none};
+    bool created_genesis{false};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == NodeStartError::none;
+    }
+};
+
+enum class NodeMineError {
+    none,
+    not_started,
+    template_failed,
+    proof_of_work_exhausted,
+    proof_of_work_invalid,
+    chain_rejected,
+    storage_failed,
+};
+
+struct NodeMineResult {
+    NodeMineError error{NodeMineError::none};
+    mining::BlockTemplateError template_error{
+        mining::BlockTemplateError::none
+    };
+    consensus::MiningResult mining{};
+    PersistentConnectResult connect{};
+    Block block{};
+    std::uint32_t height{0U};
+    Amount total_fees{0U};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == NodeMineError::none;
+    }
+};
+
+class NodeRuntime {
+public:
+    NodeRuntime(
+        const consensus::ChainParams& params,
+        std::filesystem::path directory
+    );
+
+    [[nodiscard]] NodeStartResult start();
+    [[nodiscard]] NodeStartResult start_at(
+        std::uint64_t adjusted_time
+    );
+
+    [[nodiscard]] bool started() const noexcept;
+    [[nodiscard]] const Chainstate& chain() const noexcept;
+    [[nodiscard]] const ChainstateStore& store() const noexcept;
+
+    [[nodiscard]] NodeMineResult mine_block(
+        const Bytes& payout_script,
+        std::uint64_t max_attempts,
+        std::span<const Transaction> transactions = {}
+    );
+
+    [[nodiscard]] NodeMineResult mine_block_at(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time,
+        std::uint64_t max_attempts,
+        std::span<const Transaction> transactions = {}
+    );
+
+private:
+    consensus::ChainParams params_{};
+    PersistentChainstate persistent_;
+    bool started_{false};
+};
+
+} // namespace quintum
