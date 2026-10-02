@@ -1,6 +1,7 @@
 #pragma once
 
 #include "chain/utxo.hpp"
+#include "consensus/chainparams.hpp"
 #include "core/types.hpp"
 #include "primitives/block.hpp"
 
@@ -41,6 +42,7 @@ enum class ChainConnectError {
     duplicate_block,
     invalid_ancestor,
     invalid_proof_of_work,
+    unexpected_difficulty,
     chain_work_overflow,
     height_overflow,
     transaction_failed,
@@ -71,6 +73,9 @@ enum class ChainDisconnectError {
 
 class Chainstate {
 public:
+    explicit Chainstate(const consensus::ChainParams& params);
+
+    [[nodiscard]] const consensus::ChainParams& params() const noexcept;
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] std::size_t block_index_size() const noexcept;
@@ -89,7 +94,12 @@ public:
 
 private:
     [[nodiscard]] bool has_failed_ancestor(const Hash256& hash) const;
+    [[nodiscard]] std::optional<std::uint32_t> expected_bits(
+        const Block& block,
+        const BlockIndexEntry* parent
+    ) const;
 
+    const consensus::ChainParams* params_{nullptr};
     UtxoSet utxos_{};
     std::vector<ChainEntry> chain_{};
     std::map<Hash256, BlockIndexEntry> block_index_{};
