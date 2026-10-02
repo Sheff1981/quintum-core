@@ -8,6 +8,18 @@
 namespace quintum {
 namespace {
 
+bool checked_add(
+    std::size_t& total,
+    std::size_t value) noexcept
+{
+    if (value >
+        std::numeric_limits<std::size_t>::max() - total) {
+        return false;
+    }
+    total += value;
+    return true;
+}
+
 void append_bytes(Bytes& out, const Bytes& bytes)
 {
     append_compact_size(out, static_cast<std::uint64_t>(bytes.size()));
@@ -25,6 +37,65 @@ bool OutPoint::is_null() const noexcept
 bool Transaction::is_coinbase() const noexcept
 {
     return inputs.size() == 1U && inputs.front().previous_output.is_null();
+}
+
+std::optional<std::size_t> serialized_transaction_size(
+    const Transaction& tx) noexcept
+{
+    std::size_t total = sizeof(tx.version);
+
+    if (!checked_add(
+            total,
+            compact_size_serialized_size(
+                static_cast<std::uint64_t>(tx.inputs.size())))) {
+        return std::nullopt;
+    }
+
+    for (const auto& input : tx.inputs) {
+        const std::size_t fixed =
+            input.previous_output.txid.size() +
+            sizeof(input.previous_output.index) +
+            sizeof(input.sequence);
+
+        if (!checked_add(total, fixed) ||
+            !checked_add(
+                total,
+                compact_size_serialized_size(
+                    static_cast<std::uint64_t>(
+                        input.unlocking_script.size()))) ||
+            !checked_add(
+                total,
+                input.unlocking_script.size())) {
+            return std::nullopt;
+        }
+    }
+
+    if (!checked_add(
+            total,
+            compact_size_serialized_size(
+                static_cast<std::uint64_t>(tx.outputs.size())))) {
+        return std::nullopt;
+    }
+
+    for (const auto& output : tx.outputs) {
+        if (!checked_add(total, sizeof(output.value)) ||
+            !checked_add(
+                total,
+                compact_size_serialized_size(
+                    static_cast<std::uint64_t>(
+                        output.locking_script.size()))) ||
+            !checked_add(
+                total,
+                output.locking_script.size())) {
+            return std::nullopt;
+        }
+    }
+
+    if (!checked_add(total, sizeof(tx.lock_time))) {
+        return std::nullopt;
+    }
+
+    return total;
 }
 
 Bytes serialize_transaction(const Transaction& tx)
