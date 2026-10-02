@@ -79,6 +79,14 @@ quintum_strict_warnings(quintum_pow_tests)
 
 add_test(NAME pow COMMAND quintum_pow_tests)
 
+add_executable(quintum_monetary_tests
+    tests/monetary_tests.cpp
+)
+target_link_libraries(quintum_monetary_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_monetary_tests)
+
+add_test(NAME monetary COMMAND quintum_monetary_tests)
+
 add_executable(quintum_chainstate_tests
     tests/chainstate_tests.cpp
 )
