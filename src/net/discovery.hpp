@@ -16,6 +16,19 @@ enum class DiscoveryError {
     store_failed,
 };
 
+struct DiscoveryLearnResult {
+    DiscoveryError error{DiscoveryError::none};
+    PeerError peer_error{PeerError::none};
+    AddrStoreError store_error{AddrStoreError::none};
+    std::size_t received{0U};
+    std::size_t added{0U};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == DiscoveryError::none;
+    }
+};
+
 struct DiscoveryConnectResult {
     DiscoveryError error{DiscoveryError::none};
     PeerError peer_error{PeerError::none};
@@ -42,6 +55,11 @@ public:
     [[nodiscard]] std::size_t bootstrap_hardcoded(
         consensus::Network network,
         std::uint64_t now
+    );
+
+    [[nodiscard]] DiscoveryLearnResult learn_from_peer(
+        PeerSession& peer,
+        bool allow_local
     );
 
     [[nodiscard]] DiscoveryConnectResult connect_one(
