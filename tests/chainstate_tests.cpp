@@ -56,7 +56,35 @@ quintum::Transaction make_coinbase(
     return tx;
 }
 
-quintum::Transaction make_spend(
+quintum::Transaction make_signed_spend(
+    const quintum::OutPoint& previous,
+    const quintum::TxOutput& previous_output,
+    quintum::Amount value)
+{
+    quintum::Transaction tx;
+
+    tx.inputs.push_back(quintum::TxInput{
+        .previous_output = previous,
+    });
+
+    tx.outputs.push_back(quintum::TxOutput{
+        .value = value,
+        .locking_script = test_locking_script(),
+    });
+
+    assert(
+        quintum::consensus::sign_p2pk_input(
+            tx,
+            0U,
+            previous_output,
+            test_private_key()
+        ) == quintum::consensus::InputAuthError::none
+    );
+
+    return tx;
+}
+
+quintum::Transaction make_missing_spend(
     const quintum::OutPoint& previous,
     quintum::Amount value)
 {
@@ -64,12 +92,11 @@ quintum::Transaction make_spend(
 
     tx.inputs.push_back(quintum::TxInput{
         .previous_output = previous,
-        .unlocking_script = {0x51U},
     });
 
     tx.outputs.push_back(quintum::TxOutput{
         .value = value,
-        .locking_script = {0x51U},
+        .locking_script = test_locking_script(),
     });
 
     return tx;
@@ -457,7 +484,7 @@ void test_heavier_fork_reorg_and_failed_reorg_rollback()
                 quintum::consensus::block_subsidy(100U),
                 0x41U
             ),
-            make_spend(missing, 1U),
+            make_missing_spend(missing, 1U),
         }
     );
     const auto c1_hash = quintum::block_hash(c1.header);
