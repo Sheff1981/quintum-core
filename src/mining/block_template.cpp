@@ -2,8 +2,10 @@
 
 #include "consensus/monetary.hpp"
 #include "consensus/tx_auth.hpp"
+#include "consensus/time.hpp"
 #include "core/serialize.hpp"
 
+#include <algorithm>
 #include <limits>
 #include <utility>
 
@@ -36,8 +38,26 @@ BlockTemplateResult create_block_template(
         return out;
     }
 
+    const auto tip_timestamp = chain.tip_timestamp();
+    if (!tip_timestamp) {
+        out.error = BlockTemplateError::timestamp_overflow;
+        return out;
+    }
+
+    const std::uint64_t candidate_timestamp =
+        std::max(timestamp, *tip_timestamp + 1U);
+
+    if (!consensus::timestamp_not_too_far_future(
+            candidate_timestamp,
+            timestamp,
+            chain.params().time.max_future_seconds)) {
+        out.error = BlockTemplateError::timestamp_too_far_future;
+        return out;
+    }
+
     const std::uint32_t height = *current_height + 1U;
-    const auto bits = chain.next_work_required(timestamp);
+    const auto bits =
+        chain.next_work_required(candidate_timestamp);
 
     if (!bits) {
         out.error = BlockTemplateError::difficulty_unavailable;
@@ -92,7 +112,7 @@ BlockTemplateResult create_block_template(
     Block block;
     block.header.version = 1U;
     block.header.previous_block = *previous_hash;
-    block.header.timestamp = timestamp;
+    block.header.timestamp = candidate_timestamp;
     block.header.bits = *bits;
     block.header.nonce = 0U;
 
