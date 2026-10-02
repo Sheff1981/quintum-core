@@ -1096,9 +1096,9 @@ BlockScanResult scan_block_file(
             return out;
         }
 
-        Bytes payload{
+        Bytes payload(
             static_cast<std::size_t>(*payload_size)
-        };
+        );
 
         if (!read_stream_exact(
                 input,
@@ -1441,11 +1441,8 @@ StorageError ChainstateStore::commit(
         crypto::double_sha256(state);
     append_hash(state, checksum);
 
-    const auto temporary =
-        state_path().string() + ".tmp";
-    const std::filesystem::path temporary_path{
-        temporary
-    };
+    auto temporary_path = state_path();
+    temporary_path += ".tmp";
 
     const auto write_error =
         write_file_synced(
