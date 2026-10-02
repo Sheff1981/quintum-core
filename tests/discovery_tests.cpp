@@ -438,6 +438,95 @@ void test_real_peer_discovery_chain()
     std::filesystem::remove_all(dir_b, ec);
 }
 
+void test_connect_any_skips_failed_peer()
+{
+    using namespace quintum::net;
+
+    const auto& params =
+        quintum::consensus::regtest_params();
+    const auto dir = unique_dir("fallback");
+
+    PeerListener temporary_bad{params};
+    assert(temporary_bad.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    const auto bad_port =
+        temporary_bad.local_port();
+    temporary_bad.close();
+
+    PeerListener good_listener{params};
+    assert(good_listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    AddrManager manager{
+        params,
+        dir,
+        true
+    };
+
+    assert(manager.add(
+        local_address(bad_port, 4'000U)));
+    assert(manager.add(
+        local_address(
+            good_listener.local_port(),
+            4'000U
+        )));
+
+    PeerError good_error{
+        PeerError::accept_failed
+    };
+
+    std::thread good_peer([&] {
+        auto accepted =
+            good_listener.accept_and_handshake(
+                version(0xd001U, 30U),
+                5'000U
+            );
+
+        good_error = accepted.error;
+        if (accepted.ok()) {
+            accepted.session->close();
+        }
+    });
+
+    PeerDiscovery discovery{manager};
+    auto connected =
+        discovery.connect_any(
+            params,
+            version(0xe001U, 20U),
+            5'000U,
+            500U,
+            2U
+        );
+
+    assert(connected.ok());
+    assert(connected.address.has_value());
+    assert(connected.address->port ==
+           good_listener.local_port());
+
+    connected.session->close();
+    good_peer.join();
+    assert(good_error == PeerError::none);
+
+    const auto& entries = manager.entries();
+    assert(entries.size() == 2U);
+
+    const auto failed_it =
+        entries[0].address.port == bad_port
+            ? &entries[0]
+            : &entries[1];
+
+    assert(failed_it->failures == 1U);
+    assert(failed_it->next_attempt > 5'000U);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -447,5 +536,6 @@ int main()
     test_addrman_corruption_detection();
     test_retry_backoff_and_seed_bootstrap();
     test_real_peer_discovery_chain();
+    test_connect_any_skips_failed_peer();
     return 0;
 }
