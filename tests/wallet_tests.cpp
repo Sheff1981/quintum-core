@@ -2,6 +2,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "node/node.hpp"
+#include "net/runtime.hpp"
 #include "wallet/address.hpp"
 #include "wallet/wallet.hpp"
 
@@ -619,6 +620,183 @@ void test_wallet_balance_build_sign_confirm_and_recover()
     );
 }
 
+
+void test_network_runtime_wallet_bridge()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("runtime");
+    const auto backup_directory =
+        unique_dir("runtime-backup");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.accept_poll_ms = 10U;
+
+    const auto started =
+        runtime.start(config);
+
+    assert(started.ok());
+    assert(started.wallet.ok());
+
+    const auto initial =
+        runtime.status();
+
+    assert(initial.running);
+    assert(!initial.receive_address.empty());
+    assert(initial.wallet_balance ==
+           WalletBalance{});
+
+    const auto decoded =
+        decode_address(
+            consensus::Network::regtest,
+            initial.receive_address
+        );
+
+    assert(decoded.ok());
+
+    const Bytes owned_payout =
+        consensus::make_p2pk_locking_script(
+            decoded.public_key
+        );
+
+    const Bytes external_payout =
+        payout_from_scalar(12U);
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 2'000U;
+
+    const auto first =
+        runtime.mine_mempool_block_at(
+            owned_payout,
+            base_time + 1U,
+            4'096U
+        );
+
+    assert(first.ok());
+    assert(first.height == 1U);
+
+    for (std::uint32_t height = 2U;
+         height <= 100U;
+         ++height) {
+        const auto mined =
+            runtime.mine_mempool_block_at(
+                external_payout,
+                base_time +
+                    static_cast<std::uint64_t>(
+                        height),
+                4'096U
+            );
+
+        assert(mined.ok());
+        assert(mined.height == height);
+    }
+
+    const auto mature =
+        runtime.status();
+
+    assert(mature.height ==
+           std::optional<std::uint32_t>{100U});
+    assert(mature.wallet_balance.confirmed ==
+           consensus::kInitialSubsidy);
+    assert(mature.wallet_balance.available ==
+           consensus::kInitialSubsidy);
+
+    constexpr Amount amount{
+        5U *
+        consensus::kAtomicUnitsPerCoin
+    };
+    constexpr Amount fee{77U};
+
+    const std::string destination =
+        encode_address(
+            consensus::Network::regtest,
+            public_key_from_scalar(13U)
+        );
+
+    const auto sent =
+        runtime.send_to_address(
+            destination,
+            amount,
+            fee
+        );
+
+    assert(sent.ok());
+    assert(sent.wallet.fee == fee);
+    assert(sent.node.mempool.fee == fee);
+
+    const auto pending =
+        runtime.status();
+
+    assert(pending.mempool_transactions == 1U);
+    assert(pending.wallet_balance.available == 0U);
+    assert(pending.wallet_balance.pending ==
+           consensus::kInitialSubsidy -
+               amount - fee);
+
+    const auto confirmed =
+        runtime.mine_mempool_block_at(
+            external_payout,
+            base_time + 101U,
+            4'096U
+        );
+
+    assert(confirmed.ok());
+    assert(confirmed.height == 101U);
+    assert(confirmed.total_fees == fee);
+
+    const auto final_status =
+        runtime.status();
+
+    assert(final_status.mempool_transactions == 0U);
+    assert(final_status.wallet_balance.pending == 0U);
+    assert(final_status.wallet_balance.available ==
+           consensus::kInitialSubsidy -
+               amount - fee);
+
+    const auto extra_address =
+        runtime.new_receive_address();
+
+    assert(extra_address.ok());
+
+    const auto backup_path =
+        backup_directory /
+        "wallet.dat";
+
+    assert(runtime.backup_wallet(
+               backup_path) ==
+           WalletStoreError::none);
+    assert(std::filesystem::exists(
+        backup_path
+    ));
+
+    runtime.stop();
+    assert(!runtime.running());
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        backup_directory,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
@@ -626,5 +804,6 @@ int main()
     test_addresses();
     test_wallet_persistence_backup_and_network_binding();
     test_wallet_balance_build_sign_confirm_and_recover();
+    test_network_runtime_wallet_bridge();
     return 0;
 }
