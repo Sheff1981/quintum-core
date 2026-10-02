@@ -10,7 +10,7 @@ This document becomes normative only when explicitly marked **MAINNET FROZEN**.
 - Chain selection: greatest cumulative valid proof of work
 - Transaction ownership: cryptographic signatures; no administrator override
 - Hidden premine/backdoor/master mint: prohibited
-- Genesis: unique QUINTUM genesis block will be generated and permanently recorded
+- Genesis: unique Mainnet/Testnet/Regtest Genesis blocks are code-pinned and reproducible
 
 ## Candidate cryptographic baseline
 
@@ -67,12 +67,20 @@ See `docs/CHAIN_PARAMS.md` and `docs/DIFFICULTY.md`.
 
 See `docs/TIMESTAMP_AND_LIMITS.md`.
 
+## Genesis identity — code-pinned
+
+Mainnet, Testnet and Regtest Genesis blocks have been deterministically constructed, mined where required, inserted into `ChainParams`, and covered by independent reconstruction tests.
+
+See `docs/GENESIS.md`.
+
+Changing any Genesis field now creates a different network identity. These constants are not to be edited casually.
+
 ## Parameters not frozen yet
 
 - ticker / smallest-unit public name
 - fee policy
 - address encoding and prefixes
 - final review of network magic and ports
-- exact Mainnet/Testnet genesis blocks
+- public-testnet validation before final release freeze
 
 These values will not be guessed and silently embedded. Each will be documented, tested, then frozen before mainnet genesis.
