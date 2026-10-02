@@ -10,12 +10,14 @@ constexpr ChainParams kMainnet{
     .p2p_port = 28444U,
     .rpc_port = 28445U,
     .pow = PowParams{
-        .target_spacing_seconds = 150U,
+        .target_spacing_seconds = 600U,
         .retarget_interval = 2016U,
         .pow_limit_bits = 0x1e0ffff0U,
         .allow_min_difficulty_blocks = false,
         .no_retargeting = false,
     },
+    .time = TimeParams{},
+    .limits = ResourceLimits{},
 };
 
 constexpr ChainParams kTestnet{
@@ -25,12 +27,14 @@ constexpr ChainParams kTestnet{
     .p2p_port = 38444U,
     .rpc_port = 38445U,
     .pow = PowParams{
-        .target_spacing_seconds = 150U,
+        .target_spacing_seconds = 600U,
         .retarget_interval = 2016U,
         .pow_limit_bits = 0x1e0ffff0U,
         .allow_min_difficulty_blocks = true,
         .no_retargeting = false,
     },
+    .time = TimeParams{},
+    .limits = ResourceLimits{},
 };
 
 constexpr ChainParams kRegtest{
@@ -46,6 +50,8 @@ constexpr ChainParams kRegtest{
         .allow_min_difficulty_blocks = false,
         .no_retargeting = true,
     },
+    .time = TimeParams{},
+    .limits = ResourceLimits{},
 };
 
 } // namespace
