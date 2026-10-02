@@ -3,6 +3,7 @@
 #include "consensus/monetary.hpp"
 #include "consensus/tx_auth.hpp"
 #include "consensus/time.hpp"
+#include "crypto/secp256k1.hpp"
 #include "core/serialize.hpp"
 
 #include <algorithm>
@@ -33,7 +34,11 @@ BlockTemplateResult create_block_template(
         return out;
     }
 
-    if (!consensus::parse_p2pk_locking_script(payout_script)) {
+    const auto payout_public_key =
+        consensus::parse_p2pk_locking_script(payout_script);
+
+    if (!payout_public_key ||
+        !crypto::is_valid_public_key(*payout_public_key)) {
         out.error = BlockTemplateError::invalid_payout_script;
         return out;
     }
