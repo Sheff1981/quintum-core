@@ -10,6 +10,43 @@ PeerDiscovery::PeerDiscovery(
 {
 }
 
+std::size_t PeerDiscovery::bootstrap_seeds(
+    std::span<const SeedEndpoint> seeds,
+    std::uint64_t now)
+{
+    std::size_t added{0U};
+
+    for (const auto& seed : seeds) {
+        const auto ipv4 = parse_ipv4(seed.host);
+        if (!ipv4 || seed.port == 0U) {
+            continue;
+        }
+
+        PeerAddress address{
+            .ipv4 = *ipv4,
+            .port = seed.port,
+            .services = 1U,
+            .last_seen = now,
+        };
+
+        if (addrman_.add(address)) {
+            ++added;
+        }
+    }
+
+    return added;
+}
+
+std::size_t PeerDiscovery::bootstrap_hardcoded(
+    consensus::Network network,
+    std::uint64_t now)
+{
+    return bootstrap_seeds(
+        hardcoded_seeds(network),
+        now
+    );
+}
+
 DiscoveryConnectResult
 PeerDiscovery::connect_one(
     const consensus::ChainParams& params,
