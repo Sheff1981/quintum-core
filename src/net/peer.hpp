@@ -49,6 +49,14 @@ public:
     [[nodiscard]] bool inbound() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
 
+    [[nodiscard]] PeerError send_command(
+        std::string_view command,
+        std::span<const Byte> payload
+    );
+    [[nodiscard]] PeerError receive_command(
+        WireMessage& message
+    );
+
     [[nodiscard]] PeerError ping(std::uint64_t nonce);
     [[nodiscard]] PeerError service_once();
 
