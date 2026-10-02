@@ -103,13 +103,13 @@ void test_network_parameter_sets()
     assert(main.p2p_port != reg.p2p_port);
     assert(test.p2p_port != reg.p2p_port);
 
-    assert(main.pow.target_spacing_seconds == 150U);
+    assert(main.pow.target_spacing_seconds == 600U);
     assert(main.pow.retarget_interval == 2016U);
     assert(main.pow.pow_limit_bits == 0x1e0ffff0U);
     assert(!main.pow.allow_min_difficulty_blocks);
     assert(!main.pow.no_retargeting);
 
-    assert(test.pow.target_spacing_seconds == 150U);
+    assert(test.pow.target_spacing_seconds == 600U);
     assert(test.pow.retarget_interval == 2016U);
     assert(test.pow.allow_min_difficulty_blocks);
     assert(!test.pow.no_retargeting);
