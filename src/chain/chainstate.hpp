@@ -99,7 +99,7 @@ private:
         const BlockIndexEntry* parent
     ) const;
 
-    const consensus::ChainParams* params_{nullptr};
+    consensus::ChainParams params_{};
     UtxoSet utxos_{};
     std::vector<ChainEntry> chain_{};
     std::map<Hash256, BlockIndexEntry> block_index_{};
