@@ -271,3 +271,15 @@ quintum_strict_warnings(quintum_relay_tests)
 quintum_test_assertions(quintum_relay_tests)
 
 add_test(NAME relay COMMAND quintum_relay_tests)
+
+add_executable(quintum_network_runtime_tests
+    tests/network_runtime_tests.cpp
+)
+target_link_libraries(
+    quintum_network_runtime_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_network_runtime_tests)
+quintum_test_assertions(quintum_network_runtime_tests)
+
+add_test(NAME network_runtime COMMAND quintum_network_runtime_tests)
