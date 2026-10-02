@@ -1,4 +1,5 @@
 #include "chain/chainstate.hpp"
+#include "consensus/chainparams.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
 #include "consensus/tx_auth.hpp"
@@ -155,7 +156,9 @@ quintum::Hash256 append_coinbase_range(
 
 void test_connect_disconnect_and_atomic_failure()
 {
-    quintum::Chainstate chain;
+    quintum::Chainstate chain{
+        quintum::consensus::regtest_params()
+    };
     quintum::Hash256 zero{};
 
     const auto genesis_coinbase = make_coinbase(
@@ -325,7 +328,9 @@ void test_connect_disconnect_and_atomic_failure()
 
 void test_heavier_fork_reorg_and_failed_reorg_rollback()
 {
-    quintum::Chainstate chain;
+    quintum::Chainstate chain{
+        quintum::consensus::regtest_params()
+    };
     quintum::Hash256 zero{};
 
     const auto genesis_coinbase = make_coinbase(
