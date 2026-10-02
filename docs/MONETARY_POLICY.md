@@ -129,6 +129,6 @@ Before **MAINNET FROZEN**, we still must deliberately confirm:
 
 - final public-testnet validation;
 - final review of network identifiers and ports;
-- address format;
+- final freeze of the implemented candidate address format;
 - smallest-unit public name;
 - ticker.
