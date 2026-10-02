@@ -1995,3 +1995,103 @@ Genesis, consensus parameters, network magic, порты, PoW, monetary policy �
 **Этап 17 — headers-first synchronization + block relay.**
 
 Ноды должны сравнивать цепочки, получать headers, запрашивать недостающие blocks и передавать каждый полученный блок в существующий consensus/Chainstate pipeline.
+
+
+---
+
+## 2026-10-02 — Этап 17. Headers-first synchronization + block transfer
+
+### Цель
+
+Связать готовый P2P transport с настоящим blockchain state: нода должна найти общую точку цепи, получить headers, запросить отсутствующие blocks, самостоятельно проверить их и сохранить результат.
+
+### Что добавлено
+
+1. **Bitcoin-подобный block locator**
+   - recent active hashes;
+   - затем экспоненциальный шаг назад;
+   - Genesis остаётся последней общей точкой;
+   - максимум 32 locator hashes.
+
+2. **Новые P2P команды**
+   - `getheaders`;
+   - `headers`;
+   - `getdata`;
+   - `block`;
+   - `notfound`.
+
+3. **Headers-first**
+   - до загрузки block body проверяется непрерывность header chain;
+   - проверяется реальный header PoW;
+   - максимум 2 000 headers в одной пачке;
+   - цепь длиннее 2 000 блоков догоняется несколькими последовательными batches;
+   - continuation идёт от последнего принятого remote header, поэтому длинный fork не зацикливается на старом active locator.
+
+4. **Безопасный network block parser**
+   - block payload ограничен consensus block-size ceiling;
+   - transaction count ограничен;
+   - scripts ограничены;
+   - CompactSize/count проверяется до reserve/allocation;
+   - trailing/malformed bytes запрещены.
+
+5. **Полученный block не доверенный**
+   - announced header должен точно совпасть с header полученного block;
+   - hash должен совпасть с requested inventory;
+   - затем block передаётся через `NodeRuntime::submit_block_at()`;
+   - далее работает обычный `PersistentChainstate::connect_block()`;
+   - consensus bypass отсутствует.
+
+6. **Fork / reorg**
+   - remote branch может сначала сохраняться как side branch;
+   - когда её cumulative valid work становится строго больше active chain, существующий Chainstate выполняет reorg;
+   - старая ветка остаётся известной;
+   - новое состояние сохраняется на диск.
+
+### Интеграционные тесты
+
+Новый suite `sync` проверяет:
+
+- wire codecs locator/headers/inventory/block;
+- block parser;
+- Node A только с Genesis;
+- Node B с пятью реальными mined blocks;
+- настоящий TCP + version/verack;
+- `getheaders -> headers`;
+- пять `getdata -> block`;
+- одинаковые final height/tip;
+- shutdown/restart синхронизированной ноды с тем же tip.
+
+Отдельный fork-сценарий:
+
+1. Client майнит собственную ветку высотой 2;
+2. Server независимо майнит другую ветку высотой 4;
+3. общий ancestor — Genesis;
+4. client получает четыре remote headers/blocks;
+5. сначала remote blocks являются side branch;
+6. более тяжёлая valid branch вызывает настоящий reorg;
+7. старый client tip остаётся в block index;
+8. после restart активной остаётся новая более тяжёлая цепь.
+
+### Безопасность
+
+Networking не имеет права напрямую менять:
+
+- height;
+- active tip;
+- chain work;
+- UTXO;
+- reward;
+- difficulty;
+- Genesis.
+
+Удалённая нода только передаёт bytes. Решение о принятии блока остаётся полностью локальным consensus.
+
+### Статус
+
+Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+
+### Следующий этап
+
+**Этап 18 — live block announcements + mempool/transaction relay.**
+
+Нужно добавить `inv`/announcement новых blocks, чтобы уже подключённым peers не приходилось вручную запускать catch-up, а затем mempool и распространение валидных transactions.
