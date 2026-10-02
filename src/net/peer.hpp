@@ -11,6 +11,8 @@
 
 namespace quintum::net {
 
+struct PeerHandshakeResult;
+
 enum class PeerError {
     none,
     socket_runtime_failed,
