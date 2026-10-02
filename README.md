@@ -22,8 +22,8 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - CMake
 - secp256k1 for transaction signatures
 - SHA-256 family cryptographic hashing
-- LevelDB-class chainstate storage
-- SQLite-class wallet metadata storage
+- Durable restart-safe blockchain storage
+- Durable wallet key storage with atomic replacement and backup support
 - Qt 6 desktop wallet planned after the node and network are stable
 
 ## Repository map
@@ -39,12 +39,14 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M6 — Continuous P2P node runtime:** `quintumd` now combines TCP listening, persistent peer discovery, automatic outbound connections, startup blockchain synchronization, live transaction/block relay, mempool catch-up, asynchronous ping/pong liveness, reconnect scheduling and graceful shutdown in one long-running node process.
+**M7 — Wallet Core:** `quintumd` now owns a persistent QUINTUM wallet in addition to the continuous P2P node. The wallet creates private keys from the operating-system CSPRNG, derives network-specific Bech32m receive addresses, tracks wallet-owned active-chain/mempool outputs, reports confirmed/available/pending/immature balances, constructs and signs spends, handles change, and supports durable `wallet.dat` backup/recovery.
 
-The runtime listens on the network's own P2P port, learns and persists peer endpoints, maintains outbound connectivity, services inbound peers, requests missing chain data, relays newly accepted transactions and blocks, and automatically reconnects after a live outbound connection is lost.
+The wallet uses the same P2PK authorization, UTXO and mempool validation paths as the rest of the node. A locally created transaction gets no consensus privilege: it must validate normally before it is relayed.
 
-Transactions and blocks received from the network still enter the same local validation paths used by the node itself. Networking cannot directly set height, chain work, UTXO state, rewards, difficulty or active tip.
+A pre-generated receive/change keypool is persisted before use so an older wallet backup can recover a bounded set of future addresses. Imported keys and keypool refill explicitly require a fresh backup.
+
+**Security limitation:** current `wallet.dat` is checksummed and crash-safe but is not yet password-encrypted at rest. QUINTUM remains pre-mainnet and must not be treated as production-money software until wallet encryption/HD recovery and further hardening are completed.
 
 The public QUINTUM seed list is intentionally empty until real independent seed infrastructure exists; no fake or developer-only endpoint is embedded.
 
-Next: **M7 — Wallet Core:** persistent private-key storage, QUINTUM addresses, wallet-owned UTXO tracking, balances, transaction construction/signing and safe backup/recovery foundations.
+Next: **M8 — Wallet hardening:** encrypted key storage, deterministic/HD recovery, persistent transaction history, fee policy/estimation and incremental wallet indexing before GUI/release work.
