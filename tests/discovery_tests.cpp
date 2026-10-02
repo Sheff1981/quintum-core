@@ -255,7 +255,7 @@ void test_retry_backoff_and_seed_bootstrap()
     assert(failed.next_attempt == 1'060U);
 
     const std::array<PeerAddress, 1> excluded{
-        manager.entries()[0].address
+        *first
     };
 
     const auto selected =
@@ -264,9 +264,8 @@ void test_retry_backoff_and_seed_bootstrap()
             excluded
         );
 
-    if (manager.entries()[0].address != *first) {
-        assert(selected.has_value());
-    }
+    assert(selected.has_value());
+    assert(selected->port != first->port);
 
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
@@ -359,19 +358,16 @@ void test_real_peer_discovery_chain()
     assert(to_b.address->port ==
            listener_b.local_port());
 
-    std::vector<PeerAddress> learned;
-    assert(to_b.session->request_addresses(
-               true,
-               learned) ==
-           PeerError::none);
+    const auto learned =
+        discovery_a.learn_from_peer(
+            *to_b.session,
+            true
+        );
 
-    assert(learned.size() == 1U);
-    assert(learned[0].port ==
-           listener_c.local_port());
-
-    assert(manager_a.add(learned) == 1U);
-    assert(manager_a.save() ==
-           AddrStoreError::none);
+    assert(learned.ok());
+    assert(learned.received == 1U);
+    assert(learned.added == 1U);
+    assert(manager_a.size() == 2U);
 
     to_b.session->close();
     node_b.join();
