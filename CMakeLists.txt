@@ -162,6 +162,15 @@ quintum_test_assertions(quintum_difficulty_tests)
 
 add_test(NAME difficulty COMMAND quintum_difficulty_tests)
 
+add_executable(quintum_timestamp_limits_tests
+    tests/timestamp_limits_tests.cpp
+)
+target_link_libraries(quintum_timestamp_limits_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_timestamp_limits_tests)
+quintum_test_assertions(quintum_timestamp_limits_tests)
+
+add_test(NAME timestamp_limits COMMAND quintum_timestamp_limits_tests)
+
 add_executable(quintum_chainstate_tests
     tests/chainstate_tests.cpp
 )
