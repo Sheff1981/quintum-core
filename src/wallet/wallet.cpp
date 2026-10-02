@@ -607,6 +607,8 @@ WalletSyncResult Wallet::sync(
 
                 remember_key(*public_key);
 
+                remember_key(*public_key);
+
                 const OutPoint outpoint{
                     .txid = txid,
                     .index =
