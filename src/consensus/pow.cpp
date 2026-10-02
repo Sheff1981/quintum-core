@@ -295,6 +295,36 @@ PowCheckError check_proof_of_work(const BlockHeader& header)
     return PowCheckError::none;
 }
 
+PowCheckError check_proof_of_work(
+    const BlockHeader& header,
+    const PowParams& params)
+{
+    const auto compact = decode_compact_target(header.bits);
+    if (!compact_is_canonical(header.bits, compact)) {
+        return PowCheckError::invalid_target;
+    }
+
+    const auto limit = decode_compact_target(params.pow_limit_bits);
+    if (!compact_is_canonical(params.pow_limit_bits, limit)) {
+        return PowCheckError::invalid_target;
+    }
+
+    if (std::lexicographical_compare(
+            limit.target.begin(),
+            limit.target.end(),
+            compact.target.begin(),
+            compact.target.end())) {
+        return PowCheckError::target_above_pow_limit;
+    }
+
+    const auto hash = block_hash(header);
+    if (!hash_meets_target(hash, compact.target)) {
+        return PowCheckError::hash_above_target;
+    }
+
+    return PowCheckError::none;
+}
+
 MiningResult mine_header(
     BlockHeader& header,
     std::uint64_t max_attempts)
