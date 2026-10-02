@@ -1,5 +1,6 @@
 #include "chain/chainstate.hpp"
 
+#include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
 
 #include <algorithm>
@@ -86,6 +87,14 @@ ApplyBlockResult apply_block_to_view(
 
         total_fees += tx_result.fee;
         block_undo.transactions.push_back(std::move(tx_result.undo));
+    }
+
+    if (!consensus::coinbase_reward_is_valid(
+            block.transactions.front(),
+            height,
+            total_fees)) {
+        out.result.error = ChainConnectError::invalid_coinbase_reward;
+        return out;
     }
 
     utxos = std::move(candidate);
