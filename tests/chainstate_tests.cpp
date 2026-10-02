@@ -1,6 +1,8 @@
 #include "chain/chainstate.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/tx_auth.hpp"
+#include "crypto/secp256k1.hpp"
 #include "primitives/block.hpp"
 
 #include <cassert>
@@ -8,6 +10,25 @@
 #include <vector>
 
 namespace {
+
+quintum::crypto::PrivateKey test_private_key()
+{
+    quintum::crypto::PrivateKey key{};
+    key.back() = 1U;
+    return key;
+}
+
+quintum::Bytes test_locking_script()
+{
+    const auto public_key =
+        quintum::crypto::derive_public_key(
+            test_private_key()
+        );
+    assert(public_key);
+    return quintum::consensus::make_p2pk_locking_script(
+        *public_key
+    );
+}
 
 quintum::Transaction make_coinbase(
     std::uint32_t height,
@@ -29,7 +50,7 @@ quintum::Transaction make_coinbase(
 
     tx.outputs.push_back(quintum::TxOutput{
         .value = value,
-        .locking_script = {0x51U},
+        .locking_script = test_locking_script(),
     });
 
     return tx;
@@ -142,8 +163,9 @@ void test_connect_disconnect_and_atomic_failure()
     assert(chain.height() && *chain.height() == 99U);
     assert(chain.utxos().size() == 100U);
 
-    const auto spend = make_spend(
+    const auto spend = make_signed_spend(
         funding,
+        genesis_coinbase.outputs.front(),
         quintum::consensus::block_subsidy(0U) - 100U
     );
 
@@ -213,7 +235,7 @@ void test_connect_disconnect_and_atomic_failure()
                 quintum::consensus::block_subsidy(101U),
                 0x05U
             ),
-            make_spend(missing, 1U),
+            make_missing_spend(missing, 1U),
         }
     );
 
@@ -304,8 +326,9 @@ void test_heavier_fork_reorg_and_failed_reorg_rollback()
         0x11U
     );
 
-    const auto a_spend = make_spend(
+    const auto a_spend = make_signed_spend(
         funding,
+        genesis_coinbase.outputs.front(),
         quintum::consensus::block_subsidy(0U) - 100U
     );
     const auto a1 = make_block(
@@ -349,8 +372,9 @@ void test_heavier_fork_reorg_and_failed_reorg_rollback()
     assert(chain.utxos().contains(a_spend_output));
 
     // Branch B starts from the same height-99 ancestor.
-    const auto b_spend = make_spend(
+    const auto b_spend = make_signed_spend(
         funding,
+        genesis_coinbase.outputs.front(),
         quintum::consensus::block_subsidy(0U) - 200U
     );
     const auto b1 = make_block(
