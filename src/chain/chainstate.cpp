@@ -2,6 +2,7 @@
 
 #include "consensus/block_limits.hpp"
 #include "consensus/difficulty.hpp"
+#include "consensus/genesis.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
 #include "consensus/time.hpp"
@@ -286,7 +287,9 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     const auto& pow = params_.pow;
 
     if (parent == nullptr) {
-        return pow.pow_limit_bits;
+        return params_.genesis.enforce
+            ? params_.genesis.bits
+            : pow.pow_limit_bits;
     }
 
     if (pow.no_retargeting) {
@@ -435,8 +438,17 @@ ChainConnectResult Chainstate::connect_block(
     const BlockIndexEntry* parent_entry{nullptr};
 
     if (block_index_.empty()) {
-        if (!is_zero_hash(block.header.previous_block)) {
-            result.error = ChainConnectError::bad_previous_block;
+        if (params_.genesis.enforce) {
+            if (!consensus::verify_genesis(params_) ||
+                hash != params_.genesis.hash) {
+                result.error =
+                    ChainConnectError::wrong_genesis;
+                return result;
+            }
+        } else if (!is_zero_hash(
+                       block.header.previous_block)) {
+            result.error =
+                ChainConnectError::bad_previous_block;
             return result;
         }
     } else {
