@@ -49,6 +49,10 @@ public:
     [[nodiscard]] bool inbound() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
 
+    [[nodiscard]] bool wait_readable(
+        std::uint32_t timeout_ms
+    ) const noexcept;
+
     [[nodiscard]] PeerError send_command(
         std::string_view command,
         std::span<const Byte> payload
