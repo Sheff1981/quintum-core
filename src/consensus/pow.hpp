@@ -52,6 +52,12 @@ struct MiningResult {
     const BlockHeader& header
 );
 
+[[nodiscard]] Hash256 work_for_target(const Hash256& target);
+[[nodiscard]] bool add_chain_work(
+    Hash256& accumulated,
+    const Hash256& work
+) noexcept;
+
 [[nodiscard]] MiningResult mine_header(
     BlockHeader& header,
     std::uint64_t max_attempts
