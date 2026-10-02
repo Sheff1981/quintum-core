@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
+#include <vector>
 
 namespace quintum {
 namespace {
@@ -18,6 +19,89 @@ bool is_zero_hash(const Hash256& hash) noexcept
     );
 }
 
+bool greater_work(const Hash256& lhs, const Hash256& rhs) noexcept
+{
+    return std::lexicographical_compare(
+        rhs.begin(), rhs.end(),
+        lhs.begin(), lhs.end()
+    );
+}
+
+struct ApplyBlockResult {
+    ChainConnectResult result{};
+    ChainEntry entry{};
+};
+
+ApplyBlockResult apply_block_to_view(
+    const Block& block,
+    UtxoSet& utxos,
+    std::uint32_t height,
+    const Hash256& parent_work)
+{
+    ApplyBlockResult out;
+
+    if (validate_block_structure(block) != BlockStructureError::none) {
+        out.result.error = ChainConnectError::invalid_block_structure;
+        return out;
+    }
+
+    if (consensus::check_proof_of_work(block.header) !=
+        consensus::PowCheckError::none) {
+        out.result.error = ChainConnectError::invalid_proof_of_work;
+        return out;
+    }
+
+    const auto compact = consensus::decode_compact_target(block.header.bits);
+    const auto block_work = consensus::work_for_target(compact.target);
+
+    Hash256 chain_work = parent_work;
+    if (!consensus::add_chain_work(chain_work, block_work)) {
+        out.result.error = ChainConnectError::chain_work_overflow;
+        return out;
+    }
+
+    UtxoSet candidate = utxos;
+    BlockUndo block_undo;
+    block_undo.transactions.reserve(block.transactions.size());
+
+    Amount total_fees{0};
+
+    for (std::size_t i = 0; i < block.transactions.size(); ++i) {
+        auto tx_result =
+            candidate.apply_transaction(block.transactions[i], height);
+
+        if (!tx_result.ok()) {
+            out.result.error = ChainConnectError::transaction_failed;
+            out.result.transaction_error = tx_result.error;
+            out.result.transaction_index = i;
+            return out;
+        }
+
+        if (tx_result.fee >
+            std::numeric_limits<Amount>::max() - total_fees) {
+            out.result.error = ChainConnectError::fee_sum_overflow;
+            out.result.transaction_index = i;
+            return out;
+        }
+
+        total_fees += tx_result.fee;
+        block_undo.transactions.push_back(std::move(tx_result.undo));
+    }
+
+    utxos = std::move(candidate);
+
+    out.entry = ChainEntry{
+        .hash = block_hash(block.header),
+        .header = block.header,
+        .height = height,
+        .chain_work = chain_work,
+        .undo = std::move(block_undo),
+    };
+
+    out.result.total_fees = total_fees;
+    return out;
+}
+
 } // namespace
 
 bool Chainstate::empty() const noexcept
@@ -28,6 +112,11 @@ bool Chainstate::empty() const noexcept
 std::size_t Chainstate::size() const noexcept
 {
     return chain_.size();
+}
+
+std::size_t Chainstate::block_index_size() const noexcept
+{
+    return block_index_.size();
 }
 
 std::optional<std::uint32_t> Chainstate::height() const noexcept
@@ -59,6 +148,41 @@ const UtxoSet& Chainstate::utxos() const noexcept
     return utxos_;
 }
 
+bool Chainstate::has_block(const Hash256& hash) const
+{
+    return block_index_.contains(hash);
+}
+
+bool Chainstate::is_on_active_chain(const Hash256& hash) const
+{
+    return std::any_of(
+        chain_.begin(),
+        chain_.end(),
+        [&hash](const ChainEntry& entry) {
+            return entry.hash == hash;
+        }
+    );
+}
+
+bool Chainstate::has_failed_ancestor(const Hash256& hash) const
+{
+    auto it = block_index_.find(hash);
+
+    while (it != block_index_.end()) {
+        if (it->second.failed) {
+            return true;
+        }
+
+        if (it->second.height == 0U) {
+            break;
+        }
+
+        it = block_index_.find(it->second.parent);
+    }
+
+    return false;
+}
+
 ChainConnectResult Chainstate::connect_block(const Block& block)
 {
     ChainConnectResult result;
@@ -68,81 +192,222 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
         return result;
     }
 
-    if (chain_.empty()) {
-        if (!is_zero_hash(block.header.previous_block)) {
-            result.error = ChainConnectError::bad_previous_block;
-            return result;
-        }
-    } else if (block.header.previous_block != chain_.back().hash) {
-        result.error = ChainConnectError::bad_previous_block;
-        return result;
-    }
-
     if (consensus::check_proof_of_work(block.header) !=
         consensus::PowCheckError::none) {
         result.error = ChainConnectError::invalid_proof_of_work;
         return result;
     }
 
+    const auto hash = block_hash(block.header);
+
+    if (block_index_.contains(hash)) {
+        result.error = ChainConnectError::duplicate_block;
+        return result;
+    }
+
+    std::uint32_t new_height{0U};
+    Hash256 parent_work{};
+
+    if (block_index_.empty()) {
+        if (!is_zero_hash(block.header.previous_block)) {
+            result.error = ChainConnectError::bad_previous_block;
+            return result;
+        }
+    } else {
+        const auto parent_it =
+            block_index_.find(block.header.previous_block);
+
+        if (parent_it == block_index_.end()) {
+            result.error = ChainConnectError::unknown_parent;
+            return result;
+        }
+
+        if (has_failed_ancestor(parent_it->first)) {
+            result.error = ChainConnectError::invalid_ancestor;
+            return result;
+        }
+
+        if (parent_it->second.height ==
+            std::numeric_limits<std::uint32_t>::max()) {
+            result.error = ChainConnectError::height_overflow;
+            return result;
+        }
+
+        new_height = parent_it->second.height + 1U;
+        parent_work = parent_it->second.chain_work;
+    }
+
     const auto compact = consensus::decode_compact_target(block.header.bits);
     const auto block_work = consensus::work_for_target(compact.target);
 
-    Hash256 new_chain_work = cumulative_work();
+    Hash256 new_chain_work = parent_work;
     if (!consensus::add_chain_work(new_chain_work, block_work)) {
         result.error = ChainConnectError::chain_work_overflow;
         return result;
     }
 
-    if (!chain_.empty() &&
-        chain_.back().height == std::numeric_limits<std::uint32_t>::max()) {
-        result.error = ChainConnectError::height_overflow;
+    block_index_.emplace(
+        hash,
+        BlockIndexEntry{
+            .block = block,
+            .hash = hash,
+            .parent = block.header.previous_block,
+            .height = new_height,
+            .chain_work = new_chain_work,
+            .failed = false,
+        }
+    );
+
+    const bool should_activate =
+        chain_.empty() ||
+        greater_work(new_chain_work, cumulative_work());
+
+    if (!should_activate) {
         return result;
     }
 
-    const std::uint32_t next_height =
-        chain_.empty() ? 0U : chain_.back().height + 1U;
+    // Find the common ancestor between the candidate branch and active chain.
+    Hash256 candidate_cursor = hash;
+    std::uint32_t candidate_height = new_height;
 
-    // Work on a copy. A failed block can never partially alter live chainstate.
-    UtxoSet candidate = utxos_;
-    BlockUndo block_undo;
-    block_undo.transactions.reserve(block.transactions.size());
+    std::size_t active_size = chain_.size();
 
-    Amount total_fees{0};
-
-    for (std::size_t i = 0; i < block.transactions.size(); ++i) {
-        auto tx_result =
-            candidate.apply_transaction(block.transactions[i], next_height);
-
-        if (!tx_result.ok()) {
-            result.error = ChainConnectError::transaction_failed;
-            result.transaction_error = tx_result.error;
-            result.transaction_index = i;
-            return result;
-        }
-
-        if (tx_result.fee >
-            std::numeric_limits<Amount>::max() - total_fees) {
-            result.error = ChainConnectError::fee_sum_overflow;
-            result.transaction_index = i;
-            return result;
-        }
-
-        total_fees += tx_result.fee;
-        block_undo.transactions.push_back(std::move(tx_result.undo));
+    while (active_size > 0U &&
+           chain_[active_size - 1U].height > candidate_height) {
+        --active_size;
     }
 
-    const auto hash = block_hash(block.header);
+    while (candidate_height >
+           (active_size == 0U ? 0U : chain_[active_size - 1U].height)) {
+        const auto it = block_index_.find(candidate_cursor);
+        if (it == block_index_.end() || it->second.height == 0U) {
+            break;
+        }
+        candidate_cursor = it->second.parent;
+        --candidate_height;
+    }
 
-    utxos_ = std::move(candidate);
-    chain_.push_back(ChainEntry{
-        .hash = hash,
-        .header = block.header,
-        .height = next_height,
-        .chain_work = new_chain_work,
-        .undo = std::move(block_undo),
-    });
+    while (active_size > 0U &&
+           chain_[active_size - 1U].hash != candidate_cursor) {
+        --active_size;
 
-    result.total_fees = total_fees;
+        const auto it = block_index_.find(candidate_cursor);
+        if (it == block_index_.end() || it->second.height == 0U) {
+            candidate_cursor = {};
+            break;
+        }
+
+        candidate_cursor = it->second.parent;
+    }
+
+    const std::size_t fork_size = active_size;
+    const Hash256 fork_hash =
+        fork_size == 0U ? Hash256{} : chain_[fork_size - 1U].hash;
+
+    // Build candidate path from fork child to new tip.
+    std::vector<Hash256> forward_path;
+    Hash256 walk = hash;
+
+    while (walk != fork_hash) {
+        const auto it = block_index_.find(walk);
+        if (it == block_index_.end()) {
+            block_index_[hash].failed = true;
+            result.error = ChainConnectError::invalid_ancestor;
+            return result;
+        }
+
+        forward_path.push_back(walk);
+
+        if (it->second.height == 0U) {
+            break;
+        }
+
+        walk = it->second.parent;
+    }
+
+    if (walk != fork_hash) {
+        block_index_[hash].failed = true;
+        result.error = ChainConnectError::invalid_ancestor;
+        return result;
+    }
+
+    std::reverse(forward_path.begin(), forward_path.end());
+
+    // Stage the whole reorg. The live active chain is untouched until success.
+    UtxoSet staged_utxos = utxos_;
+    std::vector<ChainEntry> staged_chain = chain_;
+
+    while (staged_chain.size() > fork_size) {
+        const auto& undo = staged_chain.back().undo.transactions;
+
+        for (auto it = undo.rbegin(); it != undo.rend(); ++it) {
+            if (!staged_utxos.undo_transaction(*it)) {
+                result.error = ChainConnectError::reorg_undo_failed;
+                return result;
+            }
+        }
+
+        staged_chain.pop_back();
+    }
+
+    Amount activated_fees{0U};
+
+    for (const auto& block_hash_value : forward_path) {
+        auto index_it = block_index_.find(block_hash_value);
+        if (index_it == block_index_.end()) {
+            result.error = ChainConnectError::invalid_ancestor;
+            return result;
+        }
+
+        if (index_it->second.failed) {
+            result.error = ChainConnectError::invalid_ancestor;
+            return result;
+        }
+
+        const Hash256 staged_parent_work =
+            staged_chain.empty()
+                ? Hash256{}
+                : staged_chain.back().chain_work;
+
+        const std::uint32_t staged_height =
+            staged_chain.empty()
+                ? 0U
+                : staged_chain.back().height + 1U;
+
+        auto applied = apply_block_to_view(
+            index_it->second.block,
+            staged_utxos,
+            staged_height,
+            staged_parent_work
+        );
+
+        if (!applied.result.ok()) {
+            index_it->second.failed = true;
+            result = applied.result;
+            return result;
+        }
+
+        if (applied.result.total_fees >
+            std::numeric_limits<Amount>::max() - activated_fees) {
+            index_it->second.failed = true;
+            result.error = ChainConnectError::fee_sum_overflow;
+            return result;
+        }
+
+        activated_fees += applied.result.total_fees;
+        staged_chain.push_back(std::move(applied.entry));
+    }
+
+    const bool was_reorg =
+        !chain_.empty() &&
+        fork_size < chain_.size();
+
+    utxos_ = std::move(staged_utxos);
+    chain_ = std::move(staged_chain);
+
+    result.total_fees = activated_fees;
+    result.activated = true;
+    result.reorganized = was_reorg;
     return result;
 }
 
