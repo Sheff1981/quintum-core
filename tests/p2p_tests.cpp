@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <thread>
+#include <utility>
 
 namespace {
 
