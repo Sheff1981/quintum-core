@@ -46,13 +46,20 @@ Reason: minimize consensus surface area while establishing real cryptographic ow
 ## D-008 — Network and difficulty candidate
 **State:** DRAFT until genesis freeze.
 
-Current Mainnet candidate uses 150-second target spacing, 2016-block Bitcoin-style periodic retargeting, 1/4x to 4x timespan clamps and PoW limit bits `0x1e0ffff0`.
+Current Mainnet candidate uses 600-second target spacing, 2016-block Bitcoin-style periodic retargeting, 1/4x to 4x timespan clamps and PoW limit bits `0x1e0ffff0`.
 
 Testnet uses the same base policy with a delayed-block minimum-difficulty rule. Regtest has fixed easy difficulty.
 
 Every block's expected `bits` is derived from its own parent branch before PoW acceptance; miners cannot lower difficulty by placing an arbitrary target in the header.
 
 Reason: retain a small, deterministic, well-understood retarget design while keeping development and public testing networks operationally distinct.
+
+## D-009 — Timestamp and resource limits
+**State:** DRAFT until genesis freeze.
+
+Use an 11-block Median Time Past rule, a 2-hour maximum future timestamp window, a 1,000,000-byte serialized block ceiling, 10,000-transaction block ceiling, 10,000-byte script ceiling and 100-byte coinbase unlocking-script ceiling.
+
+Reason: keep block validation deterministic and resource-bounded before network/P2P parsing is exposed to untrusted peers.
 
 ## Freeze states
 
