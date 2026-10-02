@@ -31,6 +31,21 @@ bool is_valid_private_key(const PrivateKey& key) noexcept
            secp256k1_ec_seckey_verify(context(), key.data()) == 1;
 }
 
+bool is_valid_public_key(const PublicKey& key) noexcept
+{
+    if (context() == nullptr) {
+        return false;
+    }
+
+    secp256k1_pubkey parsed{};
+    return secp256k1_ec_pubkey_parse(
+        context(),
+        &parsed,
+        key.data(),
+        key.size()
+    ) == 1;
+}
+
 std::optional<PublicKey> derive_public_key(
     const PrivateKey& key) noexcept
 {
