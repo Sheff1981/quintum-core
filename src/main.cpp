@@ -383,6 +383,11 @@ int main(int argc, char* argv[])
     const auto initial_status =
         runtime.status();
 
+    if (start_result.wallet.backup_recommended) {
+        std::cout
+            << "Wallet backup recommended: newly created keypool\n";
+    }
+
     std::cout
         << "QUINTUM Core 0.0.1-dev\n"
         << "Network: " << params.name << '\n'
@@ -449,6 +454,11 @@ int main(int argc, char* argv[])
             << "New receive address: "
             << generated.address
             << '\n';
+
+        if (generated.backup_recommended) {
+            std::cout
+                << "Wallet backup recommended: keypool refilled\n";
+        }
     }
 
     if (send_to && send_amount) {
@@ -485,6 +495,11 @@ int main(int argc, char* argv[])
             << " fee="
             << sent.node.mempool.fee
             << " atomic\n";
+
+        if (sent.wallet.backup_recommended) {
+            std::cout
+                << "Wallet backup recommended: change keypool refilled\n";
+        }
     }
 
     if (mine_blocks > 0U) {
