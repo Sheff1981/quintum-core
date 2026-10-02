@@ -1716,3 +1716,62 @@ Consensus, Genesis, monetary policy, network magic, порты и публичн
 M1 Local blockchain теперь имеет disk persistence.
 
 Следующий технический блок — **Этап 14: node runtime + block template/mining integration на persistent Chainstate**, чтобы development node после старта автоматически открывал свою базу, продолжал цепь и мог создавать полный валидный блок поверх восстановленного tip. После этого можно переходить к P2P handshake/peer discovery/synchronization.
+
+
+---
+
+## 2026-10-02 — Этап 14. Node runtime + block template/mining integration
+
+### Цель
+
+Связать уже готовые consensus, Genesis и persistent storage в реальный цикл локальной ноды: запуск → восстановление blockchain → создание следующего валидного блока → настоящий PoW → обычная consensus-проверка → запись на диск → продолжение после перезапуска.
+
+### Что добавлено
+
+- `NodeRuntime` поверх `PersistentChainstate`;
+- первый запуск автоматически проверяет и записывает точный pinned Genesis;
+- повторный запуск восстанавливает существующий tip, height, UTXO и chain work;
+- block-template builder берёт active tip и сам рассчитывает следующий height, timestamp и required bits;
+- coinbase содержит height и получает только subsidy + fees;
+- mining payout разрешён только на валидный compressed secp256k1 P2PK public key;
+- Merkle root пересчитывается из полного набора транзакций;
+- реальный nonce перебирается существующим `mine_header()`;
+- найденный header повторно проверяется обычным PoW validator;
+- найденный блок проходит обычный `Chainstate::connect_block()`, без mining bypass;
+- после принятия блок атомарно сохраняется через persistent storage;
+- `quintumd` стал development-node CLI с выбором сети, datadir и локальным mining mode.
+
+### Безопасность
+
+Этап не меняет Genesis, network magic, порты, денежную политику, difficulty rules, block serialization или правила UTXO.
+
+Private key для майнинга CLI не принимает: задаётся только public key назначения награды.
+
+Wallet, mempool и P2P на этом этапе намеренно не имитируются.
+
+### QA
+
+Добавлен 14-й suite: `node_runtime`.
+
+Он проверяет:
+
+- clean startup и автоматическую инициализацию exact Regtest Genesis;
+- создание настоящего height-1 PoW блока;
+- правильный previous hash;
+- правильные bits;
+- coinbase subsidy и payout script;
+- Merkle root;
+- независимую PoW-проверку;
+- несколько последовательных блоков;
+- отказ некорректного mining payout;
+- shutdown → restart с тем же tip/height;
+- продолжение mining поверх восстановленного tip;
+- второй restart после нового блока.
+
+### Статус
+
+После финального Windows/Linux CI этап считается завершённым.
+
+### Следующий этап
+
+**Этап 15 — P2P foundation:** wire framing, version/verack handshake, peer lifecycle и базовый connection manager. После этого — peer discovery/addrman/seeds и headers-first synchronization.
