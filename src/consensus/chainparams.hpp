@@ -22,6 +22,18 @@ struct PowParams {
     bool no_retargeting{false};
 };
 
+struct TimeParams {
+    std::uint32_t median_time_span{11U};
+    std::uint64_t max_future_seconds{7'200U};
+};
+
+struct ResourceLimits {
+    std::uint64_t max_block_serialized_bytes{1'000'000U};
+    std::uint32_t max_block_transactions{10'000U};
+    std::uint32_t max_script_bytes{10'000U};
+    std::uint32_t max_coinbase_script_bytes{100U};
+};
+
 struct ChainParams {
     Network network{Network::regtest};
     std::string_view name{};
@@ -29,6 +41,8 @@ struct ChainParams {
     std::uint16_t p2p_port{0U};
     std::uint16_t rpc_port{0U};
     PowParams pow{};
+    TimeParams time{};
+    ResourceLimits limits{};
 };
 
 [[nodiscard]] const ChainParams& mainnet_params() noexcept;
