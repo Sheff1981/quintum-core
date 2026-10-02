@@ -1240,19 +1240,22 @@ WalletStoreError Wallet::load()
     auto bytes =
         read_file(path_);
 
-    if (!bytes ||
-        bytes->size() <
-            kWalletMagic.size() +
-            sizeof(std::uint32_t) +
-            1U +
-            params_.message_start.size() +
-            1U +
-            kKeyRecordSize +
-            kChecksumSize) {
+    if (!bytes) {
         return WalletStoreError::corrupt;
     }
 
     SecretBytesGuard guard{&*bytes};
+
+    if (bytes->size() <
+        kWalletMagic.size() +
+        sizeof(std::uint32_t) +
+        1U +
+        params_.message_start.size() +
+        1U +
+        kKeyRecordSize +
+        kChecksumSize) {
+        return WalletStoreError::corrupt;
+    }
 
     const std::span<const Byte> body{
         bytes->data(),
