@@ -131,6 +131,24 @@ quintum_test_assertions(quintum_monetary_tests)
 
 add_test(NAME monetary COMMAND quintum_monetary_tests)
 
+add_executable(quintum_crypto_tests
+    tests/crypto_tests.cpp
+)
+target_link_libraries(quintum_crypto_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_crypto_tests)
+quintum_test_assertions(quintum_crypto_tests)
+
+add_test(NAME crypto COMMAND quintum_crypto_tests)
+
+add_executable(quintum_tx_auth_tests
+    tests/tx_auth_tests.cpp
+)
+target_link_libraries(quintum_tx_auth_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_tx_auth_tests)
+quintum_test_assertions(quintum_tx_auth_tests)
+
+add_test(NAME tx_auth COMMAND quintum_tx_auth_tests)
+
 add_executable(quintum_chainstate_tests
     tests/chainstate_tests.cpp
 )
