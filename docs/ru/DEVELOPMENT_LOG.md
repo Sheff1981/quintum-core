@@ -1766,11 +1766,24 @@ Wallet, mempool и P2P на этом этапе намеренно не имит
 - отказ некорректного mining payout;
 - shutdown → restart с тем же tip/height;
 - продолжение mining поверх восстановленного tip;
-- второй restart после нового блока.
+- второй restart после нового блока;
+- достижение 100-block coinbase maturity;
+- создание и ECDSA-подпись реальной spend transaction;
+- включение transaction в mined block;
+- точный fee accounting: комиссия добавляется к subsidy coinbase.
 
 ### Статус
 
-После финального Windows/Linux CI этап считается завершённым.
+**ГОТОВО.**
+
+GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **14/14 test suites passed**;
+- расширенный node runtime/mining test с 101 блоком, mature spend и fee accounting — passed.
+
+Genesis, consensus parameters, network magic, порты и денежная политика не изменялись.
 
 ### Следующий этап
 
