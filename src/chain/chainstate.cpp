@@ -207,18 +207,108 @@ bool Chainstate::has_failed_ancestor(const Hash256& hash) const
     return false;
 }
 
+std::optional<std::uint32_t> Chainstate::expected_bits(
+    const Block& block,
+    const BlockIndexEntry* parent) const
+{
+    const auto& pow = params_->pow;
+
+    if (parent == nullptr) {
+        return pow.pow_limit_bits;
+    }
+
+    if (pow.no_retargeting) {
+        return parent->block.header.bits;
+    }
+
+    if (pow.retarget_interval == 0U ||
+        pow.target_spacing_seconds == 0U) {
+        return std::nullopt;
+    }
+
+    if (parent->height ==
+        std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t next_height =
+        parent->height + 1U;
+
+    if ((next_height % pow.retarget_interval) != 0U) {
+        if (pow.allow_min_difficulty_blocks) {
+            const std::uint64_t delay =
+                pow.target_spacing_seconds >
+                        std::numeric_limits<std::uint64_t>::max() / 2U
+                    ? std::numeric_limits<std::uint64_t>::max()
+                    : pow.target_spacing_seconds * 2U;
+
+            const std::uint64_t threshold =
+                parent->block.header.timestamp >
+                        std::numeric_limits<std::uint64_t>::max() - delay
+                    ? std::numeric_limits<std::uint64_t>::max()
+                    : parent->block.header.timestamp + delay;
+
+            if (block.header.timestamp > threshold) {
+                return pow.pow_limit_bits;
+            }
+
+            const BlockIndexEntry* cursor = parent;
+
+            while ((cursor->height % pow.retarget_interval) != 0U &&
+                   cursor->block.header.bits ==
+                       pow.pow_limit_bits) {
+                const auto it =
+                    block_index_.find(cursor->parent);
+
+                if (it == block_index_.end()) {
+                    return std::nullopt;
+                }
+
+                cursor = &it->second;
+            }
+
+            return cursor->block.header.bits;
+        }
+
+        return parent->block.header.bits;
+    }
+
+    const BlockIndexEntry* first = parent;
+
+    for (std::uint32_t step = 1U;
+         step < pow.retarget_interval;
+         ++step) {
+        const auto it =
+            block_index_.find(first->parent);
+
+        if (it == block_index_.end()) {
+            return std::nullopt;
+        }
+
+        first = &it->second;
+    }
+
+    const auto retarget =
+        consensus::calculate_retarget_bits(
+            parent->block.header.bits,
+            first->block.header.timestamp,
+            parent->block.header.timestamp,
+            pow
+        );
+
+    if (!retarget.ok()) {
+        return std::nullopt;
+    }
+
+    return retarget.bits;
+}
+
 ChainConnectResult Chainstate::connect_block(const Block& block)
 {
     ChainConnectResult result;
 
     if (validate_block_structure(block) != BlockStructureError::none) {
         result.error = ChainConnectError::invalid_block_structure;
-        return result;
-    }
-
-    if (consensus::check_proof_of_work(block.header) !=
-        consensus::PowCheckError::none) {
-        result.error = ChainConnectError::invalid_proof_of_work;
         return result;
     }
 
@@ -231,6 +321,7 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
 
     std::uint32_t new_height{0U};
     Hash256 parent_work{};
+    const BlockIndexEntry* parent_entry{nullptr};
 
     if (block_index_.empty()) {
         if (!is_zero_hash(block.header.previous_block)) {
@@ -259,6 +350,24 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
 
         new_height = parent_it->second.height + 1U;
         parent_work = parent_it->second.chain_work;
+        parent_entry = &parent_it->second;
+    }
+
+    const auto required_bits =
+        expected_bits(block, parent_entry);
+
+    if (!required_bits ||
+        block.header.bits != *required_bits) {
+        result.error = ChainConnectError::unexpected_difficulty;
+        return result;
+    }
+
+    if (consensus::check_proof_of_work(
+            block.header,
+            params_->pow) !=
+        consensus::PowCheckError::none) {
+        result.error = ChainConnectError::invalid_proof_of_work;
+        return result;
     }
 
     const auto compact = consensus::decode_compact_target(block.header.bits);
@@ -403,7 +512,8 @@ ChainConnectResult Chainstate::connect_block(const Block& block)
             index_it->second.block,
             staged_utxos,
             staged_height,
-            staged_parent_work
+            staged_parent_work,
+            params_->pow
         );
 
         if (!applied.result.ok()) {
