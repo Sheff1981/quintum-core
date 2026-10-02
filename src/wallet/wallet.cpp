@@ -1437,19 +1437,11 @@ WalletStoreError Wallet::load()
             return WalletStoreError::corrupt;
         }
 
-        loaded.push_back(
-            KeyRecord{
-                .private_key =
-                    private_key,
-                .public_key =
-                    *public_key,
-                .internal =
-                    (flags &
-                     kInternalFlag) != 0U,
-                .used =
-                    (flags &
-                     kUsedFlag) != 0U,
-            }
+        loaded.emplace_back(
+            private_key,
+            *public_key,
+            (flags & kInternalFlag) != 0U,
+            (flags & kUsedFlag) != 0U
         );
 
         crypto::secure_erase(
@@ -1630,17 +1622,11 @@ WalletKeyResult Wallet::append_key(
     std::vector<KeyRecord> candidate =
         keys_;
 
-    candidate.push_back(
-        KeyRecord{
-            .private_key =
-                private_key,
-            .public_key =
-                *public_key,
-            .internal =
-                internal,
-            .used =
-                used,
-        }
+    candidate.emplace_back(
+        private_key,
+        *public_key,
+        internal,
+        used
     );
 
     out.store_error =
@@ -1659,17 +1645,11 @@ WalletKeyResult Wallet::append_key(
         return out;
     }
 
-    keys_.push_back(
-        KeyRecord{
-            .private_key =
-                private_key,
-            .public_key =
-                *public_key,
-            .internal =
-                internal,
-            .used =
-                used,
-        }
+    keys_.emplace_back(
+        private_key,
+        *public_key,
+        internal,
+        used
     );
 
     out.backup_recommended = true;
@@ -1865,16 +1845,11 @@ bool Wallet::generate_pool_records(
             continue;
         }
 
-        records.push_back(
-            KeyRecord{
-                .private_key =
-                    *private_key,
-                .public_key =
-                    *public_key,
-                .internal =
-                    internal,
-                .used = false,
-            }
+        records.emplace_back(
+            *private_key,
+            *public_key,
+            internal,
+            false
         );
 
         crypto::secure_erase(
