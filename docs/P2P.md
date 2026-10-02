@@ -140,3 +140,42 @@ The current network layer does not yet add:
 - UPnP/NAT-PMP.
 
 Those build on the completed transport and discovery foundation.
+
+
+## Headers-first blockchain synchronization
+
+Stage 17 adds active-chain synchronization over the Stage 15 transport.
+
+### Block locator
+
+A syncing node sends a Bitcoin-style locator containing recent active-chain hashes and exponentially older hashes back to Genesis. The remote node finds the first locator hash on its active chain and returns headers after that common point.
+
+A `headers` message is bounded to 2,000 headers. If the remote chain is farther ahead, synchronization continues in additional batches using the last received header as the continuation locator.
+
+### Messages
+
+- `getheaders` — block locator plus optional stop hash;
+- `headers` — up to 2,000 serialized QUINTUM block headers;
+- `getdata` — bounded inventory request;
+- `block` — complete serialized block;
+- `notfound` — requested block was not available.
+
+Before requesting block bodies, the client verifies header linkage and Proof of Work. Header discovery is not authoritative state: contextual difficulty, timestamp, Merkle root, transaction, UTXO, coinbase and chain-work rules are enforced again when the complete block is submitted.
+
+### Block parser limits
+
+Network block decoding is bounded before large allocations:
+
+- P2P envelope limit remains 2,000,000 bytes;
+- accepted block payload cannot exceed the consensus serialized-block limit;
+- transaction count is bounded by the consensus block limit;
+- scripts are bounded by the consensus script limit;
+- CompactSize counts are checked against remaining input before reserve/allocation.
+
+### Consensus boundary
+
+A received block is passed through `NodeRuntime::submit_block_at()`, which delegates to `PersistentChainstate::connect_block()`.
+
+Therefore a peer cannot directly set height, UTXO, chain work or active tip. If a downloaded branch becomes strictly heavier and is fully valid, the already-existing Chainstate reorg mechanism activates it. The resulting state is durably committed before the sync operation treats the block as accepted.
+
+Stage 17 integration QA covers both ordinary catch-up and a competing-branch reorg followed by restart recovery.
