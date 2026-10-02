@@ -91,6 +91,12 @@ parse_transaction_payload(
     PeerSession& peer
 );
 
+[[nodiscard]] RelayResult serve_relay_message(
+    PeerSession& peer,
+    const NodeRuntime& node,
+    const WireMessage& message
+);
+
 [[nodiscard]] RelayResult serve_relay_once(
     PeerSession& peer,
     const NodeRuntime& node
