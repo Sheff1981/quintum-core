@@ -57,6 +57,36 @@ MempoolAcceptResult Mempool::accept(
         return out;
     }
 
+    const auto script_limit =
+        static_cast<std::size_t>(
+            chain.params().limits.max_script_bytes);
+
+    const bool input_script_too_large =
+        std::any_of(
+            transaction.inputs.begin(),
+            transaction.inputs.end(),
+            [&](const TxInput& input) {
+                return input.unlocking_script.size() >
+                       script_limit;
+            }
+        );
+
+    const bool output_script_too_large =
+        std::any_of(
+            transaction.outputs.begin(),
+            transaction.outputs.end(),
+            [&](const TxOutput& output) {
+                return output.locking_script.size() >
+                       script_limit;
+            }
+        );
+
+    if (input_script_too_large ||
+        output_script_too_large) {
+        out.error = MempoolError::script_too_large;
+        return out;
+    }
+
     if (entries_.size() >=
             kMaxMempoolTransactions ||
         *serialized_size >
