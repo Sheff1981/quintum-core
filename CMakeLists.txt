@@ -18,11 +18,17 @@ function(quintum_strict_warnings target)
     endif()
 endfunction()
 
+add_library(quintum_core STATIC
+    src/crypto/sha256.cpp
+)
+target_compile_features(quintum_core PUBLIC cxx_std_23)
+target_include_directories(quintum_core PUBLIC src)
+quintum_strict_warnings(quintum_core)
+
 add_executable(quintumd
     src/main.cpp
 )
-target_compile_features(quintumd PRIVATE cxx_std_23)
-target_include_directories(quintumd PRIVATE src)
+target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
 
 enable_testing()
@@ -30,8 +36,7 @@ enable_testing()
 add_executable(quintum_tests
     tests/foundation_tests.cpp
 )
-target_compile_features(quintum_tests PRIVATE cxx_std_23)
-target_include_directories(quintum_tests PRIVATE src)
+target_link_libraries(quintum_tests PRIVATE quintum_core)
 quintum_strict_warnings(quintum_tests)
 
 add_test(NAME foundation COMMAND quintum_tests)
