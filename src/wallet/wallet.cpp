@@ -288,6 +288,17 @@ bool add_amount(
     return true;
 }
 
+struct SecretBytesGuard {
+    Bytes* bytes{nullptr};
+
+    ~SecretBytesGuard()
+    {
+        if (bytes != nullptr) {
+            crypto::secure_erase(*bytes);
+        }
+    }
+};
+
 bool mature_at_height(
     const Coin& coin,
     std::uint32_t spend_height) noexcept
@@ -357,7 +368,7 @@ WalletStartResult Wallet::start()
         return out;
     }
 
-    const auto key =
+    auto key =
         crypto::generate_private_key();
 
     if (!key) {
@@ -371,8 +382,7 @@ WalletStartResult Wallet::start()
         crypto::derive_public_key(*key);
 
     if (!public_key) {
-        auto temporary = *key;
-        crypto::secure_erase(temporary);
+        crypto::secure_erase(*key);
         out.error =
             WalletStartError::
                 key_generation_failed;
@@ -396,8 +406,7 @@ WalletStartResult Wallet::start()
         crypto::secure_erase(
             initial.front().private_key
         );
-        auto temporary = *key;
-        crypto::secure_erase(temporary);
+        crypto::secure_erase(*key);
         out.error =
             WalletStartError::store_failed;
         return out;
@@ -412,8 +421,7 @@ WalletStartResult Wallet::start()
             *public_key
         );
 
-    auto temporary = *key;
-    crypto::secure_erase(temporary);
+    crypto::secure_erase(*key);
     return out;
 }
 
@@ -459,12 +467,14 @@ WalletStoreError Wallet::backup(
         return WalletStoreError::io_error;
     }
 
-    const auto bytes =
+    auto bytes =
         read_file(path_);
 
     if (!bytes) {
         return WalletStoreError::io_error;
     }
+
+    SecretBytesGuard guard{&*bytes};
 
     return write_atomic(
         destination,
@@ -1149,7 +1159,7 @@ WalletStoreError Wallet::load()
             : WalletStoreError::not_found;
     }
 
-    const auto bytes =
+    auto bytes =
         read_file(path_);
 
     if (!bytes ||
@@ -1163,6 +1173,8 @@ WalletStoreError Wallet::load()
             kChecksumSize) {
         return WalletStoreError::corrupt;
     }
+
+    SecretBytesGuard guard{&*bytes};
 
     const std::span<const Byte> body{
         bytes->data(),
@@ -1566,7 +1578,7 @@ WalletKeyResult Wallet::append_key(
 WalletKeyResult Wallet::generate_key(
     bool internal)
 {
-    const auto generated =
+    auto generated =
         crypto::generate_private_key();
 
     if (!generated) {
@@ -1582,9 +1594,7 @@ WalletKeyResult Wallet::generate_key(
             internal
         );
 
-    auto temporary =
-        *generated;
-    crypto::secure_erase(temporary);
+    crypto::secure_erase(*generated);
 
     return result;
 }
