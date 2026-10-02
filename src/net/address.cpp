@@ -381,6 +381,12 @@ AddrManager::AddrManager(
 {
 }
 
+void AddrManager::set_allow_local(
+    bool allow_local) noexcept
+{
+    allow_local_ = allow_local;
+}
+
 AddrStoreError AddrManager::load()
 {
     entries_.clear();
