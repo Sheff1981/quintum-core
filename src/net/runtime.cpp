@@ -306,7 +306,7 @@ NetworkRuntimeStatus NetworkRuntime::status() const
 
     if (!wallet_addresses.empty()) {
         out.receive_address =
-            wallet_addresses.front();
+            wallet_addresses.back();
     }
 
     return out;
