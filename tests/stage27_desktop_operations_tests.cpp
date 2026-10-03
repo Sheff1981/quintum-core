@@ -1,6 +1,7 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/monetary.hpp"
 #include "net/runtime.hpp"
+#include "node/datadir.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -315,13 +316,17 @@ void test_recovery_rebinds_orphaned_metadata()
         old_wallet.stop();
     }
 
+    DataDirectoryLayout target_layout{
+        target_dir
+    };
+
     std::error_code ec;
     assert(std::filesystem::remove(
-        target_dir / "wallet.dat",
+        target_layout.wallet_file(),
         ec));
     assert(!ec);
     assert(std::filesystem::exists(
-        target_dir / "wallet_meta.dat"));
+        target_layout.wallet_metadata_file()));
 
     {
         NetworkRuntime recovered{
