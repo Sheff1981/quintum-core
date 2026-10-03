@@ -1203,7 +1203,21 @@ Bytes make_block_record(const Block& block)
 ChainstateStore::ChainstateStore(
     std::filesystem::path directory,
     const consensus::ChainParams& params)
+    : directory_(directory),
+      blocks_directory_(directory),
+      state_directory_(std::move(directory)),
+      params_(params)
+{
+}
+
+ChainstateStore::ChainstateStore(
+    std::filesystem::path directory,
+    std::filesystem::path blocks_directory,
+    std::filesystem::path state_directory,
+    const consensus::ChainParams& params)
     : directory_(std::move(directory)),
+      blocks_directory_(std::move(blocks_directory)),
+      state_directory_(std::move(state_directory)),
       params_(params)
 {
 }
@@ -1216,12 +1230,12 @@ ChainstateStore::directory() const noexcept
 
 std::filesystem::path ChainstateStore::blocks_path() const
 {
-    return directory_ / "blocks.dat";
+    return blocks_directory_ / "blocks.dat";
 }
 
 std::filesystem::path ChainstateStore::state_path() const
 {
-    return directory_ / "chainstate.dat";
+    return state_directory_ / "chainstate.dat";
 }
 
 StorageError ChainstateStore::commit(
@@ -1239,7 +1253,16 @@ StorageError ChainstateStore::commit(
 
     std::error_code ec;
     std::filesystem::create_directories(
-        directory_,
+        blocks_directory_,
+        ec);
+
+    if (ec) {
+        return StorageError::io_error;
+    }
+
+    ec.clear();
+    std::filesystem::create_directories(
+        state_directory_,
         ec);
 
     if (ec) {
@@ -1638,6 +1661,20 @@ PersistentChainstate::PersistentChainstate(
     std::filesystem::path directory)
     : chain_(params),
       store_(std::move(directory), params)
+{
+}
+
+PersistentChainstate::PersistentChainstate(
+    const consensus::ChainParams& params,
+    std::filesystem::path directory,
+    std::filesystem::path blocks_directory,
+    std::filesystem::path state_directory)
+    : chain_(params),
+      store_(
+          std::move(directory),
+          std::move(blocks_directory),
+          std::move(state_directory),
+          params)
 {
 }
 

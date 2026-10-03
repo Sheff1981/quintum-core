@@ -2,6 +2,7 @@
 
 #include "consensus/chainparams.hpp"
 #include "crypto/random.hpp"
+#include "node/datadir.hpp"
 
 #include <QApplication>
 #include <QByteArray>
@@ -465,6 +466,14 @@ QString startup_error_text(
     }
 
     if (result.error ==
+        NetworkRuntimeStartError::data_directory_failed) {
+        return result.data_directory ==
+                   quintum::DataDirectoryError::conflict
+            ? "The QUINTUM data directory contains both legacy and new copies of the same data. Nothing was overwritten. Resolve the duplicate files before starting."
+            : "The QUINTUM data directory could not be prepared safely.";
+    }
+
+    if (result.error ==
             NetworkRuntimeStartError::wallet_failed &&
         result.wallet.error ==
             WalletStartError::metadata_failed) {
@@ -709,10 +718,30 @@ int main(int argc, char* argv[])
             data_directory
         );
 
+    quintum::DataDirectoryLayout data_layout{
+        data_path
+    };
+
+    const auto data_layout_error =
+        data_layout.prepare(true);
+
+    if (data_layout_error !=
+        quintum::DataDirectoryError::none) {
+        QMessageBox::critical(
+            nullptr,
+            "Data directory error",
+            data_layout_error ==
+                    quintum::DataDirectoryError::conflict
+                ? "QUINTUM found both legacy and new copies of the same data. No file was overwritten. Resolve the duplicate files before starting."
+                : "QUINTUM could not prepare or migrate its data directory safely."
+        );
+        return 4;
+    }
+
     std::error_code ec;
     const bool wallet_exists =
         std::filesystem::exists(
-            data_path / "wallet.dat",
+            data_layout.wallet_file(),
             ec
         );
 
@@ -720,7 +749,7 @@ int main(int argc, char* argv[])
         QMessageBox::critical(
             nullptr,
             "Wallet error",
-            "QUINTUM could not inspect wallet.dat."
+            "QUINTUM could not inspect wallets/default/wallet.dat."
         );
         return 4;
     }

@@ -95,6 +95,7 @@ add_library(quintum_core STATIC
     src/chain/chainstate.cpp
     src/chain/storage.cpp
     src/mining/block_template.cpp
+    src/node/datadir.cpp
     src/node/node.cpp
     src/node/mempool.cpp
     src/policy/fees.cpp
@@ -453,4 +454,19 @@ quintum_test_assertions(quintum_stage29_public_testnet_tests)
 add_test(
     NAME stage29_public_testnet
     COMMAND quintum_stage29_public_testnet_tests
+)
+
+add_executable(quintum_stage31_data_directory_tests
+    tests/stage31_data_directory_tests.cpp
+)
+target_link_libraries(
+    quintum_stage31_data_directory_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_stage31_data_directory_tests)
+quintum_test_assertions(quintum_stage31_data_directory_tests)
+
+add_test(
+    NAME stage31_data_directory
+    COMMAND quintum_stage31_data_directory_tests
 )

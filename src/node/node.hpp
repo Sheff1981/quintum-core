@@ -97,6 +97,13 @@ public:
         std::filesystem::path directory
     );
 
+    NodeRuntime(
+        const consensus::ChainParams& params,
+        std::filesystem::path directory,
+        std::filesystem::path blocks_directory,
+        std::filesystem::path state_directory
+    );
+
     [[nodiscard]] NodeStartResult start();
     [[nodiscard]] NodeStartResult start_at(
         std::uint64_t adjusted_time

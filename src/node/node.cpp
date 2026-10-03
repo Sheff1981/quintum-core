@@ -30,6 +30,20 @@ NodeRuntime::NodeRuntime(
 {
 }
 
+NodeRuntime::NodeRuntime(
+    const consensus::ChainParams& params,
+    std::filesystem::path directory,
+    std::filesystem::path blocks_directory,
+    std::filesystem::path state_directory)
+    : params_(params),
+      persistent_(
+          params,
+          std::move(directory),
+          std::move(blocks_directory),
+          std::move(state_directory))
+{
+}
+
 NodeStartResult NodeRuntime::start()
 {
     return start_at(unix_time_now());

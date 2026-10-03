@@ -28,6 +28,13 @@ public:
         const consensus::ChainParams& params
     );
 
+    ChainstateStore(
+        std::filesystem::path directory,
+        std::filesystem::path blocks_directory,
+        std::filesystem::path state_directory,
+        const consensus::ChainParams& params
+    );
+
     [[nodiscard]] const std::filesystem::path& directory() const noexcept;
     [[nodiscard]] std::filesystem::path blocks_path() const;
     [[nodiscard]] std::filesystem::path state_path() const;
@@ -43,6 +50,8 @@ public:
 
 private:
     std::filesystem::path directory_{};
+    std::filesystem::path blocks_directory_{};
+    std::filesystem::path state_directory_{};
     consensus::ChainParams params_{};
 };
 
@@ -73,6 +82,13 @@ public:
     PersistentChainstate(
         const consensus::ChainParams& params,
         std::filesystem::path directory
+    );
+
+    PersistentChainstate(
+        const consensus::ChainParams& params,
+        std::filesystem::path directory,
+        std::filesystem::path blocks_directory,
+        std::filesystem::path state_directory
     );
 
     [[nodiscard]] StorageError load();

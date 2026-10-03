@@ -3,6 +3,7 @@
 #include "net/address.hpp"
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
+#include "node/datadir.hpp"
 #include "node/node.hpp"
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
@@ -43,6 +44,7 @@ struct NetworkRuntimeConfig {
 enum class NetworkRuntimeStartError {
     none,
     already_running,
+    data_directory_failed,
     node_failed,
     wallet_failed,
     address_store_failed,
@@ -52,6 +54,9 @@ enum class NetworkRuntimeStartError {
 struct NetworkRuntimeStartResult {
     NetworkRuntimeStartError error{
         NetworkRuntimeStartError::none
+    };
+    DataDirectoryError data_directory{
+        DataDirectoryError::none
     };
     NodeStartResult node{};
     wallet::WalletStartResult wallet{};
@@ -357,6 +362,7 @@ private:
 
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
+    DataDirectoryLayout layout_;
     NetworkRuntimeConfig config_{};
 
     mutable std::mutex state_mutex_{};

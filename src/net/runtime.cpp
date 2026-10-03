@@ -206,8 +206,15 @@ NetworkRuntime::NetworkRuntime(
     std::filesystem::path directory)
     : params_(params),
       directory_(std::move(directory)),
-      node_(params_, directory_),
-      wallet_(params_, directory_),
+      layout_(directory_),
+      node_(
+          params_,
+          directory_,
+          layout_.blocks_directory(),
+          layout_.chainstate_directory()),
+      wallet_(
+          params_,
+          layout_.wallet_directory()),
       addrman_(
           params_,
           directory_,
@@ -236,6 +243,19 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     }
 
     config_ = std::move(config);
+
+    out.data_directory =
+        layout_.prepare(
+            config_.enable_wallet
+        );
+
+    if (out.data_directory !=
+        DataDirectoryError::none) {
+        out.error =
+            NetworkRuntimeStartError::
+                data_directory_failed;
+        return out;
+    }
 
     const bool allow_local =
         config_.allow_local_peers ||
@@ -729,6 +749,21 @@ NetworkRuntime::restore_wallet_bundle(
     if (running_.load()) {
         return wallet::WalletStoreError::
             target_exists;
+    }
+
+    const auto layout_error =
+        layout_.prepare(true);
+
+    if (layout_error ==
+        DataDirectoryError::conflict) {
+        return wallet::WalletStoreError::
+            target_exists;
+    }
+
+    if (layout_error !=
+        DataDirectoryError::none) {
+        return wallet::WalletStoreError::
+            io_error;
     }
 
     return wallet_.restore_bundle(source);

@@ -455,6 +455,15 @@ void test_real_testnet_params_bootstrap_and_peer_store()
     assert(!std::filesystem::exists(
         seed_dir / "wallet_state.dat"
     ));
+    assert(!std::filesystem::exists(
+        seed_dir / "wallets" / "default" / "wallet.dat"
+    ));
+    assert(!std::filesystem::exists(
+        seed_dir / "wallets" / "default" / "wallet_meta.dat"
+    ));
+    assert(!std::filesystem::exists(
+        seed_dir / "wallets" / "default" / "wallet_state.dat"
+    ));
 
     remove_tree(peer_dir);
     remove_tree(seed_dir);
