@@ -77,6 +77,28 @@ std::optional<PublicKey> derive_public_key(
     return serialized;
 }
 
+std::optional<PrivateKey>
+tweak_add_private_key(
+    const PrivateKey& key,
+    const PrivateKey& tweak) noexcept
+{
+    if (!is_valid_private_key(key) ||
+        !is_valid_private_key(tweak)) {
+        return std::nullopt;
+    }
+
+    PrivateKey output = key;
+
+    if (secp256k1_ec_seckey_tweak_add(
+            context(),
+            output.data(),
+            tweak.data()) != 1) {
+        return std::nullopt;
+    }
+
+    return output;
+}
+
 std::optional<CompactSignature> sign_ecdsa(
     const Hash256& digest,
     const PrivateKey& key) noexcept
