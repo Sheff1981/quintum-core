@@ -40,10 +40,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M11 — Automatic fee + relay policy (Stage 24):** wallet sends now support an automatic fee mode built on one shared fee-rate calculation used by both wallet policy and node relay policy.
+**M12 — Desktop wallet API foundation (Stage 25):** the core now exposes the stable data and confirmation model needed by a Qt desktop wallet without allowing the UI to bypass wallet, mempool or consensus validation.
 
-The default wallet and minimum-relay rate are currently **1,000 atomic units per 1,000 serialized bytes**. Auto mode estimates the signed P2PK transaction size from its selected UTXOs, uses the greater of the wallet default, the node relay floor and the current mempool median rate, and produces a fee quote before sending.
+Stage 25 adds durable address-book and transaction labels in a separate crash-safe `wallet_meta.dat`, bound to the QUINTUM network and an owned wallet-key anchor. Corrupt, wrong-network or wrong-wallet metadata fails explicitly instead of silently discarding user labels. Addresses are canonicalized before storage.
 
-Transactions below the local relay floor are rejected from the mempool, but that rule is deliberately **not consensus**: an otherwise-valid low-fee transaction can still be valid inside a block. `NetworkRuntime` exposes fee quote, minimum relay rate, recommended rate and auto-send APIs for the future desktop wallet. The development CLI uses Auto when `--fee` is omitted and preserves explicit fee override.
+The desktop send flow is now two-step: `preview_send()` returns destination, amount, automatic fee quote, optional recipient label, a node-state hash and a tamper-evident preview id. `confirm_send()` revalidates the preview under the runtime lock and rejects a changed chain/mempool as `stale_preview` before any transaction is created or broadcast.
 
-Next wallet work: stronger confirmation-target fee estimation, transaction metadata/address book and remaining desktop-facing APIs before Qt GUI integration.
+`desktop_snapshot()` exposes one GUI-facing view of runtime/network status, balances, labeled transaction history and the address book.
+
+Next: Stage 26 — the first Qt 6 desktop wallet shell using these APIs: Overview, Send, Receive, Transactions and live synchronization/network status.
