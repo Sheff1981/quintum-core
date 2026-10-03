@@ -308,7 +308,7 @@ private:
     [[nodiscard]] bool prepare_live_peer(
         LivePeer& peer,
         std::uint64_t now,
-        bool initial_sync
+        bool outbound
     );
 
     [[nodiscard]] bool process_message(
