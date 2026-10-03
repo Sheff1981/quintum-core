@@ -8,6 +8,7 @@
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -215,6 +216,24 @@ void test_min_relay_fee_rejects_underpriced_transaction()
            *required);
     assert(accepted.mempool.required_fee ==
            *required);
+
+    // Relay/mempool fee is policy only. The same otherwise-valid
+    // low-fee transaction remains valid inside a mined block.
+    const std::array<Transaction, 1> direct_block_tx{
+        low_fee
+    };
+
+    const auto mined =
+        node.mine_block_at(
+            payout_from_scalar(70U),
+            base_time + 1'000U,
+            4'096U,
+            direct_block_tx
+        );
+
+    assert(mined.ok());
+    assert(mined.total_fees == 1U);
+    assert(node.mempool().size() == 0U);
 
     std::error_code ec;
     std::filesystem::remove_all(
