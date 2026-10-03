@@ -19,6 +19,10 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 **State/indexing implemented in Stage 22:** persistent confirmed/unconfirmed/inactive transaction history, restart-safe incremental wallet indexing with automatic corruption/reorg/key-set rebuild, and local size/mempool-based fee-policy foundation. Before public release: user-facing mnemonic/recovery UX, confirmation-target fee selection, labels/address book metadata and further adversarial/long-running recovery tests.
 
+**Recovery UX implemented in Stage 23:** 24-word English recovery representation of the existing 256-bit RecoverySeed, checksum validation, gap-aware receive/change discovery and atomic recovery commit without changing the existing BIP32 path or addresses.
+
+**Send policy implemented in Stage 24:** shared wallet/node fee math, local minimum-relay policy, automatic fee quote/selection from exact P2PK size plus current mempool median, explicit proof that the relay floor is not consensus, and desktop-facing quote/auto-send APIs. Before public release: historical/confirmation-target fee estimation, labels/address book metadata and further adversarial/long-running wallet tests.
+
 ## M5 — Desktop
 Qt 6 GUI, synchronization state, peers, balances, transaction history and mining status.
 
