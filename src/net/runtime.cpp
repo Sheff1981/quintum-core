@@ -315,6 +315,9 @@ NetworkRuntimeStatus NetworkRuntime::status() const
         node_.mempool().size();
     out.wallet_balance =
         wallet_.balance();
+    out.min_relay_fee_rate_per_kb =
+        node_.mempool()
+            .min_relay_fee_rate_per_kb();
     out.recommended_fee_rate_per_kb =
         wallet::recommended_fee_rate(
             node_.mempool()
@@ -399,6 +402,83 @@ NetworkRuntime::backup_wallet(
         destination,
         overwrite
     );
+}
+
+wallet::WalletFeeQuote
+NetworkRuntime::quote_send_fee(
+    std::string_view destination,
+    Amount amount)
+{
+    std::scoped_lock lock(state_mutex_);
+
+    return wallet_.quote_auto_fee(
+        destination,
+        amount,
+        node_.chain(),
+        node_.mempool()
+    );
+}
+
+NetworkWalletSendResult
+NetworkRuntime::send_to_address_auto_fee(
+    std::string_view destination,
+    Amount amount)
+{
+    NetworkWalletSendResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        out.wallet =
+            wallet_.create_transaction_auto_fee(
+                destination,
+                amount,
+                node_.chain(),
+                node_.mempool()
+            );
+
+        if (!out.wallet.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    wallet_create_failed;
+            return out;
+        }
+
+        out.node =
+            node_.submit_transaction(
+                out.wallet.transaction
+            );
+
+        if (!out.node.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    node_rejected;
+            return out;
+        }
+
+        const auto synced =
+            wallet_.sync(
+                node_.chain(),
+                node_.mempool()
+            );
+
+        out.wallet_sync =
+            synced.error;
+
+        if (!synced.ok()) {
+            out.error =
+                NetworkWalletSendError::
+                    wallet_sync_failed;
+            return out;
+        }
+    }
+
+    queue_announcement(
+        kInventoryTransaction,
+        out.node.mempool.txid
+    );
+
+    return out;
 }
 
 NetworkWalletSendResult
