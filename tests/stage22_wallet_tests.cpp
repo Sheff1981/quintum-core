@@ -430,6 +430,41 @@ void test_persistent_history_and_incremental_index()
         assert(!pending->block_height.has_value());
         assert(pending->confirmations == 0U);
 
+        {
+            Wallet persisted_history{
+                params,
+                wallet_directory
+            };
+
+            assert(persisted_history.start().ok());
+
+            Mempool empty_after_restart;
+
+            const auto persisted_sync =
+                persisted_history.sync(
+                    node.chain(),
+                    empty_after_restart
+                );
+
+            assert(persisted_sync.ok());
+
+            const auto persisted =
+                persisted_history.history();
+
+            const auto* inactive =
+                find_history(
+                    persisted,
+                    spend_txid
+                );
+
+            assert(inactive != nullptr);
+            assert(inactive->status ==
+                   WalletTransactionStatus::inactive);
+            assert(inactive->confirmations == 0U);
+            assert(inactive->fee ==
+                   std::optional<Amount>{fee});
+        }
+
         const auto confirmed =
             node.mine_mempool_block_at(
                 payout_from_scalar(54U),
