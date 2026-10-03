@@ -3,6 +3,7 @@
 #include "crypto/random.hpp"
 
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 
 #include <algorithm>
 #include <array>
@@ -15,19 +16,178 @@
 namespace quintum::wallet {
 namespace {
 
-constexpr std::array<Byte, 13> kHdDomain{
-    'Q', 'U', 'I', 'N', 'T', 'U', 'M',
-    '-', 'H', 'D', '-', 'v', '1'
+constexpr std::uint32_t kBip32Hardened{0x80000000U};
+constexpr std::uint32_t kQuintumPurpose{5'329'997U};
+constexpr std::array<Byte, 12> kBip32SeedKey{
+    'B', 'i', 't', 'c', 'o', 'i', 'n',
+    ' ', 's', 'e', 'e', 'd'
 };
 
-void store_le32(
+using ChainCode = std::array<Byte, 32>;
+
+struct ExtendedPrivateKey {
+    crypto::PrivateKey private_key{};
+    ChainCode chain_code{};
+};
+
+void store_be32(
     std::uint32_t value,
     Byte* output) noexcept
 {
-    output[0] = static_cast<Byte>(value);
-    output[1] = static_cast<Byte>(value >> 8U);
-    output[2] = static_cast<Byte>(value >> 16U);
-    output[3] = static_cast<Byte>(value >> 24U);
+    output[0] = static_cast<Byte>(value >> 24U);
+    output[1] = static_cast<Byte>(value >> 16U);
+    output[2] = static_cast<Byte>(value >> 8U);
+    output[3] = static_cast<Byte>(value);
+}
+
+void wipe_extended_key(
+    ExtendedPrivateKey& key) noexcept
+{
+    crypto::secure_erase(key.private_key);
+    crypto::secure_erase(key.chain_code);
+}
+
+bool bip32_master(
+    const RecoverySeed& seed,
+    ExtendedPrivateKey& output) noexcept
+{
+    std::array<Byte, 64> digest{};
+
+    crypto_sha512_hmac(
+        digest.data(),
+        kBip32SeedKey.data(),
+        kBip32SeedKey.size(),
+        seed.data(),
+        seed.size()
+    );
+
+    std::copy_n(
+        digest.begin(),
+        static_cast<std::ptrdiff_t>(
+            output.private_key.size()),
+        output.private_key.begin()
+    );
+
+    std::copy_n(
+        digest.begin() +
+            static_cast<std::ptrdiff_t>(
+                output.private_key.size()),
+        static_cast<std::ptrdiff_t>(
+            output.chain_code.size()),
+        output.chain_code.begin()
+    );
+
+    crypto_wipe(
+        digest.data(),
+        digest.size()
+    );
+
+    if (!crypto::is_valid_private_key(
+            output.private_key)) {
+        wipe_extended_key(output);
+        return false;
+    }
+
+    return true;
+}
+
+bool bip32_child(
+    const ExtendedPrivateKey& parent,
+    std::uint32_t child_number,
+    ExtendedPrivateKey& output) noexcept
+{
+    std::array<Byte, 37> data{};
+
+    if ((child_number &
+         kBip32Hardened) != 0U) {
+        data[0] = 0U;
+        std::copy(
+            parent.private_key.begin(),
+            parent.private_key.end(),
+            data.begin() + 1
+        );
+    } else {
+        const auto public_key =
+            crypto::derive_public_key(
+                parent.private_key
+            );
+
+        if (!public_key) {
+            return false;
+        }
+
+        std::copy(
+            public_key->begin(),
+            public_key->end(),
+            data.begin()
+        );
+    }
+
+    store_be32(
+        child_number,
+        data.data() + 33U
+    );
+
+    std::array<Byte, 64> digest{};
+
+    crypto_sha512_hmac(
+        digest.data(),
+        parent.chain_code.data(),
+        parent.chain_code.size(),
+        data.data(),
+        data.size()
+    );
+
+    crypto::PrivateKey tweak{};
+    std::copy_n(
+        digest.begin(),
+        static_cast<std::ptrdiff_t>(
+            tweak.size()),
+        tweak.begin()
+    );
+
+    if (!crypto::is_valid_private_key(
+            tweak)) {
+        crypto_wipe(
+            digest.data(),
+            digest.size()
+        );
+        crypto::secure_erase(tweak);
+        return false;
+    }
+
+    const auto child_private =
+        crypto::tweak_add_private_key(
+            parent.private_key,
+            tweak
+        );
+
+    crypto::secure_erase(tweak);
+
+    if (!child_private) {
+        crypto_wipe(
+            digest.data(),
+            digest.size()
+        );
+        return false;
+    }
+
+    output.private_key =
+        *child_private;
+
+    std::copy_n(
+        digest.begin() + 32,
+        static_cast<std::ptrdiff_t>(
+            output.chain_code.size()),
+        output.chain_code.begin()
+    );
+
+    crypto_wipe(
+        digest.data(),
+        digest.size()
+    );
+
+    return true;
 }
 
 } // namespace
@@ -60,7 +220,7 @@ bool derive_wallet_encryption_key(
 
     try {
         work_area.resize(work_size);
-    } catch (const std::bad_alloc&) {
+    } catch (...) {
         return false;
     }
 
@@ -174,48 +334,50 @@ derive_hd_private_key(
     bool internal,
     std::uint32_t index) noexcept
 {
-    std::array<Byte, 23> input{};
-
-    std::copy(
-        kHdDomain.begin(),
-        kHdDomain.end(),
-        input.begin()
-    );
-
-    input[13] =
-        static_cast<Byte>(network);
-    input[14] =
-        internal ? 1U : 0U;
-
-    store_le32(index, input.data() + 15U);
-
-    crypto::PrivateKey candidate{};
-
-    for (std::uint32_t attempt = 0U;
-         attempt < 1'024U;
-         ++attempt) {
-        store_le32(
-            attempt,
-            input.data() + 19U
-        );
-
-        crypto_blake2b_keyed(
-            candidate.data(),
-            candidate.size(),
-            seed.data(),
-            seed.size(),
-            input.data(),
-            input.size()
-        );
-
-        if (crypto::is_valid_private_key(
-                candidate)) {
-            return candidate;
-        }
+    if (index >= kBip32Hardened) {
+        return std::nullopt;
     }
 
-    crypto::secure_erase(candidate);
-    return std::nullopt;
+    ExtendedPrivateKey current{};
+
+    if (!bip32_master(
+            seed,
+            current)) {
+        return std::nullopt;
+    }
+
+    const std::array<std::uint32_t, 4> path{
+        kBip32Hardened |
+            kQuintumPurpose,
+        kBip32Hardened |
+            static_cast<std::uint32_t>(
+                network),
+        internal ? 1U : 0U,
+        index,
+    };
+
+    for (const auto child_number : path) {
+        ExtendedPrivateKey child{};
+
+        if (!bip32_child(
+                current,
+                child_number,
+                child)) {
+            wipe_extended_key(current);
+            wipe_extended_key(child);
+            return std::nullopt;
+        }
+
+        wipe_extended_key(current);
+        current = child;
+        wipe_extended_key(child);
+    }
+
+    crypto::PrivateKey result =
+        current.private_key;
+
+    wipe_extended_key(current);
+    return result;
 }
 
 } // namespace quintum::wallet
