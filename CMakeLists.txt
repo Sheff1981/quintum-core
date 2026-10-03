@@ -331,3 +331,15 @@ quintum_strict_warnings(quintum_stage22_wallet_tests)
 quintum_test_assertions(quintum_stage22_wallet_tests)
 
 add_test(NAME stage22_wallet COMMAND quintum_stage22_wallet_tests)
+
+add_executable(quintum_stage23_recovery_tests
+    tests/stage23_recovery_tests.cpp
+)
+target_link_libraries(
+    quintum_stage23_recovery_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_stage23_recovery_tests)
+quintum_test_assertions(quintum_stage23_recovery_tests)
+
+add_test(NAME stage23_recovery COMMAND quintum_stage23_recovery_tests)
