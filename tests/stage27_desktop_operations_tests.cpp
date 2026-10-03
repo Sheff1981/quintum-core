@@ -87,6 +87,10 @@ void test_runtime_mnemonic_recovery()
             );
 
         assert(started.ok());
+        assert(source.verify_wallet_passphrase(
+            "stage27-source"));
+        assert(!source.verify_wallet_passphrase(
+            "wrong-password"));
 
         const auto mnemonic =
             source.wallet_recovery_mnemonic();
@@ -119,6 +123,10 @@ void test_runtime_mnemonic_recovery()
         assert(started.ok());
         assert(started.recovered_wallet);
         assert(started.wallet_recovery.ok());
+        assert(recovered.verify_wallet_passphrase(
+            "stage27-recovered"));
+        assert(!recovered.verify_wallet_passphrase(
+            "wrong-password"));
 
         const auto restored =
             recovered.wallet_recovery_mnemonic();
