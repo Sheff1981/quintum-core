@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <optional>
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -38,6 +39,7 @@ private:
     QWidget* build_settings_page();
 
     void refresh();
+    void filter_transactions();
     void preview_and_send();
     void new_receive_address();
     void copy_receive_address();
@@ -47,6 +49,10 @@ private:
 
     void toggle_mining();
     void mine_once();
+    void add_recent_mined_block(
+        std::uint32_t height,
+        Amount reward
+    );
 
     void show_recovery_phrase();
     void backup_wallet_bundle();
@@ -93,11 +99,17 @@ private:
     QLineEdit* send_address_{nullptr};
     QLineEdit* send_amount_{nullptr};
     QLineEdit* send_label_{nullptr};
+    QLabel* send_fee_rate_{nullptr};
     QPushButton* send_button_{nullptr};
 
     QLineEdit* receive_address_{nullptr};
+    QLabel* receive_confirmed_{nullptr};
+    QLabel* receive_pending_{nullptr};
+    QLabel* receive_total_{nullptr};
 
     QTableWidget* transactions_{nullptr};
+    QLineEdit* transaction_search_{nullptr};
+    QComboBox* transaction_status_filter_{nullptr};
 
     QTableWidget* address_book_table_{nullptr};
     QLineEdit* address_book_address_{nullptr};
@@ -107,6 +119,9 @@ private:
     QLabel* mining_hashrate_{nullptr};
     QLabel* mining_attempts_{nullptr};
     QLabel* mining_blocks_{nullptr};
+    QLabel* mining_difficulty_{nullptr};
+    QLabel* mining_eta_{nullptr};
+    QTableWidget* mining_recent_blocks_{nullptr};
     QPushButton* mining_button_{nullptr};
     QTimer* mining_timer_{nullptr};
     QElapsedTimer mining_elapsed_{};
