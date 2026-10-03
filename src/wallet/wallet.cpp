@@ -303,6 +303,18 @@ struct SecretBytesGuard {
     }
 };
 
+template <typename Array>
+struct SecretArrayGuard {
+    Array* value{nullptr};
+
+    ~SecretArrayGuard()
+    {
+        if (value != nullptr) {
+            crypto::secure_erase(*value);
+        }
+    }
+};
+
 bool mature_at_height(
     const Coin& coin,
     std::uint32_t spend_height) noexcept
@@ -1307,9 +1319,18 @@ Wallet::path() const noexcept
     return path_;
 }
 
-WalletStoreError Wallet::load()
+WalletStoreError Wallet::load(
+    std::string_view passphrase)
 {
     clear_keys();
+    encrypted_ = false;
+    crypto::secure_erase(encryption_key_);
+    crypto::secure_erase(encryption_salt_);
+
+    if (recovery_seed_) {
+        crypto::secure_erase(*recovery_seed_);
+        recovery_seed_.reset();
+    }
 
     std::error_code ec;
 
@@ -1332,64 +1353,269 @@ WalletStoreError Wallet::load()
 
     if (bytes->size() <
         kWalletMagic.size() +
-        sizeof(std::uint32_t) +
-        1U +
-        params_.message_start.size() +
-        1U +
-        kKeyRecordSize +
-        kChecksumSize) {
+            sizeof(std::uint32_t)) {
         return WalletStoreError::corrupt;
     }
 
-    const std::span<const Byte> body{
+    const std::span<const Byte> all{
         bytes->data(),
-        bytes->size() -
-            kChecksumSize
+        bytes->size()
     };
-
-    const auto checksum =
-        crypto::double_sha256(body);
-
-    if (!std::equal(
-            checksum.begin(),
-            checksum.end(),
-            bytes->end() -
-                static_cast<
-                    std::ptrdiff_t>(
-                        kChecksumSize))) {
-        return WalletStoreError::corrupt;
-    }
-
-    std::size_t offset{0U};
 
     if (!std::equal(
             kWalletMagic.begin(),
             kWalletMagic.end(),
-            body.begin())) {
+            all.begin())) {
         return WalletStoreError::corrupt;
     }
 
-    offset +=
+    std::size_t version_offset =
         kWalletMagic.size();
 
     const auto version =
         read_little_endian<
             std::uint32_t>(
+                all,
+                version_offset
+            );
+
+    if (!version) {
+        return WalletStoreError::corrupt;
+    }
+
+    if (*version ==
+        kLegacyWalletVersion) {
+        if (bytes->size() <
+            kWalletMagic.size() +
+                sizeof(std::uint32_t) +
+                1U +
+                params_.message_start.size() +
+                1U +
+                kKeyRecordSize +
+                kChecksumSize) {
+            return WalletStoreError::corrupt;
+        }
+
+        const std::span<const Byte> body{
+            bytes->data(),
+            bytes->size() -
+                kChecksumSize
+        };
+
+        const auto checksum =
+            crypto::double_sha256(body);
+
+        if (!std::equal(
+                checksum.begin(),
+                checksum.end(),
+                bytes->end() -
+                    static_cast<
+                        std::ptrdiff_t>(
+                            kChecksumSize))) {
+            return WalletStoreError::corrupt;
+        }
+
+        std::size_t offset{
+            kWalletMagic.size()
+        };
+
+        const auto parsed_version =
+            read_little_endian<
+                std::uint32_t>(
+                    body,
+                    offset
+                );
+
+        if (!parsed_version ||
+            *parsed_version !=
+                kLegacyWalletVersion ||
+            offset >= body.size()) {
+            return WalletStoreError::corrupt;
+        }
+
+        const Byte network =
+            body[offset++];
+
+        if (network !=
+            static_cast<Byte>(
+                params_.network)) {
+            return WalletStoreError::
+                wrong_network;
+        }
+
+        if (offset +
+                params_.message_start.size() >
+            body.size() ||
+            !std::equal(
+                params_.message_start.begin(),
+                params_.message_start.end(),
+                body.begin() +
+                    static_cast<
+                        std::ptrdiff_t>(
+                            offset))) {
+            return WalletStoreError::
+                wrong_network;
+        }
+
+        offset +=
+            params_.message_start.size();
+
+        const auto count =
+            read_compact_size(
                 body,
                 offset
             );
 
-    if (!version ||
-        *version != kWalletVersion) {
+        if (!count ||
+            *count == 0U ||
+            *count > kMaxWalletKeys ||
+            *count >
+                static_cast<std::uint64_t>(
+                    (body.size() - offset) /
+                    kKeyRecordSize)) {
+            return WalletStoreError::corrupt;
+        }
+
+        std::vector<KeyRecord> loaded;
+        loaded.reserve(
+            static_cast<std::size_t>(
+                *count)
+        );
+
+        for (std::uint64_t index = 0U;
+             index < *count;
+             ++index) {
+            if (offset >= body.size()) {
+                return WalletStoreError::corrupt;
+            }
+
+            const Byte flags =
+                body[offset++];
+
+            if ((flags &
+                 static_cast<Byte>(
+                     ~kKnownKeyFlags)) != 0U ||
+                offset +
+                    crypto::PrivateKey{}.size() >
+                    body.size()) {
+                return WalletStoreError::corrupt;
+            }
+
+            crypto::PrivateKey private_key{};
+            SecretArrayGuard private_guard{
+                &private_key
+            };
+
+            std::copy_n(
+                body.begin() +
+                    static_cast<
+                        std::ptrdiff_t>(
+                            offset),
+                static_cast<
+                    std::ptrdiff_t>(
+                        private_key.size()),
+                private_key.begin()
+            );
+
+            offset +=
+                private_key.size();
+
+            const auto public_key =
+                crypto::derive_public_key(
+                    private_key
+                );
+
+            if (!public_key) {
+                return WalletStoreError::corrupt;
+            }
+
+            const bool duplicate =
+                std::any_of(
+                    loaded.begin(),
+                    loaded.end(),
+                    [&](const KeyRecord& key) {
+                        return key.public_key ==
+                               *public_key;
+                    }
+                );
+
+            if (duplicate) {
+                return WalletStoreError::corrupt;
+            }
+
+            loaded.emplace_back(
+                private_key,
+                *public_key,
+                (flags & kInternalFlag) != 0U,
+                (flags & kUsedFlag) != 0U
+            );
+        }
+
+        if (offset != body.size()) {
+            return WalletStoreError::corrupt;
+        }
+
+        keys_ = std::move(loaded);
+
+#ifndef _WIN32
+        if (!restrict_permissions(path_)) {
+            clear_keys();
+            return WalletStoreError::io_error;
+        }
+#endif
+
+        return WalletStoreError::none;
+    }
+
+    if (*version !=
+        kEncryptedWalletVersion) {
         return WalletStoreError::corrupt;
     }
 
-    if (offset >= body.size()) {
+    if (passphrase.empty()) {
+        return WalletStoreError::
+            passphrase_required;
+    }
+
+    constexpr std::size_t minimum_v2{
+        8U +
+        sizeof(std::uint32_t) +
+        1U +
+        4U +
+        sizeof(std::uint32_t) * 2U +
+        WalletSalt{}.size() +
+        WalletNonce{}.size() +
+        1U +
+        RecoverySeed{}.size() +
+        1U +
+        kEncryptedKeyRecordSize +
+        kEncryptedTagSize
+    };
+
+    if (all.size() < minimum_v2) {
+        return WalletStoreError::corrupt;
+    }
+
+    std::size_t offset{
+        kWalletMagic.size()
+    };
+
+    const auto parsed_version =
+        read_little_endian<
+            std::uint32_t>(
+                all,
+                offset
+            );
+
+    if (!parsed_version ||
+        *parsed_version !=
+            kEncryptedWalletVersion ||
+        offset >= all.size()) {
         return WalletStoreError::corrupt;
     }
 
     const Byte network =
-        body[offset++];
+        all[offset++];
 
     if (network !=
         static_cast<Byte>(
@@ -1400,11 +1626,11 @@ WalletStoreError Wallet::load()
 
     if (offset +
             params_.message_start.size() >
-        body.size() ||
+        all.size() ||
         !std::equal(
             params_.message_start.begin(),
             params_.message_start.end(),
-            body.begin() +
+            all.begin() +
                 static_cast<
                     std::ptrdiff_t>(
                         offset))) {
@@ -1415,10 +1641,164 @@ WalletStoreError Wallet::load()
     offset +=
         params_.message_start.size();
 
+    const auto memory_blocks =
+        read_little_endian<
+            std::uint32_t>(
+                all,
+                offset
+            );
+    const auto passes =
+        read_little_endian<
+            std::uint32_t>(
+                all,
+                offset
+            );
+
+    if (!memory_blocks ||
+        !passes ||
+        *memory_blocks < 8U ||
+        *memory_blocks >
+            kMaxArgon2MemoryBlocks ||
+        *passes == 0U ||
+        *passes >
+            kMaxArgon2Passes) {
+        return WalletStoreError::corrupt;
+    }
+
+    WalletSalt salt{};
+    WalletNonce nonce{};
+
+    if (offset + salt.size() +
+            nonce.size() >
+        all.size()) {
+        return WalletStoreError::corrupt;
+    }
+
+    std::copy_n(
+        all.begin() +
+            static_cast<
+                std::ptrdiff_t>(offset),
+        static_cast<
+            std::ptrdiff_t>(salt.size()),
+        salt.begin()
+    );
+    offset += salt.size();
+
+    std::copy_n(
+        all.begin() +
+            static_cast<
+                std::ptrdiff_t>(offset),
+        static_cast<
+            std::ptrdiff_t>(nonce.size()),
+        nonce.begin()
+    );
+    offset += nonce.size();
+
+    const auto ciphertext_size =
+        read_compact_size(
+            all,
+            offset
+        );
+
+    if (!ciphertext_size ||
+        *ciphertext_size >
+            static_cast<std::uint64_t>(
+                all.size()) ||
+        *ciphertext_size >
+            static_cast<std::uint64_t>(
+                std::numeric_limits<
+                    std::size_t>::max())) {
+        return WalletStoreError::corrupt;
+    }
+
+    const std::size_t payload_size =
+        static_cast<std::size_t>(
+            *ciphertext_size
+        );
+
+    if (payload_size >
+            all.size() - offset ||
+        all.size() - offset -
+                payload_size !=
+            kEncryptedTagSize) {
+        return WalletStoreError::corrupt;
+    }
+
+    const std::size_t associated_size =
+        offset;
+
+    const std::span<const Byte> ciphertext{
+        all.data() + offset,
+        payload_size
+    };
+    offset += payload_size;
+
+    WalletTag tag{};
+    std::copy_n(
+        all.begin() +
+            static_cast<
+                std::ptrdiff_t>(offset),
+        static_cast<
+            std::ptrdiff_t>(tag.size()),
+        tag.begin()
+    );
+
+    WalletEncryptionKey key{};
+    SecretArrayGuard key_guard{&key};
+
+    if (!derive_wallet_encryption_key(
+            passphrase,
+            salt,
+            *memory_blocks,
+            *passes,
+            key)) {
+        return WalletStoreError::crypto_error;
+    }
+
+    Bytes plaintext;
+    SecretBytesGuard plaintext_guard{
+        &plaintext
+    };
+
+    if (!decrypt_wallet_payload(
+            ciphertext,
+            std::span<const Byte>{
+                all.data(),
+                associated_size
+            },
+            key,
+            nonce,
+            tag,
+            plaintext)) {
+        return WalletStoreError::
+            invalid_passphrase;
+    }
+
+    std::size_t payload_offset{0U};
+
+    if (plaintext.size() <
+        RecoverySeed{}.size() + 1U) {
+        return WalletStoreError::corrupt;
+    }
+
+    RecoverySeed seed{};
+    SecretArrayGuard seed_guard{&seed};
+
+    std::copy_n(
+        plaintext.begin(),
+        static_cast<std::ptrdiff_t>(
+            seed.size()),
+        seed.begin()
+    );
+    payload_offset += seed.size();
+
     const auto count =
         read_compact_size(
-            body,
-            offset
+            std::span<const Byte>{
+                plaintext.data(),
+                plaintext.size()
+            },
+            payload_offset
         );
 
     if (!count ||
@@ -1426,8 +1806,9 @@ WalletStoreError Wallet::load()
         *count > kMaxWalletKeys ||
         *count >
             static_cast<std::uint64_t>(
-                (body.size() - offset) /
-                kKeyRecordSize)) {
+                (plaintext.size() -
+                 payload_offset) /
+                kEncryptedKeyRecordSize)) {
         return WalletStoreError::corrupt;
     }
 
@@ -1437,50 +1818,91 @@ WalletStoreError Wallet::load()
             *count)
     );
 
-    for (std::uint64_t index = 0U;
-         index < *count;
-         ++index) {
-        if (offset >= body.size()) {
-            for (auto& key : loaded) {
-                crypto::secure_erase(
-                    key.private_key
-                );
-            }
+    for (std::uint64_t record_index = 0U;
+         record_index < *count;
+         ++record_index) {
+        if (payload_offset + 2U +
+                sizeof(std::uint32_t) +
+                crypto::PrivateKey{}.size() >
+            plaintext.size()) {
             return WalletStoreError::corrupt;
         }
 
         const Byte flags =
-            body[offset++];
+            plaintext[payload_offset++];
+        const Byte origin =
+            plaintext[payload_offset++];
 
         if ((flags &
              static_cast<Byte>(
                  ~kKnownKeyFlags)) != 0U ||
-            offset +
-                crypto::PrivateKey{}.size() >
-                body.size()) {
-            for (auto& key : loaded) {
-                crypto::secure_erase(
-                    key.private_key
+            origin > 1U) {
+            return WalletStoreError::corrupt;
+        }
+
+        const auto hd_index =
+            read_little_endian<
+                std::uint32_t>(
+                    std::span<const Byte>{
+                        plaintext.data(),
+                        plaintext.size()
+                    },
+                    payload_offset
                 );
-            }
+
+        if (!hd_index) {
             return WalletStoreError::corrupt;
         }
 
         crypto::PrivateKey private_key{};
+        SecretArrayGuard private_guard{
+            &private_key
+        };
 
         std::copy_n(
-            body.begin() +
+            plaintext.begin() +
                 static_cast<
                     std::ptrdiff_t>(
-                        offset),
+                        payload_offset),
             static_cast<
                 std::ptrdiff_t>(
                     private_key.size()),
             private_key.begin()
         );
-
-        offset +=
+        payload_offset +=
             private_key.size();
+
+        const bool internal =
+            (flags & kInternalFlag) != 0U;
+        const bool deterministic =
+            origin == 1U;
+
+        if (!deterministic &&
+            *hd_index != 0U) {
+            return WalletStoreError::corrupt;
+        }
+
+        if (deterministic) {
+            auto expected =
+                derive_hd_private_key(
+                    seed,
+                    params_.network,
+                    internal,
+                    *hd_index
+                );
+
+            if (!expected ||
+                *expected != private_key) {
+                if (expected) {
+                    crypto::secure_erase(
+                        *expected
+                    );
+                }
+                return WalletStoreError::corrupt;
+            }
+
+            crypto::secure_erase(*expected);
+        }
 
         const auto public_key =
             crypto::derive_public_key(
@@ -1488,14 +1910,6 @@ WalletStoreError Wallet::load()
             );
 
         if (!public_key) {
-            crypto::secure_erase(
-                private_key
-            );
-            for (auto& key : loaded) {
-                crypto::secure_erase(
-                    key.private_key
-                );
-            }
             return WalletStoreError::corrupt;
         }
 
@@ -1503,50 +1917,51 @@ WalletStoreError Wallet::load()
             std::any_of(
                 loaded.begin(),
                 loaded.end(),
-                [&](const KeyRecord& key) {
-                    return key.public_key ==
+                [&](const KeyRecord& item) {
+                    return item.public_key ==
                            *public_key;
                 }
             );
 
         if (duplicate) {
-            crypto::secure_erase(
-                private_key
-            );
-            for (auto& key : loaded) {
-                crypto::secure_erase(
-                    key.private_key
-                );
-            }
             return WalletStoreError::corrupt;
         }
 
         loaded.emplace_back(
             private_key,
             *public_key,
-            (flags & kInternalFlag) != 0U,
-            (flags & kUsedFlag) != 0U
-        );
-
-        crypto::secure_erase(
-            private_key
+            internal,
+            (flags & kUsedFlag) != 0U,
+            deterministic,
+            *hd_index
         );
     }
 
-    if (offset != body.size()) {
-        for (auto& key : loaded) {
-            crypto::secure_erase(
-                key.private_key
-            );
-        }
+    if (payload_offset !=
+        plaintext.size()) {
         return WalletStoreError::corrupt;
     }
 
     keys_ = std::move(loaded);
+    encrypted_ = true;
+    recovery_seed_ = seed;
+    encryption_key_ = key;
+    encryption_salt_ = salt;
+    argon2_memory_blocks_ =
+        *memory_blocks;
+    argon2_passes_ = *passes;
 
 #ifndef _WIN32
     if (!restrict_permissions(path_)) {
         clear_keys();
+        crypto::secure_erase(
+            encryption_key_);
+        crypto::secure_erase(
+            encryption_salt_);
+        crypto::secure_erase(
+            *recovery_seed_);
+        recovery_seed_.reset();
+        encrypted_ = false;
         return WalletStoreError::io_error;
     }
 #endif
@@ -1563,42 +1978,121 @@ WalletStoreError Wallet::save_keys(
         return WalletStoreError::corrupt;
     }
 
-    Bytes body;
-    body.reserve(
-        kWalletMagic.size() +
-        sizeof(std::uint32_t) +
-        1U +
-        params_.message_start.size() +
+    if (!encrypted_) {
+        Bytes body;
+        body.reserve(
+            kWalletMagic.size() +
+            sizeof(std::uint32_t) +
+            1U +
+            params_.message_start.size() +
+            9U +
+            keys.size() *
+                kKeyRecordSize +
+            kChecksumSize
+        );
+
+        body.insert(
+            body.end(),
+            kWalletMagic.begin(),
+            kWalletMagic.end()
+        );
+
+        append_little_endian(
+            body,
+            kLegacyWalletVersion
+        );
+
+        body.push_back(
+            static_cast<Byte>(
+                params_.network)
+        );
+
+        body.insert(
+            body.end(),
+            params_.message_start.begin(),
+            params_.message_start.end()
+        );
+
+        append_compact_size(
+            body,
+            static_cast<std::uint64_t>(
+                keys.size())
+        );
+
+        for (const auto& key : keys) {
+            const auto derived =
+                crypto::derive_public_key(
+                    key.private_key
+                );
+
+            if (!derived ||
+                *derived != key.public_key ||
+                !crypto::
+                    is_valid_public_key(
+                        key.public_key)) {
+                crypto::secure_erase(body);
+                return WalletStoreError::corrupt;
+            }
+
+            Byte flags{0U};
+
+            if (key.internal) {
+                flags |= kInternalFlag;
+            }
+
+            if (key.used) {
+                flags |= kUsedFlag;
+            }
+
+            body.push_back(flags);
+
+            body.insert(
+                body.end(),
+                key.private_key.begin(),
+                key.private_key.end()
+            );
+        }
+
+        const auto checksum =
+            crypto::double_sha256(body);
+
+        body.insert(
+            body.end(),
+            checksum.begin(),
+            checksum.end()
+        );
+
+        const auto result =
+            write_atomic(
+                path_,
+                body,
+                true
+            );
+
+        crypto::secure_erase(body);
+        return result;
+    }
+
+    if (!recovery_seed_) {
+        return WalletStoreError::crypto_error;
+    }
+
+    Bytes plaintext;
+    plaintext.reserve(
+        recovery_seed_->size() +
         9U +
         keys.size() *
-            kKeyRecordSize +
-        kChecksumSize
+            kEncryptedKeyRecordSize
     );
 
-    body.insert(
-        body.end(),
-        kWalletMagic.begin(),
-        kWalletMagic.end()
-    );
-
-    append_little_endian(
-        body,
-        kWalletVersion
-    );
-
-    body.push_back(
-        static_cast<Byte>(
-            params_.network)
-    );
-
-    body.insert(
-        body.end(),
-        params_.message_start.begin(),
-        params_.message_start.end()
+    plaintext.insert(
+        plaintext.end(),
+        recovery_seed_->begin(),
+        recovery_seed_->end()
     );
 
     append_compact_size(
-        body,
+        plaintext,
         static_cast<std::uint64_t>(
             keys.size())
     );
@@ -1611,10 +2105,38 @@ WalletStoreError Wallet::save_keys(
 
         if (!derived ||
             *derived != key.public_key ||
-            !crypto::
-                is_valid_public_key(
-                    key.public_key)) {
-            crypto::secure_erase(body);
+            !crypto::is_valid_public_key(
+                key.public_key)) {
+            crypto::secure_erase(plaintext);
+            return WalletStoreError::corrupt;
+        }
+
+        if (key.deterministic) {
+            auto expected =
+                derive_hd_private_key(
+                    *recovery_seed_,
+                    params_.network,
+                    key.internal,
+                    key.hd_index
+                );
+
+            if (!expected ||
+                *expected !=
+                    key.private_key) {
+                if (expected) {
+                    crypto::secure_erase(
+                        *expected
+                    );
+                }
+                crypto::secure_erase(
+                    plaintext
+                );
+                return WalletStoreError::corrupt;
+            }
+
+            crypto::secure_erase(*expected);
+        } else if (key.hd_index != 0U) {
+            crypto::secure_erase(plaintext);
             return WalletStoreError::corrupt;
         }
 
@@ -1628,32 +2150,137 @@ WalletStoreError Wallet::save_keys(
             flags |= kUsedFlag;
         }
 
-        body.push_back(flags);
+        plaintext.push_back(flags);
+        plaintext.push_back(
+            key.deterministic ? 1U : 0U
+        );
 
-        body.insert(
-            body.end(),
+        append_little_endian(
+            plaintext,
+            key.hd_index
+        );
+
+        plaintext.insert(
+            plaintext.end(),
             key.private_key.begin(),
             key.private_key.end()
         );
     }
 
-    const auto checksum =
-        crypto::double_sha256(body);
+    WalletNonce nonce{};
 
-    body.insert(
-        body.end(),
-        checksum.begin(),
-        checksum.end()
+    if (!crypto::secure_random_bytes(
+            nonce)) {
+        crypto::secure_erase(plaintext);
+        return WalletStoreError::crypto_error;
+    }
+
+    Bytes output;
+    output.reserve(
+        kWalletMagic.size() +
+        sizeof(std::uint32_t) +
+        1U +
+        params_.message_start.size() +
+        sizeof(std::uint32_t) * 2U +
+        encryption_salt_.size() +
+        nonce.size() +
+        9U +
+        plaintext.size() +
+        WalletTag{}.size()
     );
+
+    output.insert(
+        output.end(),
+        kWalletMagic.begin(),
+        kWalletMagic.end()
+    );
+
+    append_little_endian(
+        output,
+        kEncryptedWalletVersion
+    );
+
+    output.push_back(
+        static_cast<Byte>(
+            params_.network)
+    );
+
+    output.insert(
+        output.end(),
+        params_.message_start.begin(),
+        params_.message_start.end()
+    );
+
+    append_little_endian(
+        output,
+        argon2_memory_blocks_
+    );
+    append_little_endian(
+        output,
+        argon2_passes_
+    );
+
+    output.insert(
+        output.end(),
+        encryption_salt_.begin(),
+        encryption_salt_.end()
+    );
+    output.insert(
+        output.end(),
+        nonce.begin(),
+        nonce.end()
+    );
+
+    append_compact_size(
+        output,
+        static_cast<std::uint64_t>(
+            plaintext.size())
+    );
+
+    Bytes ciphertext;
+    WalletTag tag{};
+
+    const bool encrypted =
+        encrypt_wallet_payload(
+            plaintext,
+            std::span<const Byte>{
+                output.data(),
+                output.size()
+            },
+            encryption_key_,
+            nonce,
+            ciphertext,
+            tag
+        );
+
+    crypto::secure_erase(plaintext);
+
+    if (!encrypted) {
+        crypto::secure_erase(ciphertext);
+        return WalletStoreError::crypto_error;
+    }
+
+    output.insert(
+        output.end(),
+        ciphertext.begin(),
+        ciphertext.end()
+    );
+    output.insert(
+        output.end(),
+        tag.begin(),
+        tag.end()
+    );
+
+    crypto::secure_erase(ciphertext);
 
     const auto result =
         write_atomic(
             path_,
-            body,
+            output,
             true
         );
 
-    crypto::secure_erase(body);
+    crypto::secure_erase(output);
     return result;
 }
 
