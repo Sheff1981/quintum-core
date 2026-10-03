@@ -20,6 +20,12 @@
 
 namespace quintum::net {
 
+// Bound per-peer object requests that have been announced but not yet
+// delivered. Without this cap, a peer can stream unique inv messages while
+// withholding the corresponding objects and grow request-tracking memory
+// without bound.
+inline constexpr std::size_t kMaxOutstandingRelayRequestsPerPeer{256U};
+
 struct NetworkRuntimeConfig {
     std::string bind_address{"0.0.0.0"};
     std::optional<std::uint16_t> listen_port{};
