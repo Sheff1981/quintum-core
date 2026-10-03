@@ -40,10 +40,10 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M10 — Recovery UX foundation (Stage 23):** seed-native encrypted wallets now expose a 24-word English recovery phrase that reversibly represents the existing 256-bit QUINTUM RecoverySeed. The existing BIP32 path and derived addresses are unchanged.
+**M11 — Automatic fee + relay policy (Stage 24):** wallet sends now support an automatic fee mode built on one shared fee-rate calculation used by both wallet policy and node relay policy.
 
-Recovery validates the word list and checksum, discovers both receive and internal/change branches with a default gap limit of 100, rebuilds wallet history/index state from the authoritative active blockchain and commits encrypted `wallet.dat` only after successful recovery synchronization.
+The default wallet and minimum-relay rate are currently **1,000 atomic units per 1,000 serialized bytes**. Auto mode estimates the signed P2PK transaction size from its selected UTXOs, uses the greater of the wallet default, the node relay floor and the current mempool median rate, and produces a fee quote before sending.
 
-The phrase is available only through an explicit recovery API; it is never placed in normal runtime status or P2P data. Wallets containing legacy/imported random private keys continue to require a `wallet.dat` backup and do not claim complete seed-only recovery.
+Transactions below the local relay floor are rejected from the mempool, but that rule is deliberately **not consensus**: an otherwise-valid low-fee transaction can still be valid inside a block. `NetworkRuntime` exposes fee quote, minimum relay rate, recommended rate and auto-send APIs for the future desktop wallet. The development CLI uses Auto when `--fee` is omitted and preserves explicit fee override.
 
-Next wallet work: automatic fee selection/relay policy and the remaining desktop-facing APIs before Qt GUI integration.
+Next wallet work: stronger confirmation-target fee estimation, transaction metadata/address book and remaining desktop-facing APIs before Qt GUI integration.
