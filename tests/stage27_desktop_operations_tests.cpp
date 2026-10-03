@@ -242,6 +242,134 @@ void test_recovery_never_overwrites_existing_wallet()
     remove_tree(target_dir);
 }
 
+void test_recovery_rebinds_orphaned_metadata()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto source_dir =
+        unique_dir("metadata-source");
+    const auto target_dir =
+        unique_dir("metadata-target");
+
+    std::string phrase;
+
+    {
+        NetworkRuntime source{
+            params,
+            source_dir
+        };
+
+        NetworkRuntimeConfig config;
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.wallet_passphrase =
+            "metadata-source-password";
+
+        assert(source.start(
+                   std::move(config)).ok());
+
+        const auto mnemonic =
+            source.wallet_recovery_mnemonic();
+
+        assert(mnemonic.has_value());
+        phrase = *mnemonic;
+        source.stop();
+    }
+
+    {
+        NetworkRuntime old_wallet{
+            params,
+            target_dir
+        };
+
+        NetworkRuntimeConfig config;
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.wallet_passphrase =
+            "old-wallet-password";
+
+        assert(old_wallet.start(
+                   std::move(config)).ok());
+
+        const auto old_status =
+            old_wallet.status();
+
+        assert(!old_status.receive_address.empty());
+
+        assert(old_wallet.set_address_label(
+                   old_status.receive_address,
+                   "Old wallet label") ==
+               wallet::WalletMetadataError::none);
+
+        old_wallet.stop();
+    }
+
+    std::error_code ec;
+    assert(std::filesystem::remove(
+        target_dir / "wallet.dat",
+        ec));
+    assert(!ec);
+    assert(std::filesystem::exists(
+        target_dir / "wallet_meta.dat"));
+
+    {
+        NetworkRuntime recovered{
+            params,
+            target_dir
+        };
+
+        NetworkRuntimeConfig config;
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.wallet_passphrase =
+            "recovered-password";
+        config.wallet_recovery_mnemonic =
+            phrase;
+
+        const auto started =
+            recovered.start(
+                std::move(config)
+            );
+
+        assert(started.ok());
+        assert(started.recovered_wallet);
+        assert(recovered.desktop_snapshot()
+                   .address_book.empty());
+
+        recovered.stop();
+    }
+
+    {
+        NetworkRuntime reopened{
+            params,
+            target_dir
+        };
+
+        NetworkRuntimeConfig config;
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.wallet_passphrase =
+            "recovered-password";
+
+        const auto started =
+            reopened.start(
+                std::move(config)
+            );
+
+        assert(started.ok());
+        assert(reopened.desktop_snapshot()
+                   .address_book.empty());
+
+        reopened.stop();
+    }
+
+    remove_tree(source_dir);
+    remove_tree(target_dir);
+}
+
 void test_peer_height_drives_sync_status()
 {
     using namespace quintum;
@@ -397,6 +525,7 @@ int main()
 {
     test_runtime_mnemonic_recovery();
     test_recovery_never_overwrites_existing_wallet();
+    test_recovery_rebinds_orphaned_metadata();
     test_peer_height_drives_sync_status();
     test_wallet_mining_uses_owned_payout();
     return 0;
