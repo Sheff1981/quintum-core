@@ -3484,3 +3484,18 @@ Mainnet consensus-параметры не менялись в ходе Stage 29.
 - `Progress: 100%`.
 
 Таким образом дополнительно подтверждены автоматический reconnect/backoff и корректное отображение peer height/sync state в desktop GUI на реальной машине.
+
+
+### Повторная live-проверка block relay — height 7
+
+На Windows-ноутбуке майнинг продолжился после первоначальной проверки height 2. Ноутбук дошёл до height 7 при одном активном peer.
+
+На публичном VPS сервис `quintumd` был временно остановлен, тот же Testnet datadir `/var/lib/quintum/testnet` открыт отдельным `quintumd --listen-port 0`, после чего узел сообщил:
+
+- `Network: testnet`;
+- `Height: 7`;
+- новый persisted `Tip`;
+- `Stopped at height 7`;
+- после проверки основной systemd-сервис снова запущен и имеет состояние `active`.
+
+Это повторно подтверждает, что новые блоки Windows-майнера (height 3..7) не остались локальными: они были переданы по P2P, приняты VPS, проверены consensus и сохранены на диске.
