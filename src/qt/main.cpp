@@ -79,6 +79,20 @@ void wipe_byte_array(QByteArray& bytes)
     bytes.squeeze();
 }
 
+void wipe_string(std::string& value)
+{
+    if (!value.empty()) {
+        quintum::crypto::secure_erase(
+            std::span<quintum::Byte>{
+                reinterpret_cast<quintum::Byte*>(
+                    value.data()),
+                value.size()
+            }
+        );
+        value.clear();
+    }
+}
+
 WalletSetup request_wallet_setup(
     QWidget* parent,
     bool recover)
@@ -180,6 +194,13 @@ WalletSetup request_wallet_setup(
     WalletSetup out;
 
     if (dialog.exec() != QDialog::Accepted) {
+        password->clear();
+        confirmation->clear();
+
+        if (mnemonic != nullptr) {
+            mnemonic->clear();
+        }
+
         return out;
     }
 
@@ -580,9 +601,12 @@ int main(int argc, char* argv[])
 
     quintum::net::NetworkRuntimeConfig config;
     config.wallet_passphrase =
-        std::move(setup.password);
+        setup.password;
     config.wallet_recovery_mnemonic =
-        std::move(setup.mnemonic);
+        setup.mnemonic;
+
+    wipe_string(setup.password);
+    wipe_string(setup.mnemonic);
 
     const auto started =
         runtime.start(
