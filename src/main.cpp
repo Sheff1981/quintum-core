@@ -573,7 +573,13 @@ int main(int argc, char* argv[])
         << " atomic\n"
         << "Wallet immature: "
         << initial_status.wallet_balance.immature
-        << " atomic\n";
+        << " atomic\n"
+        << "Min relay fee rate: "
+        << initial_status.min_relay_fee_rate_per_kb
+        << " atomic/1000 bytes\n"
+        << "Recommended fee rate: "
+        << initial_status.recommended_fee_rate_per_kb
+        << " atomic/1000 bytes\n";
 
     if (new_address_requested) {
         const auto generated =
@@ -605,11 +611,16 @@ int main(int argc, char* argv[])
 
     if (send_to && send_amount) {
         const auto sent =
-            runtime.send_to_address(
-                *send_to,
-                *send_amount,
-                send_fee
-            );
+            fee_was_set
+                ? runtime.send_to_address(
+                      *send_to,
+                      *send_amount,
+                      send_fee
+                  )
+                : runtime.send_to_address_auto_fee(
+                      *send_to,
+                      *send_amount
+                  );
 
         if (!sent.ok()) {
             std::cerr
@@ -636,7 +647,13 @@ int main(int argc, char* argv[])
                    sent.node.mempool.txid)
             << " fee="
             << sent.node.mempool.fee
-            << " atomic\n";
+            << " atomic rate="
+            << sent.wallet.fee_rate_per_kb
+            << " atomic/1000 bytes size="
+            << sent.wallet.serialized_size
+            << " bytes"
+            << (fee_was_set ? " manual" : " auto")
+            << '\n';
 
         if (sent.wallet.backup_recommended) {
             std::cout
