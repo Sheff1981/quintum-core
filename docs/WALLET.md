@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardens that core with authenticated password encryption and deterministic BIP32 recovery while preserving the Stage 20 v1 wallet reader for migration.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 adds persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -114,18 +114,57 @@ For seed-native v2 wallets, keypool refill uses deterministic BIP32 branch/index
 
 ## Balance model
 
-The wallet scans the active chain and current mempool for P2PK outputs whose public keys belong to the wallet.
+The wallet owns a persistent derivable index in `wallet_state.dat`. On the first scan it walks the active chain and records wallet-owned UTXOs plus confirmed wallet transaction history. Normal later synchronization processes only blocks after the indexed tip.
+
+The state file is bound to:
+
+- the QUINTUM network and message-start bytes;
+- the complete wallet public-key set;
+- the indexed active-chain height and tip hash;
+- a double-SHA-256 checksum.
+
+It contains **no private keys or recovery seed**. If it is missing, corrupt, belongs to another wallet, or its indexed tip is no longer on the active chain after a reorg, the wallet discards the cache and rebuilds it from the authoritative blockchain. Importing a private key also invalidates the cache so historical funds for that key cannot be missed, including the crash-before-rescan case.
 
 It exposes four amounts:
 
 - **confirmed** — mature active-chain wallet outputs;
 - **available** — mature confirmed outputs not already spent by a mempool transaction;
-- **pending** — wallet outputs created by unconfirmed mempool transactions;
+- **pending** — wallet outputs created by current unconfirmed mempool transactions;
 - **immature** — wallet coinbase outputs that have not reached 100-block maturity.
 
 Mempool spends subtract from available balance immediately. Unconfirmed change appears as pending.
 
-A reorg or mempool reconciliation is handled by rescanning the current authoritative active chain/mempool view rather than trusting cached wallet ownership state.
+## Transaction history
+
+Stage 22 persists wallet transaction records together with the derivable wallet index.
+
+A history record contains:
+
+- txid;
+- status: `confirmed`, `unconfirmed`, or `inactive`;
+- wallet value received;
+- wallet value spent;
+- fee when it can be determined exactly;
+- coinbase flag;
+- block height/hash for confirmed transactions;
+- current confirmation count.
+
+Because the node mempool is intentionally memory-only, a transaction that was unconfirmed before restart is loaded as **inactive** until the transaction is observed again in the current mempool or confirmed in a block. This avoids falsely presenting a stale transaction as currently broadcast.
+
+For wallet-created transactions all inputs belong to the wallet, so the exact fee is retained. For arbitrary transactions involving external inputs, a fee is recorded only when it can be proven from the wallet-visible inputs.
+
+Deleting or rebuilding `wallet_state.dat` cannot lose private keys or confirmed funds. Confirmed history is reconstructed from the blockchain. Inactive history is a wallet convenience record and is not a substitute for backing up `wallet.dat`.
+
+## Fee policy foundation
+
+Stage 22 introduces a **wallet policy**, not a consensus rule:
+
+- default rate: **1,000 atomic units per 1,000 serialized bytes**;
+- size fee uses ceiling arithmetic and overflow/range checks;
+- when the mempool contains fee-paying transactions, the wallet exposes a recommended rate based on the median observed fee rate, never below the default;
+- `NetworkRuntimeStatus` exposes the current recommended fee rate for future GUI/RPC use.
+
+This is intentionally not yet a confirmation-target estimator and does not change mempool consensus validity, block validity, monetary policy, or a network-wide minimum relay fee.
 
 ## Transaction creation
 
@@ -180,13 +219,12 @@ The passphrase itself is not accepted as a command-line argument, avoiding norma
 
 ## Current limitations before production
 
-Stage 20 intentionally does not claim these are finished:
+The current pre-mainnet wallet still does not claim these are finished:
 
 - user-facing mnemonic encoding/import and recovery UX;
 - deterministic gap-limit/rescan policy for mnemonic restoration;
-- dynamic fee estimation;
-- persistent transaction history/labels;
-- optimized incremental wallet indexing (the current correctness-first scan can rescan the active chain);
+- confirmation-target fee estimation and automatic fee selection;
+- transaction labels/address book metadata;
 - hardware-wallet support;
 - P2PKH/P2WPKH-style locking;
 - GUI/RPC wallet control.
