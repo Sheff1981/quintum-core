@@ -98,6 +98,7 @@ struct WalletBalance {
 enum class WalletTransactionStatus {
     unconfirmed,
     confirmed,
+    inactive,
 };
 
 struct WalletTransactionRecord {
