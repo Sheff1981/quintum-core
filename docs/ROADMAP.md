@@ -36,7 +36,9 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 **Installer pipeline implemented in Stage 28:** per-user Inno Setup installer, portable Qt deployment, Start Menu/optional desktop shortcut, live-process update closure, safe reinstall/update, preserved AppData wallet/blockchain data on update/uninstall, and CI-published Windows artifacts. Production code-signing remains pending a real signing certificate.
 
 ## M7 — Public testnet
-**Next — Stage 29:** seed/bootstrap infrastructure, multiple geographically separate nodes, external Windows installs, adversarial tests, reorgs, disconnect/reconnect and long-duration soak tests.
+**Stage 29 live deployment verified:** the first public Testnet seed `212.193.15.139:38444` is deployed as a persistent Ubuntu/systemd node; a fresh Windows installer defaults to Testnet, discovers the seed without manual IP configuration, completes a live peer connection, mines real PoW blocks and relays them over the public Internet. Two Windows-mined blocks were independently accepted and durably persisted by the VPS; both machines reached height 2 and the VPS recovered the same height from disk after reopening the datadir.
+
+Remaining Testnet work: additional independent/geographically separate nodes, DNS seeds, live wallet transaction/confirmation testing, public multi-node fork/reorg testing, disconnect/reconnect soak, NAT traversal and longer adversarial operation.
 
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.
