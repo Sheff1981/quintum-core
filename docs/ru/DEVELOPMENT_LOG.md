@@ -3376,3 +3376,6 @@ Consensus, Genesis, magic, порты, PoW, эмиссия, форматы block
 - CI headless/Testnet и двухпроцессный bootstrap smoke также проверяют отсутствие wallet-файлов.
 
 Consensus, Genesis, network magic, порты, PoW, difficulty, эмиссия, blockchain storage и обычный wallet format не менялись.
+
+
+**Этап 30 — Bitcoin Core-style desktop UX:** добавлены верхние меню File / Settings / Window / Help, горизонтальная навигация Overview / Send / Receive / Transactions + собственный Mining, Debug window с вкладками Information / Console / Network Traffic / Peers и выбор каталога данных при первом запуске. Неподдерживаемые RPC/traffic-функции не имитируются. Consensus/genesis/network magic/порты/адреса не менялись.
