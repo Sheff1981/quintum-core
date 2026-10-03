@@ -395,12 +395,17 @@ int main(int argc, char* argv[])
         "smoke-test",
         "Run an automated desktop smoke test."
     };
+    const QCommandLineOption installer_hold_test{
+        "installer-hold-test",
+        "Run a disposable wallet and remain open for installer update testing."
+    };
 
     parser.addOption(mainnet);
     parser.addOption(testnet);
     parser.addOption(regtest);
     parser.addOption(datadir);
     parser.addOption(smoke_test);
+    parser.addOption(installer_hold_test);
     parser.process(app);
 
     const int selected_networks =
@@ -439,7 +444,8 @@ int main(int argc, char* argv[])
             network
         );
 
-    if (parser.isSet(smoke_test)) {
+    if (parser.isSet(smoke_test) ||
+        parser.isSet(installer_hold_test)) {
         QTemporaryDir temporary;
 
         if (!temporary.isValid()) {
@@ -478,11 +484,13 @@ int main(int argc, char* argv[])
         };
         smoke_window.show();
 
-        QTimer::singleShot(
-            250,
-            &app,
-            &QCoreApplication::quit
-        );
+        if (parser.isSet(smoke_test)) {
+            QTimer::singleShot(
+                250,
+                &app,
+                &QCoreApplication::quit
+            );
+        }
 
         const int smoke_result =
             app.exec();
