@@ -161,7 +161,7 @@ bool bip32_child(
         return false;
     }
 
-    const auto child_private =
+    auto child_private =
         crypto::tweak_add_private_key(
             parent.private_key,
             tweak
