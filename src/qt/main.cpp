@@ -152,7 +152,7 @@ std::optional<QString> choose_data_directory(
         browse,
         &QPushButton::clicked,
         &dialog,
-        [=] {
+        [&dialog, path] {
             const QString selected =
                 QFileDialog::
                     getExistingDirectory(
