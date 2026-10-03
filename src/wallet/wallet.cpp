@@ -32,8 +32,16 @@ namespace {
 constexpr std::array<Byte, 8> kWalletMagic{
     'Q', 'W', 'A', 'L', 'L', 'E', 'T', '1'
 };
-constexpr std::uint32_t kWalletVersion{1U};
+constexpr std::uint32_t kLegacyWalletVersion{1U};
+constexpr std::uint32_t kEncryptedWalletVersion{2U};
 constexpr std::size_t kChecksumSize{32U};
+constexpr std::size_t kEncryptedTagSize{WalletTag{}.size()};
+constexpr std::size_t kEncryptedKeyRecordSize{
+    1U + 1U + sizeof(std::uint32_t) +
+    crypto::PrivateKey{}.size()
+};
+constexpr std::uint32_t kMaxArgon2MemoryBlocks{262'144U};
+constexpr std::uint32_t kMaxArgon2Passes{10U};
 constexpr Byte kInternalFlag{0x01U};
 constexpr Byte kUsedFlag{0x02U};
 constexpr Byte kKnownKeyFlags{
@@ -236,16 +244,7 @@ std::optional<Bytes> read_file(
         static_cast<std::uintmax_t>(end);
 
     constexpr std::uintmax_t max_size{
-        8U +
-        sizeof(std::uint32_t) +
-        1U +
-        4U +
-        9U +
-        static_cast<std::uintmax_t>(
-            kMaxWalletKeys) *
-            static_cast<std::uintmax_t>(
-                kKeyRecordSize) +
-        kChecksumSize
+        8U * 1024U * 1024U
     };
 
     if (size > max_size ||
@@ -331,9 +330,17 @@ Wallet::Wallet(
 Wallet::~Wallet()
 {
     clear_keys();
+    crypto::secure_erase(encryption_key_);
+    crypto::secure_erase(encryption_salt_);
+
+    if (recovery_seed_) {
+        crypto::secure_erase(*recovery_seed_);
+        recovery_seed_.reset();
+    }
 }
 
-WalletStartResult Wallet::start()
+WalletStartResult Wallet::start(
+    std::string_view passphrase)
 {
     WalletStartResult out;
 
@@ -349,7 +356,7 @@ WalletStartResult Wallet::start()
         return out;
     }
 
-    out.store_error = load();
+    out.store_error = load(passphrase);
 
     if (out.store_error ==
         WalletStoreError::none) {
@@ -373,6 +380,48 @@ WalletStartResult Wallet::start()
         return out;
     }
 
+    if (!passphrase.empty()) {
+        encrypted_ = true;
+
+        if (!crypto::secure_random_bytes(
+                encryption_salt_)) {
+            encrypted_ = false;
+            out.error =
+                WalletStartError::key_generation_failed;
+            return out;
+        }
+
+        RecoverySeed seed{};
+        if (!crypto::secure_random_bytes(seed)) {
+            encrypted_ = false;
+            crypto::secure_erase(encryption_salt_);
+            out.error =
+                WalletStartError::key_generation_failed;
+            return out;
+        }
+
+        recovery_seed_ = seed;
+        crypto::secure_erase(seed);
+
+        if (!derive_wallet_encryption_key(
+                passphrase,
+                encryption_salt_,
+                argon2_memory_blocks_,
+                argon2_passes_,
+                encryption_key_)) {
+            encrypted_ = false;
+            crypto::secure_erase(encryption_salt_);
+            crypto::secure_erase(encryption_key_);
+            crypto::secure_erase(*recovery_seed_);
+            recovery_seed_.reset();
+            out.store_error =
+                WalletStoreError::crypto_error;
+            out.error =
+                WalletStartError::store_failed;
+            return out;
+        }
+    }
+
     std::vector<KeyRecord> initial;
 
     if (!generate_pool_records(
@@ -387,6 +436,16 @@ WalletStartResult Wallet::start()
             crypto::secure_erase(
                 record.private_key
             );
+        }
+
+        if (encrypted_) {
+            crypto::secure_erase(encryption_key_);
+            crypto::secure_erase(encryption_salt_);
+            if (recovery_seed_) {
+                crypto::secure_erase(*recovery_seed_);
+                recovery_seed_.reset();
+            }
+            encrypted_ = false;
         }
 
         out.error =
@@ -409,6 +468,16 @@ WalletStartResult Wallet::start()
             crypto::secure_erase(
                 record.private_key
             );
+        }
+
+        if (encrypted_) {
+            crypto::secure_erase(encryption_key_);
+            crypto::secure_erase(encryption_salt_);
+            if (recovery_seed_) {
+                crypto::secure_erase(*recovery_seed_);
+                recovery_seed_.reset();
+            }
+            encrypted_ = false;
         }
 
         out.error =
