@@ -334,10 +334,54 @@ QString startup_error_text(
     }
 
     if (result.error ==
+            NetworkRuntimeStartError::wallet_failed &&
+        result.wallet.error ==
+            WalletStartError::store_failed) {
+        using quintum::wallet::WalletStoreError;
+
+        switch (result.wallet.store_error) {
+        case WalletStoreError::invalid_passphrase:
+        case WalletStoreError::passphrase_required:
+            return
+                "The wallet password is incorrect or missing. "
+                "No wallet data was changed.";
+        case WalletStoreError::wrong_network:
+            return
+                "This wallet.dat belongs to another QUINTUM network. "
+                "No wallet data was changed.";
+        case WalletStoreError::corrupt:
+            return
+                "wallet.dat is corrupt or has been modified. "
+                "Do not delete it; restore from a verified backup or recovery words.";
+        case WalletStoreError::io_error:
+            return
+                "wallet.dat could not be read from disk. "
+                "Check file access and the data directory. No wallet data was changed.";
+        case WalletStoreError::crypto_error:
+            return
+                "Wallet cryptography could not initialize. "
+                "No wallet data was changed.";
+        case WalletStoreError::not_found:
+        case WalletStoreError::target_exists:
+        case WalletStoreError::none:
+            break;
+        }
+    }
+
+    if (result.error ==
+            NetworkRuntimeStartError::wallet_failed &&
+        result.wallet_sync !=
+            quintum::wallet::WalletSyncError::none) {
+        return
+            "The wallet opened, but its blockchain rescan/synchronization failed. "
+            "wallet.dat was not discarded.";
+    }
+
+    if (result.error ==
         NetworkRuntimeStartError::wallet_failed) {
         return
             "The wallet could not be opened. "
-            "Check the wallet password and data directory.";
+            "No wallet data was changed.";
     }
 
     if (result.error ==
