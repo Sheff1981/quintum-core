@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QFormLayout>
+#include <QFont>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -15,6 +16,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QStringList>
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -565,12 +567,12 @@ void MainWindow::preview_and_send()
             this,
             "Confirm payment",
             message,
-            QMessageBox::Send |
+            QMessageBox::Yes |
                 QMessageBox::Cancel,
             QMessageBox::Cancel
         );
 
-    if (answer != QMessageBox::Send) {
+    if (answer != QMessageBox::Yes) {
         return;
     }
 
