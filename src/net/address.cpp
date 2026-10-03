@@ -788,10 +788,13 @@ void AddrManager::mark_success(
         entry->last_attempt = now;
         entry->last_success = now;
         entry->failures = 0U;
-        entry->next_attempt =
-            now > std::numeric_limits<std::uint64_t>::max() - 60U
-                ? std::numeric_limits<std::uint64_t>::max()
-                : now + 60U;
+
+        // A successful address must remain immediately eligible after a
+        // clean process restart. Active connections are excluded by the
+        // runtime itself; persisting a future retry deadline here caused
+        // recently successful peers to disappear for 60 seconds after
+        // an application update/restart.
+        entry->next_attempt = now;
     }
 }
 
