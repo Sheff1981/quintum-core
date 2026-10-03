@@ -54,7 +54,21 @@ jobs:
             > "$tmp/a.log" 2>&1 &
           server_pid=$!
 
-          sleep 1
+          ready=0
+          for _ in $(seq 1 40); do
+            if ss -ltn | grep -q ':49444 '; then
+              ready=1
+              break
+            fi
+            sleep 0.25
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat "$tmp/a.log"
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+            echo "Seed test listener did not become ready"
+            exit 1
+          fi
 
           ./build/quintumd --regtest --datadir "$tmp/b" --listen-port 49445 \
             --wallet-passphrase-file "$tmp/b.pass" \
