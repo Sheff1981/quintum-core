@@ -35,15 +35,38 @@ enum class WalletStoreError {
     crypto_error,
 };
 
+enum class WalletMetadataError {
+    none,
+    io_error,
+    corrupt,
+    wrong_network,
+    invalid_address,
+    wrong_network_address,
+    invalid_label,
+    too_many_entries,
+};
+
+struct WalletAddressBookEntry {
+    std::string address{};
+    std::string label{};
+
+    bool operator==(
+        const WalletAddressBookEntry&) const = default;
+};
+
 enum class WalletStartError {
     none,
     store_failed,
+    metadata_failed,
     key_generation_failed,
 };
 
 struct WalletStartResult {
     WalletStartError error{WalletStartError::none};
     WalletStoreError store_error{WalletStoreError::none};
+    WalletMetadataError metadata_error{
+        WalletMetadataError::none
+    };
     bool created{false};
     bool backup_recommended{false};
     std::string receive_address{};
@@ -314,6 +337,24 @@ public:
         const Mempool& mempool
     );
 
+    [[nodiscard]] WalletMetadataError set_address_label(
+        std::string_view address,
+        std::string_view label
+    );
+
+    [[nodiscard]] WalletMetadataError set_transaction_label(
+        const Hash256& txid,
+        std::string_view label
+    );
+
+    [[nodiscard]] std::vector<WalletAddressBookEntry>
+    address_book() const;
+
+    [[nodiscard]] std::optional<std::string>
+    transaction_label(
+        const Hash256& txid
+    ) const;
+
     [[nodiscard]] WalletBalance balance() const noexcept;
     [[nodiscard]] std::vector<WalletTransactionRecord>
     history() const;
@@ -402,6 +443,9 @@ private:
         std::string_view passphrase
     );
 
+    [[nodiscard]] WalletMetadataError load_metadata();
+    [[nodiscard]] WalletMetadataError save_metadata() const;
+
     void load_index_state() noexcept;
     [[nodiscard]] WalletStoreError save_index_state() const;
     void reset_index_state() noexcept;
@@ -444,6 +488,7 @@ private:
     std::filesystem::path directory_{};
     std::filesystem::path path_{};
     std::filesystem::path state_path_{};
+    std::filesystem::path metadata_path_{};
     bool started_{false};
     bool encrypted_{false};
     std::optional<RecoverySeed> recovery_seed_{};
@@ -456,6 +501,10 @@ private:
         kWalletArgon2Passes
     };
     std::vector<KeyRecord> keys_{};
+    std::map<std::string, std::string>
+        address_labels_{};
+    std::map<Hash256, std::string>
+        transaction_labels_{};
 
     bool index_valid_{false};
     std::uint32_t indexed_height_{0U};
