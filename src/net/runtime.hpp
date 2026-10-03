@@ -84,8 +84,35 @@ struct NetworkRuntimeStatus {
     std::string receive_address{};
 };
 
+struct WalletTransactionView {
+    wallet::WalletTransactionRecord record{};
+    std::optional<std::string> label{};
+};
+
+struct WalletDesktopSnapshot {
+    NetworkRuntimeStatus status{};
+    std::vector<WalletTransactionView> transactions{};
+    std::vector<wallet::WalletAddressBookEntry> address_book{};
+};
+
+struct NetworkWalletSendPreview {
+    wallet::WalletFeeQuote quote{};
+    std::string destination{};
+    Amount amount{0U};
+    std::optional<std::string> recipient_label{};
+    Hash256 state_hash{};
+    Hash256 preview_id{};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return quote.ok();
+    }
+};
+
 enum class NetworkWalletSendError {
     none,
+    invalid_preview,
+    stale_preview,
     wallet_create_failed,
     node_rejected,
     wallet_sync_failed,
@@ -134,6 +161,21 @@ public:
         wallet::WalletTransactionRecord>
     wallet_history() const;
 
+    [[nodiscard]] WalletDesktopSnapshot
+    desktop_snapshot() const;
+
+    [[nodiscard]] wallet::WalletMetadataError
+    set_address_label(
+        std::string_view address,
+        std::string_view label
+    );
+
+    [[nodiscard]] wallet::WalletMetadataError
+    set_transaction_label(
+        const Hash256& txid,
+        std::string_view label
+    );
+
     [[nodiscard]] std::optional<std::string>
     wallet_recovery_mnemonic() const;
 
@@ -159,6 +201,17 @@ public:
     quote_send_fee(
         std::string_view destination,
         Amount amount
+    );
+
+    [[nodiscard]] NetworkWalletSendPreview
+    preview_send(
+        std::string_view destination,
+        Amount amount
+    );
+
+    [[nodiscard]] NetworkWalletSendResult
+    confirm_send(
+        const NetworkWalletSendPreview& preview
     );
 
     [[nodiscard]] NetworkWalletSendResult
@@ -262,6 +315,14 @@ private:
     void update_peer_counts() noexcept;
 
     [[nodiscard]] bool sync_wallet_locked();
+
+    [[nodiscard]] Hash256 send_state_hash_locked() const;
+
+    [[nodiscard]] NetworkWalletSendResult
+    send_to_address_auto_fee_locked(
+        std::string_view destination,
+        Amount amount
+    );
 
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
