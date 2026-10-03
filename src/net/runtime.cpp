@@ -1,7 +1,9 @@
 #include "net/runtime.hpp"
 
-#include "net/relay.hpp"
+#include "core/serialize.hpp"
 #include "crypto/random.hpp"
+#include "crypto/sha256.hpp"
+#include "net/relay.hpp"
 #include "net/sync.hpp"
 
 #include <algorithm>
@@ -67,6 +69,108 @@ bool elapsed(
 {
     return now >= since &&
            now - since >= interval;
+}
+
+void append_text(
+    Bytes& out,
+    std::string_view value)
+{
+    append_compact_size(
+        out,
+        static_cast<std::uint64_t>(
+            value.size()
+        )
+    );
+
+    for (const unsigned char ch : value) {
+        out.push_back(
+            static_cast<Byte>(ch)
+        );
+    }
+}
+
+Hash256 make_preview_id(
+    const NetworkWalletSendPreview& preview)
+{
+    Bytes bytes;
+    append_text(
+        bytes,
+        "QUINTUM-SEND-PREVIEW-V1"
+    );
+
+    bytes.insert(
+        bytes.end(),
+        preview.state_hash.begin(),
+        preview.state_hash.end()
+    );
+
+    append_text(
+        bytes,
+        preview.destination
+    );
+
+    append_little_endian(
+        bytes,
+        preview.amount
+    );
+    append_little_endian(
+        bytes,
+        preview.quote.fee
+    );
+    append_little_endian(
+        bytes,
+        preview.quote.fee_rate_per_kb
+    );
+    append_little_endian(
+        bytes,
+        preview.quote.change
+    );
+    append_little_endian(
+        bytes,
+        preview.quote.selected_value
+    );
+    append_little_endian(
+        bytes,
+        static_cast<std::uint64_t>(
+            preview.quote.serialized_size
+        )
+    );
+    append_little_endian(
+        bytes,
+        static_cast<std::uint64_t>(
+            preview.quote.input_count
+        )
+    );
+    append_little_endian(
+        bytes,
+        static_cast<std::uint64_t>(
+            preview.quote.output_count
+        )
+    );
+
+    return crypto::double_sha256(bytes);
+}
+
+bool same_fee_quote(
+    const wallet::WalletFeeQuote& lhs,
+    const wallet::WalletFeeQuote& rhs) noexcept
+{
+    return lhs.error == rhs.error &&
+           lhs.address_error == rhs.address_error &&
+           lhs.sync_error == rhs.sync_error &&
+           lhs.amount == rhs.amount &&
+           lhs.fee == rhs.fee &&
+           lhs.fee_rate_per_kb ==
+               rhs.fee_rate_per_kb &&
+           lhs.change == rhs.change &&
+           lhs.selected_value ==
+               rhs.selected_value &&
+           lhs.serialized_size ==
+               rhs.serialized_size &&
+           lhs.input_count ==
+               rhs.input_count &&
+           lhs.output_count ==
+               rhs.output_count;
 }
 
 std::uint64_t make_runtime_nonce() noexcept
@@ -341,6 +445,99 @@ NetworkRuntime::wallet_history() const
     return wallet_.history();
 }
 
+WalletDesktopSnapshot
+NetworkRuntime::desktop_snapshot() const
+{
+    WalletDesktopSnapshot out;
+
+    out.status.running =
+        running_.load();
+    out.status.listen_port =
+        listen_port_.load();
+    out.status.peers =
+        peer_count_.load();
+    out.status.outbound_peers =
+        outbound_count_.load();
+    out.status.known_addresses =
+        known_address_count_.load();
+
+    std::scoped_lock lock(state_mutex_);
+
+    out.status.height =
+        node_.chain().height();
+    out.status.tip =
+        node_.chain().tip_hash();
+    out.status.mempool_transactions =
+        node_.mempool().size();
+    out.status.wallet_balance =
+        wallet_.balance();
+    out.status.min_relay_fee_rate_per_kb =
+        node_.mempool()
+            .min_relay_fee_rate_per_kb();
+    out.status.recommended_fee_rate_per_kb =
+        wallet::recommended_fee_rate(
+            node_.mempool()
+        );
+
+    const auto addresses =
+        wallet_.addresses();
+
+    if (!addresses.empty()) {
+        out.status.receive_address =
+            addresses.back();
+    }
+
+    out.address_book =
+        wallet_.address_book();
+
+    const auto history =
+        wallet_.history();
+
+    out.transactions.reserve(
+        history.size()
+    );
+
+    for (const auto& record : history) {
+        out.transactions.push_back(
+            WalletTransactionView{
+                .record = record,
+                .label =
+                    wallet_.transaction_label(
+                        record.txid
+                    ),
+            }
+        );
+    }
+
+    return out;
+}
+
+wallet::WalletMetadataError
+NetworkRuntime::set_address_label(
+    std::string_view address,
+    std::string_view label)
+{
+    std::scoped_lock lock(state_mutex_);
+
+    return wallet_.set_address_label(
+        address,
+        label
+    );
+}
+
+wallet::WalletMetadataError
+NetworkRuntime::set_transaction_label(
+    const Hash256& txid,
+    std::string_view label)
+{
+    std::scoped_lock lock(state_mutex_);
+
+    return wallet_.set_transaction_label(
+        txid,
+        label
+    );
+}
+
 std::optional<std::string>
 NetworkRuntime::wallet_recovery_mnemonic() const
 {
@@ -419,6 +616,242 @@ NetworkRuntime::quote_send_fee(
     );
 }
 
+Hash256
+NetworkRuntime::send_state_hash_locked() const
+{
+    Bytes bytes;
+
+    append_text(
+        bytes,
+        "QUINTUM-SEND-STATE-V1"
+    );
+
+    const auto height =
+        node_.chain().height();
+
+    bytes.push_back(
+        height ? 1U : 0U
+    );
+
+    if (height) {
+        append_little_endian(
+            bytes,
+            *height
+        );
+    }
+
+    const auto tip =
+        node_.chain().tip_hash();
+
+    bytes.push_back(
+        tip ? 1U : 0U
+    );
+
+    if (tip) {
+        bytes.insert(
+            bytes.end(),
+            tip->begin(),
+            tip->end()
+        );
+    }
+
+    const auto& entries =
+        node_.mempool().entries();
+
+    append_compact_size(
+        bytes,
+        static_cast<std::uint64_t>(
+            entries.size()
+        )
+    );
+
+    for (const auto& entry : entries) {
+        bytes.insert(
+            bytes.end(),
+            entry.txid.begin(),
+            entry.txid.end()
+        );
+
+        append_little_endian(
+            bytes,
+            entry.fee
+        );
+
+        append_little_endian(
+            bytes,
+            static_cast<std::uint64_t>(
+                entry.serialized_size
+            )
+        );
+    }
+
+    return crypto::double_sha256(bytes);
+}
+
+NetworkWalletSendPreview
+NetworkRuntime::preview_send(
+    std::string_view destination,
+    Amount amount)
+{
+    std::scoped_lock lock(state_mutex_);
+
+    NetworkWalletSendPreview out;
+    out.destination =
+        std::string{destination};
+    out.amount = amount;
+    out.state_hash =
+        send_state_hash_locked();
+
+    out.quote =
+        wallet_.quote_auto_fee(
+            destination,
+            amount,
+            node_.chain(),
+            node_.mempool()
+        );
+
+    if (!out.quote.ok()) {
+        return out;
+    }
+
+    const auto address_book =
+        wallet_.address_book();
+
+    const auto found =
+        std::find_if(
+            address_book.begin(),
+            address_book.end(),
+            [&](const wallet::WalletAddressBookEntry& entry) {
+                return entry.address ==
+                       destination;
+            }
+        );
+
+    if (found !=
+        address_book.end()) {
+        out.recipient_label =
+            found->label;
+    }
+
+    out.preview_id =
+        make_preview_id(out);
+
+    return out;
+}
+
+NetworkWalletSendResult
+NetworkRuntime::send_to_address_auto_fee_locked(
+    std::string_view destination,
+    Amount amount)
+{
+    NetworkWalletSendResult out;
+
+    out.wallet =
+        wallet_.create_transaction_auto_fee(
+            destination,
+            amount,
+            node_.chain(),
+            node_.mempool()
+        );
+
+    if (!out.wallet.ok()) {
+        out.error =
+            NetworkWalletSendError::
+                wallet_create_failed;
+        return out;
+    }
+
+    out.node =
+        node_.submit_transaction(
+            out.wallet.transaction
+        );
+
+    if (!out.node.ok()) {
+        out.error =
+            NetworkWalletSendError::
+                node_rejected;
+        return out;
+    }
+
+    const auto synced =
+        wallet_.sync(
+            node_.chain(),
+            node_.mempool()
+        );
+
+    out.wallet_sync =
+        synced.error;
+
+    if (!synced.ok()) {
+        out.error =
+            NetworkWalletSendError::
+                wallet_sync_failed;
+    }
+
+    return out;
+}
+
+NetworkWalletSendResult
+NetworkRuntime::confirm_send(
+    const NetworkWalletSendPreview& preview)
+{
+    NetworkWalletSendResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        if (!preview.ok() ||
+            make_preview_id(preview) !=
+                preview.preview_id) {
+            out.error =
+                NetworkWalletSendError::
+                    invalid_preview;
+            return out;
+        }
+
+        if (send_state_hash_locked() !=
+            preview.state_hash) {
+            out.error =
+                NetworkWalletSendError::
+                    stale_preview;
+            return out;
+        }
+
+        const auto current_quote =
+            wallet_.quote_auto_fee(
+                preview.destination,
+                preview.amount,
+                node_.chain(),
+                node_.mempool()
+            );
+
+        if (!current_quote.ok() ||
+            !same_fee_quote(
+                current_quote,
+                preview.quote)) {
+            out.error =
+                NetworkWalletSendError::
+                    stale_preview;
+            return out;
+        }
+
+        out =
+            send_to_address_auto_fee_locked(
+                preview.destination,
+                preview.amount
+            );
+    }
+
+    if (out.ok()) {
+        queue_announcement(
+            kInventoryTransaction,
+            out.node.mempool.txid
+        );
+    }
+
+    return out;
+}
+
 NetworkWalletSendResult
 NetworkRuntime::send_to_address_auto_fee(
     std::string_view destination,
@@ -429,54 +862,19 @@ NetworkRuntime::send_to_address_auto_fee(
     {
         std::scoped_lock lock(state_mutex_);
 
-        out.wallet =
-            wallet_.create_transaction_auto_fee(
+        out =
+            send_to_address_auto_fee_locked(
                 destination,
-                amount,
-                node_.chain(),
-                node_.mempool()
+                amount
             );
-
-        if (!out.wallet.ok()) {
-            out.error =
-                NetworkWalletSendError::
-                    wallet_create_failed;
-            return out;
-        }
-
-        out.node =
-            node_.submit_transaction(
-                out.wallet.transaction
-            );
-
-        if (!out.node.ok()) {
-            out.error =
-                NetworkWalletSendError::
-                    node_rejected;
-            return out;
-        }
-
-        const auto synced =
-            wallet_.sync(
-                node_.chain(),
-                node_.mempool()
-            );
-
-        out.wallet_sync =
-            synced.error;
-
-        if (!synced.ok()) {
-            out.error =
-                NetworkWalletSendError::
-                    wallet_sync_failed;
-            return out;
-        }
     }
 
-    queue_announcement(
-        kInventoryTransaction,
-        out.node.mempool.txid
-    );
+    if (out.ok()) {
+        queue_announcement(
+            kInventoryTransaction,
+            out.node.mempool.txid
+        );
+    }
 
     return out;
 }
