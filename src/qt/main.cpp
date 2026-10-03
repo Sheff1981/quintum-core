@@ -442,6 +442,8 @@ QString store_error_text(
         return "The backup belongs to another QUINTUM network.";
     case WalletStoreError::target_exists:
         return "wallet.dat already exists. QUINTUM will not overwrite it.";
+    case WalletStoreError::unsafe_destination:
+        return "The backup destination is one of the live QUINTUM wallet files and cannot be overwritten.";
     case WalletStoreError::passphrase_required:
     case WalletStoreError::invalid_passphrase:
         return "The wallet password is missing or invalid.";
