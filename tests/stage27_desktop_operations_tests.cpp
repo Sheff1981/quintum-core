@@ -5,8 +5,10 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace {
 
@@ -29,6 +31,28 @@ void remove_tree(
 {
     std::error_code ec;
     std::filesystem::remove_all(path, ec);
+}
+
+bool wait_until(
+    std::chrono::seconds timeout,
+    const std::function<bool()>& predicate)
+{
+    const auto deadline =
+        std::chrono::steady_clock::now() +
+        timeout;
+
+    while (std::chrono::steady_clock::now() <
+           deadline) {
+        if (predicate()) {
+            return true;
+        }
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(25)
+        );
+    }
+
+    return predicate();
 }
 
 void test_runtime_mnemonic_recovery()
@@ -218,6 +242,104 @@ void test_recovery_never_overwrites_existing_wallet()
     remove_tree(target_dir);
 }
 
+void test_peer_height_drives_sync_status()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("sync-server");
+    const auto client_dir =
+        unique_dir("sync-client");
+
+    NetworkRuntime server{
+        params,
+        server_dir
+    };
+
+    NetworkRuntimeConfig server_config;
+    server_config.bind_address =
+        "127.0.0.1";
+    server_config.listen_port = 0U;
+    server_config.allow_local_peers = true;
+    server_config.target_outbound = 0U;
+    server_config.accept_poll_ms = 20U;
+    server_config.io_timeout_ms = 5'000U;
+    server_config.wallet_passphrase =
+        "stage27-sync-server";
+
+    assert(server.start(
+               std::move(server_config)).ok());
+
+    for (std::uint32_t i = 0U;
+         i < 3U;
+         ++i) {
+        assert(server.mine_wallet_block(
+                   4'096U).ok());
+    }
+
+    const auto server_status =
+        server.status();
+
+    assert(server_status.height ==
+           std::optional<std::uint32_t>{3U});
+    assert(server_status.listen_port != 0U);
+
+    NetworkRuntime client{
+        params,
+        client_dir
+    };
+
+    NetworkRuntimeConfig client_config;
+    client_config.bind_address =
+        "127.0.0.1";
+    client_config.listen_port = 0U;
+    client_config.allow_local_peers = true;
+    client_config.target_outbound = 1U;
+    client_config.accept_poll_ms = 20U;
+    client_config.io_timeout_ms = 5'000U;
+    client_config.outbound_retry_seconds = 1U;
+    client_config.reconnect_delay_seconds = 1U;
+    client_config.wallet_passphrase =
+        "stage27-sync-client";
+
+    client_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 =
+                *parse_ipv4("127.0.0.1"),
+            .port =
+                server_status.listen_port,
+            .services = 1U,
+        }
+    );
+
+    assert(client.start(
+               std::move(client_config)).ok());
+
+    assert(wait_until(
+        std::chrono::seconds(8),
+        [&] {
+            const auto status =
+                client.status();
+
+            return status.height ==
+                       std::optional<std::uint32_t>{3U} &&
+                   status.peer_best_height &&
+                   *status.peer_best_height >= 3U &&
+                   !status.synchronizing &&
+                   status.sync_progress == 1.0;
+        }
+    ));
+
+    client.stop();
+    server.stop();
+
+    remove_tree(client_dir);
+    remove_tree(server_dir);
+}
+
 void test_wallet_mining_uses_owned_payout()
 {
     using namespace quintum;
@@ -275,6 +397,7 @@ int main()
 {
     test_runtime_mnemonic_recovery();
     test_recovery_never_overwrites_existing_wallet();
+    test_peer_height_drives_sync_status();
     test_wallet_mining_uses_owned_payout();
     return 0;
 }
