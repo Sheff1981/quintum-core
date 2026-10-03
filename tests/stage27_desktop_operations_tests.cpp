@@ -459,13 +459,21 @@ void test_peer_height_drives_sync_status()
         [&] {
             const auto status =
                 client.status();
+            const auto desktop =
+                client.desktop_snapshot();
 
             return status.height ==
                        std::optional<std::uint32_t>{3U} &&
                    status.peer_best_height &&
                    *status.peer_best_height >= 3U &&
                    !status.synchronizing &&
-                   status.sync_progress == 1.0;
+                   status.sync_progress == 1.0 &&
+                   desktop.status.height ==
+                       std::optional<std::uint32_t>{3U} &&
+                   desktop.status.peer_best_height &&
+                   *desktop.status.peer_best_height >= 3U &&
+                   !desktop.status.synchronizing &&
+                   desktop.status.sync_progress == 1.0;
         }
     ));
 
