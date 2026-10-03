@@ -716,6 +716,19 @@ Wallet::recovery_seed() const noexcept
         return std::nullopt;
     }
 
+    const bool seed_complete =
+        std::all_of(
+            keys_.begin(),
+            keys_.end(),
+            [](const KeyRecord& key) {
+                return key.deterministic;
+            }
+        );
+
+    if (!seed_complete) {
+        return std::nullopt;
+    }
+
     return recovery_seed_;
 }
 
