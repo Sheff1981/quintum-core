@@ -244,8 +244,8 @@ void test_three_node_partition_reorg_reconnect_restart()
 
     // A third node, previously stopped at the common ancestor, catches up
     // through A. This forms B <-> A <-> C rather than one direct pair.
-    NetworkRuntime c{params, c_dir};
     {
+        NetworkRuntime c{params, c_dir};
         auto config =
             isolated_config(c_password);
         config.target_outbound = 1U;
@@ -265,23 +265,26 @@ void test_three_node_partition_reorg_reconnect_restart()
                            std::optional<Hash256>{heavy_tip};
             }
         ));
+
+        c.stop();
     }
 
     // Restart C without supplying any bootstrap address. peers.dat must be
     // sufficient for automatic reconnect; no manual IP is re-entered.
-    c.stop();
-
+    NetworkRuntime c_restarted{params, c_dir};
     {
         auto config =
             isolated_config(c_password);
         config.target_outbound = 1U;
 
-        assert(c.start(std::move(config)).ok());
+        assert(c_restarted.start(
+                   std::move(config)).ok());
 
         assert(wait_until(
             std::chrono::seconds(20),
             [&] {
-                const auto status = c.status();
+                const auto status =
+                    c_restarted.status();
                 return status.outbound_peers == 1U &&
                        status.height ==
                            std::optional<std::uint32_t>{7U} &&
@@ -300,7 +303,8 @@ void test_three_node_partition_reorg_reconnect_restart()
         [&] {
             const auto b_status = b.status();
             const auto a_status = a.status();
-            const auto c_status = c.status();
+            const auto c_status =
+                c_restarted.status();
 
             return b_status.height ==
                        std::optional<std::uint32_t>{8U} &&
@@ -314,7 +318,7 @@ void test_three_node_partition_reorg_reconnect_restart()
     assert(b.status().tip.has_value());
     final_tip = *b.status().tip;
 
-    c.stop();
+    c_restarted.stop();
     a.stop();
     b.stop();
 
@@ -385,53 +389,59 @@ void test_real_testnet_params_bootstrap_and_peer_store()
                params.genesis.hash});
     assert(seed_status.listen_port != 0U);
 
-    NetworkRuntime peer{params, peer_dir};
-    auto peer_config =
-        isolated_config("stage29-testnet-peer");
-    peer_config.target_outbound = 1U;
-    peer_config.bootstrap_peers.push_back(
-        loopback_peer(seed_status.listen_port)
-    );
+    {
+        NetworkRuntime peer{params, peer_dir};
+        auto peer_config =
+            isolated_config("stage29-testnet-peer");
+        peer_config.target_outbound = 1U;
+        peer_config.bootstrap_peers.push_back(
+            loopback_peer(seed_status.listen_port)
+        );
 
-    assert(peer.start(
-               std::move(peer_config)).ok());
+        assert(peer.start(
+                   std::move(peer_config)).ok());
 
-    assert(wait_until(
-        std::chrono::seconds(15),
-        [&] {
-            const auto status = peer.status();
-            return status.outbound_peers == 1U &&
-                   status.height ==
-                       std::optional<std::uint32_t>{0U} &&
-                   status.tip ==
-                       std::optional<Hash256>{
-                           params.genesis.hash} &&
-                   status.known_addresses >= 1U;
-        }
-    ));
+        assert(wait_until(
+            std::chrono::seconds(15),
+            [&] {
+                const auto status = peer.status();
+                return status.outbound_peers == 1U &&
+                       status.height ==
+                           std::optional<std::uint32_t>{0U} &&
+                       status.tip ==
+                           std::optional<Hash256>{
+                               params.genesis.hash} &&
+                       status.known_addresses >= 1U;
+            }
+        ));
+
+        peer.stop();
+    }
 
     // Prove the first bootstrap survives restart in peers.dat.
-    peer.stop();
+    {
+        NetworkRuntime peer{params, peer_dir};
+        auto restart_config =
+            isolated_config("stage29-testnet-peer");
+        restart_config.target_outbound = 1U;
 
-    auto restart_config =
-        isolated_config("stage29-testnet-peer");
-    restart_config.target_outbound = 1U;
+        assert(peer.start(
+                   std::move(restart_config)).ok());
 
-    assert(peer.start(
-               std::move(restart_config)).ok());
+        assert(wait_until(
+            std::chrono::seconds(15),
+            [&] {
+                const auto status = peer.status();
+                return status.outbound_peers == 1U &&
+                       status.tip ==
+                           std::optional<Hash256>{
+                               params.genesis.hash};
+            }
+        ));
 
-    assert(wait_until(
-        std::chrono::seconds(15),
-        [&] {
-            const auto status = peer.status();
-            return status.outbound_peers == 1U &&
-                   status.tip ==
-                       std::optional<Hash256>{
-                           params.genesis.hash};
-        }
-    ));
+        peer.stop();
+    }
 
-    peer.stop();
     seed.stop();
 
     remove_tree(peer_dir);
