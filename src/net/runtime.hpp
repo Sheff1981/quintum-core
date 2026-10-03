@@ -31,6 +31,7 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
     std::vector<PeerAddress> bootstrap_peers{};
+    std::string wallet_passphrase{};
 };
 
 enum class NetworkRuntimeStartError {
@@ -128,6 +129,11 @@ public:
 
     [[nodiscard]] wallet::WalletKeyResult
     new_receive_address();
+
+    [[nodiscard]] wallet::WalletStoreError
+    encrypt_wallet(
+        std::string_view passphrase
+    );
 
     [[nodiscard]] wallet::WalletStoreError
     backup_wallet(
