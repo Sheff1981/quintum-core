@@ -33,6 +33,10 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_timeout_seconds{30U};
     std::vector<PeerAddress> bootstrap_peers{};
     std::string wallet_passphrase{};
+    std::string wallet_recovery_mnemonic{};
+    std::uint32_t wallet_recovery_gap_limit{
+        wallet::kWalletRecoveryGapLimit
+    };
 };
 
 enum class NetworkRuntimeStartError {
@@ -53,6 +57,8 @@ struct NetworkRuntimeStartResult {
     wallet::WalletSyncError wallet_sync{
         wallet::WalletSyncError::none
     };
+    wallet::WalletRecoveryResult wallet_recovery{};
+    bool recovered_wallet{false};
     AddrStoreError address_store{
         AddrStoreError::none
     };
@@ -72,6 +78,9 @@ struct NetworkRuntimeStatus {
     std::size_t outbound_peers{0U};
     std::size_t known_addresses{0U};
     std::optional<std::uint32_t> height{};
+    std::optional<std::uint32_t> peer_best_height{};
+    bool synchronizing{false};
+    double sync_progress{1.0};
     std::optional<Hash256> tip{};
     std::size_t mempool_transactions{0U};
     wallet::WalletBalance wallet_balance{};
@@ -232,6 +241,10 @@ public:
         std::uint64_t max_attempts
     );
 
+    [[nodiscard]] NodeMineResult mine_wallet_block(
+        std::uint64_t max_attempts
+    );
+
     [[nodiscard]] NodeMineResult mine_mempool_block_at(
         const Bytes& payout_script,
         std::uint64_t adjusted_time,
@@ -259,6 +272,7 @@ private:
         std::uint64_t last_activity{0U};
         std::uint64_t ping_sent_at{0U};
         std::optional<std::uint64_t> pending_ping{};
+        std::uint32_t reported_height{0U};
         std::vector<Hash256> requested_transactions{};
         std::vector<Hash256> requested_blocks{};
     };
@@ -349,6 +363,8 @@ private:
     std::atomic<std::size_t> peer_count_{0U};
     std::atomic<std::size_t> outbound_count_{0U};
     std::atomic<std::size_t> known_address_count_{0U};
+    std::atomic<std::uint32_t> peer_best_height_{0U};
+    std::atomic<bool> have_peer_height_{false};
     std::atomic<std::uint16_t> listen_port_{0U};
 
     std::uint64_t runtime_nonce_{0U};
