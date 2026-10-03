@@ -40,12 +40,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M8 — Wallet hardening (Stage 21):** `wallet.dat` v2 encrypts the recovery seed, private keys and keypool metadata with XChaCha20-Poly1305. The password key is derived with Argon2id (64 MiB, 3 passes), and every rewrite uses a fresh random nonce. The authenticated open header binds the wallet version, network and KDF parameters.
+**M9 — Wallet state/indexing (Stage 22):** the wallet now keeps a durable `wallet_state.dat` cache containing wallet-owned confirmed UTXOs and transaction history. Normal synchronization advances from the previously indexed active-chain tip instead of rescanning from Genesis every time.
 
-New password-created wallets are deterministic. Key derivation uses BIP32 CKDpriv mechanics (HMAC-SHA512 + libsecp256k1 tweak-add) on the QUINTUM path `m/5329997'/network'/branch/index`.
+The cache contains no private keys. It is checksummed and bound to the network, active-chain tip and complete wallet public-key set. Corruption, reorgs, wallet-key changes or importing a historical key automatically force a correctness-first rebuild from the authoritative blockchain.
 
-Legacy Stage 20 v1 wallets remain readable and can be explicitly migrated without changing addresses or private keys. A migrated/imported-key wallet still requires a `wallet.dat` backup; seed-only recovery is exposed only when every wallet key is deterministic.
+History tracks confirmed, unconfirmed and inactive wallet transactions with received/spent amounts, confirmations and exact fees when they are provable. Because the mempool remains memory-only, previously unconfirmed transactions become inactive after restart until seen again.
 
-The wallet remains on the same P2PK/UTXO/mempool/consensus path. Stage 21 changes wallet storage and recovery only; Genesis, PoW, monetary policy, network magic and transaction consensus are unchanged.
+Stage 22 also adds a local fee-policy foundation: size-based fee arithmetic and a current-mempool fee-rate recommendation exposed through `NetworkRuntimeStatus`. It is wallet policy only and does not alter consensus, monetary policy or block validity.
 
-Next wallet work: persistent transaction history/indexing and fee policy/estimation, followed by desktop GUI/release hardening.
+Next wallet work: user-facing recovery/mnemonic workflow, confirmation-target fee selection and remaining desktop-facing wallet APIs before Qt GUI/release hardening.
