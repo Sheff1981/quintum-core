@@ -788,6 +788,8 @@ WalletSyncResult Wallet::sync(
     const Mempool& mempool)
 {
     WalletSyncResult out;
+    const auto previous_history =
+        history_;
 
     if (!started_) {
         out.error =
@@ -960,6 +962,49 @@ WalletSyncResult Wallet::sync(
         OutPointLess> pending;
 
     history_ = confirmed_history_;
+
+    for (auto record : previous_history) {
+        if (record.status ==
+            WalletTransactionStatus::confirmed) {
+            continue;
+        }
+
+        const bool now_confirmed =
+            std::any_of(
+                confirmed_history_.begin(),
+                confirmed_history_.end(),
+                [&](const auto& confirmed) {
+                    return confirmed.txid ==
+                           record.txid;
+                }
+            );
+
+        if (now_confirmed) {
+            continue;
+        }
+
+        record.status =
+            WalletTransactionStatus::inactive;
+        record.block_height.reset();
+        record.block_hash.reset();
+        record.confirmations = 0U;
+
+        const bool duplicate =
+            std::any_of(
+                history_.begin(),
+                history_.end(),
+                [&](const auto& existing) {
+                    return existing.txid ==
+                           record.txid;
+                }
+            );
+
+        if (!duplicate) {
+            history_.push_back(
+                std::move(record)
+            );
+        }
+    }
 
     for (auto& record : history_) {
         if (!record.block_height ||
@@ -1226,8 +1271,12 @@ WalletSyncResult Wallet::sync(
         );
     }
 
+    const bool history_changed =
+        history_ != previous_history;
+
     if (out.blocks_scanned > 0U ||
-        out.index_rebuilt) {
+        out.index_rebuilt ||
+        history_changed) {
         const auto state_error =
             save_index_state();
 
