@@ -192,6 +192,94 @@ void test_wallet_metadata_persists_and_validates_network()
     );
 }
 
+void test_metadata_is_bound_to_wallet()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto first_directory =
+        unique_dir("meta-wallet-a");
+    const auto second_directory =
+        unique_dir("meta-wallet-b");
+    const auto& params =
+        consensus::regtest_params();
+
+    {
+        Wallet first{
+            params,
+            first_directory
+        };
+
+        assert(first.start(
+                   "stage25-a").ok());
+
+        const std::string address =
+            encode_address(
+                params.network,
+                public_key_from_scalar(77U)
+            );
+
+        assert(first.set_address_label(
+                   address,
+                   "Wallet A") ==
+               WalletMetadataError::none);
+    }
+
+    {
+        Wallet second{
+            params,
+            second_directory
+        };
+
+        assert(second.start(
+                   "stage25-b").ok());
+    }
+
+    std::error_code ec;
+
+    std::filesystem::copy_file(
+        first_directory /
+            "wallet_meta.dat",
+        second_directory /
+            "wallet_meta.dat",
+        std::filesystem::copy_options::
+            overwrite_existing,
+        ec
+    );
+
+    assert(!ec);
+
+    {
+        Wallet reopened{
+            params,
+            second_directory
+        };
+
+        const auto started =
+            reopened.start(
+                "stage25-b"
+            );
+
+        assert(!started.ok());
+        assert(started.error ==
+               WalletStartError::
+                   metadata_failed);
+        assert(started.metadata_error ==
+               WalletMetadataError::
+                   wrong_wallet);
+    }
+
+    std::filesystem::remove_all(
+        first_directory,
+        ec
+    );
+    ec.clear();
+    std::filesystem::remove_all(
+        second_directory,
+        ec
+    );
+}
+
 void test_corrupt_metadata_fails_loudly()
 {
     using namespace quintum;
@@ -473,6 +561,7 @@ void test_desktop_snapshot_preview_confirm_and_stale_guard()
 int main()
 {
     test_wallet_metadata_persists_and_validates_network();
+    test_metadata_is_bound_to_wallet();
     test_corrupt_metadata_fails_loudly();
     test_desktop_snapshot_preview_confirm_and_stale_guard();
     return 0;
