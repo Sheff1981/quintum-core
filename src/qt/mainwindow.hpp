@@ -43,6 +43,7 @@ private:
     void preview_and_send();
     void new_receive_address();
     void copy_receive_address();
+    void save_receive_label();
 
     void save_address_book_entry();
     void delete_address_book_entry();
@@ -103,6 +104,7 @@ private:
     QPushButton* send_button_{nullptr};
 
     QLineEdit* receive_address_{nullptr};
+    QLineEdit* receive_label_{nullptr};
     QLabel* receive_confirmed_{nullptr};
     QLabel* receive_pending_{nullptr};
     QLabel* receive_total_{nullptr};
