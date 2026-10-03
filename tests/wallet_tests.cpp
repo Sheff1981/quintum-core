@@ -666,7 +666,7 @@ void test_wallet_balance_build_sign_confirm_and_recover()
         10U *
         consensus::kAtomicUnitsPerCoin
     };
-    constexpr Amount fee{123U};
+    constexpr Amount fee{1'000U};
 
     const auto created =
         wallet.create_transaction(
@@ -887,7 +887,7 @@ void test_network_runtime_wallet_bridge()
         5U *
         consensus::kAtomicUnitsPerCoin
     };
-    constexpr Amount fee{77U};
+    constexpr Amount fee{1'000U};
 
     const std::string destination =
         encode_address(
