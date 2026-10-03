@@ -10,9 +10,12 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QStandardPaths>
+#include <QTemporaryDir>
+#include <QTimer>
 
 #include <filesystem>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -127,11 +130,16 @@ int main(int argc, char* argv[])
         "Use an explicit data directory.",
         "path"
     };
+    const QCommandLineOption smoke_test{
+        "smoke-test",
+        "Run an automated desktop smoke test."
+    };
 
     parser.addOption(mainnet);
     parser.addOption(testnet);
     parser.addOption(regtest);
     parser.addOption(datadir);
+    parser.addOption(smoke_test);
     parser.process(app);
 
     const int selected_networks =
@@ -169,6 +177,58 @@ int main(int argc, char* argv[])
         quintum::consensus::chain_params(
             network
         );
+
+    if (parser.isSet(smoke_test)) {
+        QTemporaryDir temporary;
+
+        if (!temporary.isValid()) {
+            return 20;
+        }
+
+        const auto& smoke_params =
+            quintum::consensus::regtest_params();
+
+        quintum::net::NetworkRuntime smoke_runtime{
+            smoke_params,
+            filesystem_path(
+                temporary.path()
+            )
+        };
+
+        quintum::net::NetworkRuntimeConfig smoke_config;
+        smoke_config.listen_port = 0U;
+        smoke_config.target_outbound = 0U;
+        smoke_config.wallet_passphrase =
+            "stage26-disposable-smoke-wallet";
+
+        const auto smoke_started =
+            smoke_runtime.start(
+                std::move(smoke_config)
+            );
+
+        if (!smoke_started.ok()) {
+            smoke_runtime.stop();
+            return 21;
+        }
+
+        quintum::qtui::MainWindow smoke_window{
+            smoke_runtime,
+            smoke_params
+        };
+        smoke_window.show();
+
+        QTimer::singleShot(
+            250,
+            &app,
+            &QCoreApplication::quit
+        );
+
+        const int smoke_result =
+            app.exec();
+
+        smoke_runtime.stop();
+        return smoke_result;
+    }
 
     QString data_directory;
 
