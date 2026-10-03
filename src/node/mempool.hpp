@@ -75,6 +75,9 @@ public:
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] std::size_t total_bytes() const noexcept;
 
+    [[nodiscard]] const std::vector<MempoolEntry>&
+    entries() const noexcept;
+
     void clear() noexcept;
 
 private:
