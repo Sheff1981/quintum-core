@@ -2840,3 +2840,98 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 25 — desktop wallet API foundation:** transaction/address metadata, send confirmation model и remaining GUI-facing interfaces перед Qt 6 UI.
+
+
+---
+
+## 2026-10-03 — Этап 25. Desktop wallet API foundation
+
+### Цель
+
+Подготовить безопасный контракт между QUINTUM Core и будущим Qt 6 GUI: persistent пользовательские метки, единый desktop snapshot и двухэтапную отправку Preview -> Confirm без обхода wallet/mempool/P2P.
+
+### Что добавлено
+
+1. **Persistent `wallet_meta.dat`**
+   - address book: QUINTUM address + label;
+   - transaction labels по txid;
+   - canonical Bech32m address identity;
+   - max 10 000 address labels;
+   - max 10 000 transaction labels;
+   - max label 128 bytes;
+   - пустой label удаляет запись.
+
+2. **Durability и ownership**
+   - temp write + flush/fsync + atomic replacement;
+   - double-SHA-256 checksum;
+   - network/message-magic binding;
+   - metadata привязан к hash public-key anchor, реально принадлежащего wallet;
+   - anchor остаётся стабильным при New Address, change key, keypool refill и import дополнительных keys;
+   - metadata другого wallet отклоняется как `wrong_wallet`;
+   - corrupt/wrong-network/wrong-wallet metadata не игнорируется молча: wallet startup явно завершается metadata error.
+
+3. **Privacy boundary**
+   - private keys, recovery seed и wallet password в `wallet_meta.dat` не записываются;
+   - labels являются privacy-sensitive пользовательскими данными;
+   - текущий metadata format checksummed/crash-safe, но не encrypted;
+   - POSIX file mode 0600;
+   - потеря metadata не может потерять монеты, но теряет пользовательские labels;
+   - текущий single-file backup `wallet.dat` не включает metadata.
+
+4. **Guarded Preview -> Confirm**
+   - `preview_send()` возвращает destination, amount, auto fee quote, optional recipient label, state hash и preview id;
+   - state hash включает active height/tip и current mempool txids/fees/sizes;
+   - preview id связывает request + quote + node state;
+   - modified preview -> `invalid_preview`;
+   - новый block/mempool change -> `stale_preview`;
+   - Confirm повторно считает fee quote под runtime lock;
+   - только после совпадения создаётся/sign transaction и идёт обычный mempool/P2P relay.
+
+5. **Desktop snapshot**
+   - runtime/network status;
+   - peer counts;
+   - height/tip;
+   - mempool size;
+   - confirmed/available/pending/immature balances;
+   - min relay и recommended fee rates;
+   - current receive address;
+   - transaction history + optional labels;
+   - address book.
+
+6. **Compatibility**
+   - Genesis не изменён;
+   - transaction/block consensus не изменён;
+   - UTXO rules не изменены;
+   - PoW/difficulty/monetary policy не изменены;
+   - network magic/ports не изменены;
+   - `wallet.dat` format не изменён;
+   - blockchain storage format не изменён.
+
+### QA
+
+Новый 24-й suite `stage25_desktop_wallet` проверяет:
+
+- address-label persistence после restart;
+- transaction-label persistence;
+- wrong-network address rejection;
+- canonical upper/lower-case address identity;
+- metadata stability после `New Address` и key-record reorder;
+- wrong-wallet metadata rejection;
+- corrupt metadata -> explicit startup failure;
+- desktop snapshot;
+- Preview с auto fee;
+- stale Preview после нового блока;
+- tampered Preview -> invalid;
+- fresh Preview -> successful normal mempool send;
+- labeled outgoing transaction в desktop history;
+- все предыдущие 23 regression suites.
+
+Код Stage 25 до документационных commits прошёл GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **24/24 test suites passed** на обеих ОС.
+
+### Следующий этап
+
+**Этап 26 — Qt 6 desktop wallet foundation:** первый настоящий GUI поверх уже готовых core/runtime API — Overview, Send, Receive, Transactions и live network/sync status.
