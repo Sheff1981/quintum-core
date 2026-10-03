@@ -2689,3 +2689,77 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 23 — recovery UX foundation:** mnemonic/seed export-import safety, deterministic rescan/gap policy и desktop-facing recovery API перед Qt GUI.
+
+
+---
+
+## 2026-10-03 — Этап 23. Recovery UX foundation: 24-word mnemonic + gap-aware restore
+
+### Цель
+
+Дать seed-native QUINTUM wallet безопасное человеческое восстановление без изменения уже существующего 256-bit RecoverySeed, BIP32 path, адресов или consensus.
+
+### Что добавлено
+
+1. **24-word recovery phrase**
+   - стандартный BIP39 English word list;
+   - 256-bit RecoverySeed + 8-bit SHA-256 checksum;
+   - ровно 24 слова;
+   - unknown word / wrong word count / invalid checksum отклоняются;
+   - существующий QUINTUM RecoverySeed остаётся точным BIP32 input, поэтому уже определённые ключи и адреса не меняются.
+
+2. **Mnemonic recovery API**
+   - `Wallet::recover_from_mnemonic()`;
+   - `Wallet::recovery_mnemonic()`;
+   - explicit `NetworkRuntime::wallet_recovery_mnemonic()` bridge;
+   - recovery phrase не попадает в обычный runtime status, history, P2P или wallet_state cache.
+
+3. **Gap-aware deterministic recovery**
+   - receive branch 0;
+   - internal/change branch 1;
+   - default gap limit 100;
+   - старт минимум с 101 receive и 100 change keys;
+   - lookahead автоматически расширяется после найденного использованного индекса;
+   - active chain является authoritative source;
+   - current mempool outputs также помечают recovered keys used.
+
+4. **Atomic recovery commit**
+   - mnemonic проверяется до создания wallet;
+   - deterministic key discovery и wallet sync выполняются до commit;
+   - encrypted `wallet.dat` сохраняется только после успешного recovery sync;
+   - существующий `wallet.dat` никогда не перезаписывается;
+   - при ошибке незавершённое recovery state очищается.
+
+5. **Compatibility**
+   - imported/random legacy private keys по-прежнему требуют backup `wallet.dat`;
+   - seed-only recovery не рекламируется для неполностью deterministic wallet;
+   - BIP39 PBKDF2 mnemonic-to-seed намеренно не применяется, потому что это изменило бы уже существующие QUINTUM BIP32 keys.
+
+### QA
+
+Новый 22-й suite `stage23_recovery` проверяет:
+
+- официальный 256-bit mnemonic vector;
+- 24 words -> RecoverySeed roundtrip;
+- неизменность QUINTUM derived keys на Mainnet/Testnet/Regtest;
+- checksum / word-count / unknown-word validation;
+- recovery receive/change keys за пределами первых 100 адресов;
+- persistent history/index после recovery и restart;
+- explicit NetworkRuntime mnemonic bridge;
+- failed recovery не создаёт `wallet.dat`;
+- invalid mnemonic не создаёт wallet;
+- все предыдущие 21 regression suites.
+
+### Статус
+
+Код этапа прошёл GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **22/22 test suites passed** на обеих ОС.
+
+Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary policy, network magic, ports и blockchain storage format не изменялись.
+
+### Следующий этап
+
+**Этап 24 — wallet send policy:** automatic fee selection, relay/min-fee policy foundation и desktop-facing send API перед Qt GUI.
