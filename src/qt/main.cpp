@@ -16,10 +16,13 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QRadioButton>
+#include <QSettings>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTextEdit>
+#include <QHBoxLayout>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -72,6 +75,144 @@ QString network_directory_name(
     }
 
     return "unknown";
+}
+
+std::optional<QString> choose_data_directory(
+    QWidget* parent,
+    const QString& default_directory)
+{
+    QDialog dialog(parent);
+    dialog.setWindowTitle(
+        "Welcome to QUINTUM Core"
+    );
+    dialog.setMinimumWidth(610);
+
+    auto* layout = new QVBoxLayout(&dialog);
+
+    auto* intro = new QLabel(
+        "This is the first time QUINTUM Core is being started. "
+        "Choose where blockchain and wallet data will be stored. "
+        "You can use the default location or select another directory."
+    );
+    intro->setWordWrap(true);
+    layout->addWidget(intro);
+
+    auto* default_option =
+        new QRadioButton(
+            "Use the default data directory"
+        );
+    auto* custom_option =
+        new QRadioButton(
+            "Use a custom data directory:"
+        );
+    default_option->setChecked(true);
+
+    layout->addWidget(default_option);
+    layout->addWidget(custom_option);
+
+    auto* path_row = new QHBoxLayout;
+    auto* path = new QLineEdit(
+        default_directory
+    );
+    auto* browse = new QPushButton("...");
+    path->setEnabled(false);
+    browse->setEnabled(false);
+
+    path_row->addWidget(path, 1);
+    path_row->addWidget(browse);
+    layout->addLayout(path_row);
+
+    auto update_mode = [=] {
+        const bool custom =
+            custom_option->isChecked();
+        path->setEnabled(custom);
+        browse->setEnabled(custom);
+
+        if (!custom) {
+            path->setText(
+                default_directory
+            );
+        }
+    };
+
+    QObject::connect(
+        default_option,
+        &QRadioButton::toggled,
+        &dialog,
+        update_mode
+    );
+    QObject::connect(
+        custom_option,
+        &QRadioButton::toggled,
+        &dialog,
+        update_mode
+    );
+
+    QObject::connect(
+        browse,
+        &QPushButton::clicked,
+        &dialog,
+        [=] {
+            const QString selected =
+                QFileDialog::
+                    getExistingDirectory(
+                        &dialog,
+                        "Choose QUINTUM data directory",
+                        path->text()
+                    );
+
+            if (!selected.isEmpty()) {
+                path->setText(
+                    QDir::cleanPath(
+                        selected
+                    )
+                );
+            }
+        }
+    );
+
+    auto* note = new QLabel(
+        "QUINTUM Core will keep its blockchain, peer database and wallet data here. "
+        "Wallet data is preserved when the application is updated or uninstalled."
+    );
+    note->setWordWrap(true);
+    layout->addWidget(note);
+
+    auto* buttons =
+        new QDialogButtonBox(
+            QDialogButtonBox::Ok |
+            QDialogButtonBox::Cancel
+        );
+    layout->addWidget(buttons);
+
+    QObject::connect(
+        buttons,
+        &QDialogButtonBox::accepted,
+        &dialog,
+        &QDialog::accept
+    );
+    QObject::connect(
+        buttons,
+        &QDialogButtonBox::rejected,
+        &dialog,
+        &QDialog::reject
+    );
+
+    if (dialog.exec() !=
+        QDialog::Accepted) {
+        return std::nullopt;
+    }
+
+    const QString selected =
+        QDir::cleanPath(
+            path->text().trimmed()
+        );
+
+    if (selected.isEmpty()) {
+        return std::nullopt;
+    }
+
+    return selected;
 }
 
 void wipe_byte_array(QByteArray& bytes)
@@ -512,12 +653,45 @@ int main(int argc, char* argv[])
                 QStandardPaths::AppDataLocation
             );
 
-        data_directory =
+        const QString default_directory =
             QDir(root).filePath(
                 network_directory_name(
                     network
                 )
             );
+
+        QSettings settings;
+        const QString settings_key =
+            "dataDirectory/" +
+            network_directory_name(
+                network
+            );
+
+        if (settings.contains(
+                settings_key)) {
+            data_directory =
+                QDir::cleanPath(
+                    settings.value(
+                        settings_key
+                    ).toString()
+                );
+        } else {
+            const auto selected =
+                choose_data_directory(
+                    nullptr,
+                    default_directory
+                );
+
+            if (!selected) {
+                return 0;
+            }
+
+            data_directory = *selected;
+            settings.setValue(
+                settings_key,
+                data_directory
+            );
+        }
     }
 
     if (data_directory.isEmpty() ||
