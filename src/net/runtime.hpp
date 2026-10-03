@@ -131,6 +131,9 @@ public:
         wallet::WalletTransactionRecord>
     wallet_history() const;
 
+    [[nodiscard]] std::optional<std::string>
+    wallet_recovery_mnemonic() const;
+
     [[nodiscard]] NodeTransactionResult submit_transaction(
         const Transaction& transaction
     );
