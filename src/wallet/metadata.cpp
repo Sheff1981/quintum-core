@@ -39,6 +39,36 @@ constexpr std::size_t kMaxMetadataEntries{10'000U};
 constexpr std::size_t kMaxLabelBytes{128U};
 constexpr std::size_t kMaxAddressBytes{90U};
 
+Hash256 metadata_wallet_id(
+    const crypto::PublicKey& public_key)
+{
+    Bytes bytes;
+    constexpr std::string_view domain{
+        "QUINTUM-WALLET-METADATA-V1"
+    };
+
+    append_compact_size(
+        bytes,
+        static_cast<std::uint64_t>(
+            domain.size()
+        )
+    );
+
+    for (const unsigned char ch : domain) {
+        bytes.push_back(
+            static_cast<Byte>(ch)
+        );
+    }
+
+    bytes.insert(
+        bytes.end(),
+        public_key.begin(),
+        public_key.end()
+    );
+
+    return crypto::double_sha256(bytes);
+}
+
 bool valid_label(std::string_view label) noexcept
 {
     if (label.empty() ||
@@ -377,6 +407,7 @@ WalletMetadataError Wallet::load_metadata()
             kMetadataMagic.size() +
                 sizeof(std::uint32_t) +
                 params_.message_start.size() +
+                Hash256{}.size() +
                 2U +
                 kChecksumSize) {
         return WalletMetadataError::corrupt;
@@ -445,6 +476,29 @@ WalletMetadataError Wallet::load_metadata()
     if (message_start !=
         params_.message_start) {
         return WalletMetadataError::wrong_network;
+    }
+
+    if (keys_.empty()) {
+        return WalletMetadataError::corrupt;
+    }
+
+    Hash256 stored_wallet_id{};
+
+    if (!read_exact(
+            payload,
+            offset,
+            stored_wallet_id)) {
+        return WalletMetadataError::corrupt;
+    }
+
+    const Hash256 expected_wallet_id =
+        metadata_wallet_id(
+            keys_.front().public_key
+        );
+
+    if (stored_wallet_id !=
+        expected_wallet_id) {
+        return WalletMetadataError::wrong_wallet;
     }
 
     const auto address_count =
@@ -601,6 +655,21 @@ WalletMetadataError Wallet::save_metadata() const
         bytes.end(),
         params_.message_start.begin(),
         params_.message_start.end()
+    );
+
+    if (keys_.empty()) {
+        return WalletMetadataError::corrupt;
+    }
+
+    const Hash256 wallet_id =
+        metadata_wallet_id(
+            keys_.front().public_key
+        );
+
+    bytes.insert(
+        bytes.end(),
+        wallet_id.begin(),
+        wallet_id.end()
     );
 
     append_compact_size(
