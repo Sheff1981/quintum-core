@@ -324,3 +324,16 @@ This verifies the live end-to-end bootstrap and block path:
 `fresh Windows install -> hardcoded seed discovery -> TCP handshake -> live peer -> real PoW -> local validation/storage -> inv/getdata/block relay -> remote consensus acceptance -> remote durable storage`.
 
 No manual IP entry, PowerShell peer injection, private consensus bypass or developer mint path was used.
+
+
+### Live reconnect observation — 2026-10-03
+
+A real Windows laptop temporarily showed `Peers: 0` while the public Testnet peer was unavailable/retrying. No manual peer command, IP entry, phone-side server command or configuration change was made. After the runtime retry interval elapsed, the node automatically re-established the peer connection and the GUI changed to:
+
+- `Local block height: 2`;
+- `Peer best height: 2`;
+- `Peers: 1`;
+- `Synchronization: Up to date`;
+- `Progress: 100%`.
+
+This confirms the live reconnect/backoff path and the desktop peer-height/synchronization presentation on a real Windows install.
