@@ -196,9 +196,20 @@ void test_legacy_plaintext_metadata_migrates_on_encrypted_open()
         assert(legacy.encrypt_wallet(
                    "stage28-migration-password") ==
                WalletStoreError::none);
+
+        const auto encrypted_now =
+            read_bytes(
+                directory / "wallet_meta.dat");
+
+        assert(!contains_text(
+            encrypted_now,
+            "Legacy plaintext label"));
+        assert(!contains_text(
+            encrypted_now,
+            address));
     }
 
-    // Opening the now-encrypted wallet must read v1 metadata and rewrite v2.
+    // Reopening verifies the encrypted metadata survives restart.
     {
         Wallet reopened{params, directory};
 
