@@ -188,6 +188,25 @@ enum class WalletCreateError {
     validation_failed,
 };
 
+struct WalletFeeQuote {
+    WalletCreateError error{WalletCreateError::none};
+    AddressError address_error{AddressError::none};
+    WalletSyncError sync_error{WalletSyncError::none};
+    Amount amount{0U};
+    Amount fee{0U};
+    Amount fee_rate_per_kb{0U};
+    Amount change{0U};
+    Amount selected_value{0U};
+    std::size_t serialized_size{0U};
+    std::size_t input_count{0U};
+    std::size_t output_count{0U};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == WalletCreateError::none;
+    }
+};
+
 struct WalletCreateResult {
     WalletCreateError error{WalletCreateError::none};
     AddressError address_error{AddressError::none};
@@ -203,8 +222,10 @@ struct WalletCreateResult {
     Hash256 txid{};
     Amount amount{0U};
     Amount fee{0U};
+    Amount fee_rate_per_kb{0U};
     Amount change{0U};
     Amount selected_value{0U};
+    std::size_t serialized_size{0U};
     bool backup_recommended{false};
 
     [[nodiscard]] bool ok() const noexcept
@@ -267,6 +288,20 @@ public:
     ) const;
 
     [[nodiscard]] WalletSyncResult sync(
+        const Chainstate& chain,
+        const Mempool& mempool
+    );
+
+    [[nodiscard]] WalletFeeQuote quote_auto_fee(
+        std::string_view destination,
+        Amount amount,
+        const Chainstate& chain,
+        const Mempool& mempool
+    );
+
+    [[nodiscard]] WalletCreateResult create_transaction_auto_fee(
+        std::string_view destination,
+        Amount amount,
         const Chainstate& chain,
         const Mempool& mempool
     );
