@@ -40,7 +40,7 @@ VersionInfoVersion=0.0.1.0
 VersionInfoCompany=QUINTUM
 VersionInfoDescription=QUINTUM Core Installer
 VersionInfoProductName=QUINTUM Core
-VersionInfoProductVersion={#AppVersion}
+VersionInfoProductVersion=0.0.1.0
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
