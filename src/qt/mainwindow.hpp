@@ -49,7 +49,7 @@ private:
     void mine_once();
 
     void show_recovery_phrase();
-    void backup_wallet();
+    void backup_wallet_bundle();
 
     void apply_snapshot(
         const net::WalletDesktopSnapshot& snapshot
