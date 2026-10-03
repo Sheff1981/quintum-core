@@ -2501,7 +2501,16 @@ Genesis, monetary policy, PoW, difficulty, network magic, P2P/RPC ports и су�
 
 ### Статус
 
-Код этапа реализован. Финальный Windows/Linux CI фиксируется перед fast-forward в `main`.
+**ГОТОВО.**
+
+Финальный GitHub Actions CI:
+
+- Linux — success;
+- Windows — success;
+- **20/20 test suites passed**;
+- отдельный `wallet` suite — passed на обеих ОС.
+
+Проверены wallet creation/restart, backup recovery, wrong-network/corrupt wallet rejection, keypool recovery, mature/immature balances, signed spend, mempool accounting, mining confirmation и live NetworkRuntime wallet bridge.
 
 ### Следующий этап
 
