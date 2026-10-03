@@ -23,8 +23,10 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 **Send policy implemented in Stage 24:** shared wallet/node fee math, local minimum-relay policy, automatic fee quote/selection from exact P2PK size plus current mempool median, explicit proof that the relay floor is not consensus, and desktop-facing quote/auto-send APIs. Before public release: historical/confirmation-target fee estimation, labels/address book metadata and further adversarial/long-running wallet tests.
 
+**Desktop wallet API implemented in Stage 25:** persistent address-book and transaction labels, network/wallet-bound crash-safe metadata storage, unified desktop snapshot, and a guarded preview/confirm send contract that rejects tampered or stale previews before transaction creation. Before public release: Qt presentation/recovery UX, privacy hardening for metadata, bundled backups, historical/confirmation-target fee estimation and further adversarial/long-running wallet tests.
+
 ## M5 — Desktop
-Qt 6 GUI, synchronization state, peers, balances, transaction history and mining status.
+**API foundation complete in Stage 25.** Stage 26 begins the Qt 6 GUI: Overview, Send, Receive, Transactions, synchronization state, peers and mining status.
 
 ## M6 — Windows distribution
 Signed/reproducible release pipeline where possible, installer, safe upgrades, preserved wallet/blockchain data.
