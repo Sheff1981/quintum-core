@@ -4,8 +4,10 @@
 #include "crypto/random.hpp"
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
+#include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -15,9 +17,11 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QInputDialog>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
@@ -26,8 +30,10 @@
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolBar>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -156,25 +162,7 @@ MainWindow::MainWindow(
         break;
     }
 
-    resize(1120, 720);
-
-    auto* root = new QWidget;
-    auto* layout = new QHBoxLayout(root);
-    layout->setContentsMargins(12, 12, 12, 12);
-    layout->setSpacing(12);
-
-    auto* navigation = new QListWidget;
-    navigation->addItems({
-        "Overview",
-        "Send",
-        "Receive",
-        "Transactions",
-        "Address Book",
-        "Mining",
-        "Settings",
-    });
-    navigation->setFixedWidth(165);
-    navigation->setCurrentRow(0);
+    resize(1060, 690);
 
     pages_ = new QStackedWidget;
     pages_->addWidget(build_overview_page());
@@ -184,17 +172,193 @@ MainWindow::MainWindow(
     pages_->addWidget(build_address_book_page());
     pages_->addWidget(build_mining_page());
     pages_->addWidget(build_settings_page());
+    setCentralWidget(pages_);
+
+    auto* overview_action =
+        new QAction("Overview", this);
+    auto* send_action =
+        new QAction("Send", this);
+    auto* receive_action =
+        new QAction("Receive", this);
+    auto* transactions_action =
+        new QAction("Transactions", this);
+    auto* mining_action =
+        new QAction("Mining", this);
+
+    auto* navigation =
+        addToolBar("Wallet navigation");
+    navigation->setMovable(false);
+    navigation->setFloatable(false);
+    navigation->addAction(overview_action);
+    navigation->addAction(send_action);
+    navigation->addAction(receive_action);
+    navigation->addAction(transactions_action);
+    navigation->addSeparator();
+    navigation->addAction(mining_action);
 
     connect(
-        navigation,
-        &QListWidget::currentRowChanged,
-        pages_,
-        &QStackedWidget::setCurrentIndex
+        overview_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(0); }
+    );
+    connect(
+        send_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(1); }
+    );
+    connect(
+        receive_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(2); }
+    );
+    connect(
+        transactions_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(3); }
+    );
+    connect(
+        mining_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(5); }
     );
 
-    layout->addWidget(navigation);
-    layout->addWidget(pages_, 1);
-    setCentralWidget(root);
+    auto* file_menu =
+        menuBar()->addMenu("&File");
+    auto* backup_action =
+        file_menu->addAction("Backup Wallet...");
+    auto* recovery_action =
+        file_menu->addAction("Show Recovery Words...");
+    file_menu->addSeparator();
+    auto* exit_action =
+        file_menu->addAction("E&xit");
+
+    connect(
+        backup_action,
+        &QAction::triggered,
+        this,
+        [this] { backup_wallet_bundle(); }
+    );
+    connect(
+        recovery_action,
+        &QAction::triggered,
+        this,
+        [this] { show_recovery_phrase(); }
+    );
+    connect(
+        exit_action,
+        &QAction::triggered,
+        this,
+        &QWidget::close
+    );
+
+    auto* settings_menu =
+        menuBar()->addMenu("&Settings");
+    auto* options_action =
+        settings_menu->addAction("Options...");
+    connect(
+        options_action,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(6); }
+    );
+
+    auto* window_menu =
+        menuBar()->addMenu("&Window");
+    auto* minimize_action =
+        window_menu->addAction("Minimize");
+    minimize_action->setShortcut(
+        QKeySequence("Ctrl+M")
+    );
+    connect(
+        minimize_action,
+        &QAction::triggered,
+        this,
+        &QWidget::showMinimized
+    );
+
+    window_menu->addSeparator();
+
+    auto* sending_addresses =
+        window_menu->addAction("Sending addresses");
+    auto* receiving_addresses =
+        window_menu->addAction("Receiving addresses");
+
+    connect(
+        sending_addresses,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(4); }
+    );
+    connect(
+        receiving_addresses,
+        &QAction::triggered,
+        this,
+        [this] { pages_->setCurrentIndex(2); }
+    );
+
+    window_menu->addSeparator();
+
+    auto* information_action =
+        window_menu->addAction("Information");
+    information_action->setShortcut(
+        QKeySequence("Ctrl+I")
+    );
+    auto* console_action =
+        window_menu->addAction("Console");
+    console_action->setShortcut(
+        QKeySequence("Ctrl+T")
+    );
+    auto* traffic_action =
+        window_menu->addAction("Network Traffic");
+    traffic_action->setShortcut(
+        QKeySequence("Ctrl+N")
+    );
+    auto* peers_action =
+        window_menu->addAction("Peers");
+    peers_action->setShortcut(
+        QKeySequence("Ctrl+P")
+    );
+
+    connect(
+        information_action,
+        &QAction::triggered,
+        this,
+        [this] { show_debug_window(0); }
+    );
+    connect(
+        console_action,
+        &QAction::triggered,
+        this,
+        [this] { show_debug_window(1); }
+    );
+    connect(
+        traffic_action,
+        &QAction::triggered,
+        this,
+        [this] { show_debug_window(2); }
+    );
+    connect(
+        peers_action,
+        &QAction::triggered,
+        this,
+        [this] { show_debug_window(3); }
+    );
+
+    auto* help_menu =
+        menuBar()->addMenu("&Help");
+    auto* about_action =
+        help_menu->addAction("About QUINTUM Core");
+    connect(
+        about_action,
+        &QAction::triggered,
+        this,
+        [this] { show_about(); }
+    );
 
     status_network_ = new QLabel;
     status_blocks_ = new QLabel;
@@ -656,6 +820,256 @@ QWidget* MainWindow::build_settings_page()
     layout->addStretch();
 
     return page;
+}
+
+void MainWindow::show_debug_window(
+    int tab_index)
+{
+    auto* dialog = new QDialog(this);
+    dialog->setAttribute(
+        Qt::WA_DeleteOnClose
+    );
+    dialog->setWindowTitle("Debug window");
+    dialog->resize(760, 500);
+
+    auto* layout = new QVBoxLayout(dialog);
+    auto* tabs = new QTabWidget(dialog);
+
+    const auto snapshot =
+        runtime_.desktop_snapshot();
+    const auto& status =
+        snapshot.status;
+
+    auto* information = new QWidget;
+    auto* information_form =
+        new QFormLayout(information);
+
+    const QString network_name =
+        QString::fromUtf8(
+            params_.name.data(),
+            static_cast<qsizetype>(
+                params_.name.size()
+            )
+        );
+
+    information_form->addRow(
+        "Client version:",
+        new QLabel(
+            QCoreApplication::
+                applicationVersion()
+        )
+    );
+    information_form->addRow(
+        "Network:",
+        new QLabel(network_name)
+    );
+    information_form->addRow(
+        "Number of connections:",
+        new QLabel(
+            QString::number(
+                status.peers
+            )
+        )
+    );
+    information_form->addRow(
+        "Block height:",
+        new QLabel(
+            status.height
+                ? QString::number(
+                      *status.height
+                  )
+                : "-"
+        )
+    );
+    information_form->addRow(
+        "Best peer height:",
+        new QLabel(
+            status.peer_best_height
+                ? QString::number(
+                      *status.peer_best_height
+                  )
+                : "-"
+        )
+    );
+    information_form->addRow(
+        "Mempool transactions:",
+        new QLabel(
+            QString::number(
+                status.mempool_transactions
+            )
+        )
+    );
+    information_form->addRow(
+        "P2P listen port:",
+        new QLabel(
+            QString::number(
+                status.listen_port
+            )
+        )
+    );
+    information_form->addRow(
+        "Best block:",
+        new QLabel(
+            status.tip
+                ? hash_hex(*status.tip)
+                : "-"
+        )
+    );
+
+    auto* console = new QWidget;
+    auto* console_layout =
+        new QVBoxLayout(console);
+    auto* console_text = new QTextEdit;
+    console_text->setReadOnly(true);
+    console_text->setPlainText(
+        "QUINTUM Core debug console\n\n"
+        "The desktop RPC command console is not exposed yet. "
+        "No fake commands are provided: when RPC is added, "
+        "this tab will execute the same validated node/wallet APIs."
+    );
+    console_layout->addWidget(console_text);
+
+    auto* traffic = new QWidget;
+    auto* traffic_form =
+        new QFormLayout(traffic);
+    traffic_form->addRow(
+        "Active connections:",
+        new QLabel(
+            QString::number(
+                status.peers
+            )
+        )
+    );
+    traffic_form->addRow(
+        "Known peer addresses:",
+        new QLabel(
+            QString::number(
+                status.known_addresses
+            )
+        )
+    );
+    traffic_form->addRow(
+        "Mempool transactions:",
+        new QLabel(
+            QString::number(
+                status.mempool_transactions
+            )
+        )
+    );
+    auto* traffic_note = new QLabel(
+        "Per-peer byte counters are not exposed by the current runtime yet."
+    );
+    traffic_note->setWordWrap(true);
+    traffic_form->addRow(
+        "Traffic counters:",
+        traffic_note
+    );
+
+    auto* peers = new QWidget;
+    auto* peers_form =
+        new QFormLayout(peers);
+
+    const std::size_t inbound =
+        status.peers >= status.outbound_peers
+            ? status.peers -
+                  status.outbound_peers
+            : 0U;
+
+    peers_form->addRow(
+        "Connections:",
+        new QLabel(
+            QString::number(
+                status.peers
+            )
+        )
+    );
+    peers_form->addRow(
+        "Outbound:",
+        new QLabel(
+            QString::number(
+                status.outbound_peers
+            )
+        )
+    );
+    peers_form->addRow(
+        "Inbound:",
+        new QLabel(
+            QString::number(
+                inbound
+            )
+        )
+    );
+    peers_form->addRow(
+        "Known addresses:",
+        new QLabel(
+            QString::number(
+                status.known_addresses
+            )
+        )
+    );
+    peers_form->addRow(
+        "Peer best height:",
+        new QLabel(
+            status.peer_best_height
+                ? QString::number(
+                      *status.peer_best_height
+                  )
+                : "-"
+        )
+    );
+    auto* peers_note = new QLabel(
+        "The current runtime exposes aggregate peer state. "
+        "A per-peer table will be wired to real peer-session snapshots "
+        "before the public desktop release."
+    );
+    peers_note->setWordWrap(true);
+    peers_form->addRow(
+        "Details:",
+        peers_note
+    );
+
+    tabs->addTab(
+        information,
+        "Information"
+    );
+    tabs->addTab(
+        console,
+        "Console"
+    );
+    tabs->addTab(
+        traffic,
+        "Network Traffic"
+    );
+    tabs->addTab(
+        peers,
+        "Peers"
+    );
+
+    tabs->setCurrentIndex(
+        std::clamp(
+            tab_index,
+            0,
+            tabs->count() - 1
+        )
+    );
+
+    layout->addWidget(tabs);
+    dialog->show();
+}
+
+void MainWindow::show_about()
+{
+    QMessageBox::about(
+        this,
+        "About QUINTUM Core",
+        "QUINTUM Core " +
+            QCoreApplication::
+                applicationVersion() +
+            "\n\nIndependent Proof-of-Work full node and wallet. "
+            "The desktop follows proven Bitcoin Core interaction patterns "
+            "while using QUINTUM's own network, consensus parameters, "
+            "addresses and branding."
+    );
 }
 
 void MainWindow::refresh()
