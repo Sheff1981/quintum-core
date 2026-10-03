@@ -1,6 +1,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/runtime.hpp"
+#include "net/relay.hpp"
 #include "net/sync.hpp"
 #include "node/node.hpp"
 
