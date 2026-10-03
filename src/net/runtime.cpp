@@ -1955,11 +1955,14 @@ bool NetworkRuntime::process_block(
                    duplicate_block;
     }
 
-    peer.reported_height =
-        std::max(
-            peer.reported_height,
-            submitted.connect.chain.height
-        );
+    if (const auto accepted_height =
+            node_.chain().height()) {
+        peer.reported_height =
+            std::max(
+                peer.reported_height,
+                *accepted_height
+            );
+    }
     update_peer_counts();
 
     queue_announcement(
