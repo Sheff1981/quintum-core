@@ -13,4 +13,10 @@ using quintum::policy::fee_for_size;
     const Mempool& mempool
 ) noexcept;
 
+[[nodiscard]] std::optional<std::size_t>
+estimate_p2pk_transaction_size(
+    std::size_t input_count,
+    std::size_t output_count
+) noexcept;
+
 } // namespace quintum::wallet
