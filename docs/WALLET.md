@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 added durable user metadata plus guarded preview/confirm. Stage 26 introduced the Qt desktop shell. Stage 27 added operational recovery, password-gated seed reveal, address-book/mining/settings integration and recovery-metadata hardening. Stage 28 encrypts wallet metadata, adds complete backup/restore bundles and enforces Windows private-file ACLs.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 added durable user metadata plus guarded preview/confirm. Stage 26 introduced the Qt desktop shell. Stage 27 added operational recovery, password-gated seed reveal, address-book/mining/settings integration and recovery-metadata hardening. Stage 28 encrypts wallet metadata, adds complete backup/restore bundles and enforces Windows private-file ACLs. Stage 31 moves the default wallet into a structured per-network `wallets/default/` directory through a non-overwriting legacy migration; the wallet formats and key derivation are unchanged.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -47,7 +47,7 @@ The address format is implemented and tested but remains a **pre-mainnet candida
 
 ## wallet.dat
 
-Each network directory has its own `wallet.dat`.
+Each network directory has its own default wallet at `wallets/default/wallet.dat`. Legacy flat `wallet.dat`, `wallet_state.dat` and `wallet_meta.dat` files are moved into that directory by Stage 31 without rewriting their bytes; any source/destination conflict aborts startup rather than overwriting a wallet.
 
 Two formats are recognized:
 

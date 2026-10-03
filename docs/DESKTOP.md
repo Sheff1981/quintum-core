@@ -2,7 +2,7 @@
 
 Status: **pre-alpha**
 
-Stage 26 introduced the first Qt 6 Widgets desktop shell. Stage 27 made it operational. Stage 28 hardens wallet privacy/backup and produces the first tested Windows distribution. The GUI remains a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy, recovery derivation, mining validation or P2P rules itself.
+Stage 26 introduced the first Qt 6 Widgets desktop shell. Stage 27 made it operational. Stage 28 hardens wallet privacy/backup and produces the first tested Windows distribution. Stage 30 aligns the operator UX with Bitcoin Core. Stage 31 introduces the structured data-directory layout and safe legacy migration. The GUI remains a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy, recovery derivation, mining validation or P2P rules itself.
 
 ## Build
 
@@ -21,7 +21,7 @@ CI pins Qt **6.8.0** for reproducibility and builds the GUI separately on Linux 
 
 ## Networks and data directories
 
-The GUI defaults to **Regtest** while QUINTUM is pre-mainnet.
+The GUI defaults to **Testnet**. Regtest remains available explicitly for local development; Mainnet is not selected automatically.
 
 Supported switches:
 
@@ -32,11 +32,25 @@ Supported switches:
 
 Without `--datadir`, Qt's application-data directory is used with a separate subdirectory for each network.
 
+Inside that network directory Stage 31 separates durable components:
+
+```text
+blocks/
+chainstate/
+indexes/
+wallets/default/
+peers.dat
+```
+
+Existing pre-Stage-31 flat data is migrated before wallet inspection. Migration
+never overwrites an existing destination. If duplicate legacy/new copies exist,
+the GUI stops with an explicit error and leaves both untouched.
+
 ## Wallet startup
 
 A newly created desktop wallet requires a password and uses the existing encrypted `wallet.dat` implementation. Existing legacy unencrypted development wallets may still be opened with an empty password.
 
-When no `wallet.dat` exists, the startup UI offers **Create new wallet**, **Recover from 24 words**, or **Restore backup** from a complete `.qtmbackup`. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. After a successful recovery, orphaned metadata from a previously removed wallet is atomically replaced by an empty metadata store bound to the recovered wallet. Invalid word count, unknown words and checksum/order errors are reported separately.
+When no `wallets/default/wallet.dat` exists, the startup UI offers **Create new wallet**, **Recover from 24 words**, or **Restore backup** from a complete `.qtmbackup`. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. After a successful recovery, orphaned metadata from a previously removed wallet is atomically replaced by an empty metadata store bound to the recovered wallet. Invalid word count, unknown words and checksum/order errors are reported separately.
 
 The GUI never receives or stores private keys directly. Receive-address generation, signing, transaction creation, balances, history, recovery derivation, mining and metadata all go through existing core/runtime APIs. Password and mnemonic handoff strings are best-effort erased after use.
 
@@ -123,3 +137,12 @@ The desktop shell now follows the proven Bitcoin Core window structure more clos
 - first-run **Welcome to QUINTUM Core** data-directory chooser with default/custom locations persisted per network.
 
 This is presentation and operator UX only. Consensus, Genesis, network magic, ports, address encoding, wallet formats and chain data remain unchanged.
+
+
+## Stage 31 — structured data directory
+
+The directory split is an operational/storage change only. Genesis, consensus,
+PoW, difficulty, emission, network magic, ports, addresses, block serialization
+and wallet cryptography are unchanged. The low-level legacy storage constructors
+remain available for regression compatibility, while normal NetworkRuntime and
+desktop startup use the structured layout.

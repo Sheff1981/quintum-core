@@ -45,3 +45,13 @@ Freeze consensus/network specification, generate and independently verify genesi
 
 
 **Stage 30 desktop parity in progress:** Bitcoin Core-style desktop menus, wallet navigation, debug-window structure and first-run data-directory selection are implemented on top of the existing QUINTUM runtime APIs. Unsupported Bitcoin-only GUI functions are not faked. Consensus/network identity remains unchanged.
+
+
+**Stage 31 data-directory architecture implemented:** normal node/desktop
+runtime now separates block storage, chainstate and the default wallet into
+`blocks/`, `chainstate/` and `wallets/default/`, keeps `peers.dat` at the
+network root, and reserves `indexes/` for real future indexes. Legacy flat
+blockchain/wallet files are migrated by non-overwriting rename; duplicate
+source/destination files fail closed. Walletless public seeds neither create
+nor migrate wallet material. Consensus and all existing blockchain/wallet file
+formats remain unchanged.

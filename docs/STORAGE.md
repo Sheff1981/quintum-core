@@ -1,34 +1,64 @@
 # QUINTUM persistent blockchain storage
 
-Stage 13 introduces restart-safe durable blockchain state without changing any
+Stage 13 introduced restart-safe durable blockchain state without changing any
 consensus parameter, Genesis constant, transaction format, block format, address
-rule, monetary rule, network magic, or port.
+rule, monetary rule, network magic, or port. Stage 31 gives that state a
+Bitcoin-Core-style component layout without changing any on-disk record format.
 
-## Files
+## Current data-directory layout
 
-Each network data directory contains:
+Each network has its own root directory:
 
-- `blocks.dat` — append-only framed block records.
-- `chainstate.dat` — checksummed chainstate snapshot replaced atomically.
-- `chainstate.dat.tmp` — temporary file used only while committing a new
-  snapshot. It is not authoritative.
+```text
+<network>/
+├─ blocks/
+│  └─ blocks.dat
+├─ chainstate/
+│  ├─ chainstate.dat
+│  └─ chainstate.dat.tmp        # only during an atomic commit
+├─ indexes/                     # reserved for real optional indexes
+├─ wallets/
+│  └─ default/
+│     ├─ wallet.dat
+│     ├─ wallet_state.dat
+│     └─ wallet_meta.dat
+└─ peers.dat
+```
+
+`blocks/blocks.dat` remains the existing append-only framed block store.
+`chainstate/chainstate.dat` remains the existing checksummed snapshot.
+`peers.dat` stays at the network root. No placeholder `mempool.dat`,
+banlist or index database is created until the corresponding feature is real.
+
+## Legacy flat-layout migration
+
+Stage 31 recognizes the earlier flat layout and moves known files into the
+component directories before normal node/wallet startup. Migration uses
+same-filesystem rename, never overwrites an existing destination and does not
+rewrite file contents. If both a legacy source and a new destination exist,
+startup fails closed with a conflict instead of guessing which copy is
+authoritative. A retry after an interrupted partial migration is safe because
+already-moved files are simply left in their destination.
+
+A `--network-only` seed creates blockchain/index directories but does not
+create `wallets/` and does not move or inspect legacy wallet material.
 
 ## Commit protocol
 
 A persistent state transition is staged in memory first.
 
 1. Validate the block or disconnect operation against a copy of Chainstate.
-2. Verify the already committed prefix of `blocks.dat`.
+2. Verify the already committed prefix of `blocks/blocks.dat`.
 3. Remove any uncommitted crash tail after the last committed block record.
 4. Append and flush new block records.
 5. Serialize block-index metadata, active-chain metadata, UTXO set and undo data.
 6. Append a double-SHA-256 checksum.
 7. Flush the temporary snapshot.
-8. Atomically replace `chainstate.dat`.
+8. Atomically replace `chainstate/chainstate.dat`.
 9. Publish the staged in-memory Chainstate only after durable commit succeeds.
 
 If the process stops after step 4 but before step 8, the extra block-log bytes
-are not committed because the previous `chainstate.dat` still contains the
+are not committed because the previous `chainstate/chainstate.dat` still contains the
 older committed block count. Startup ignores that tail; the next commit trims it
 before appending new records.
 
@@ -38,7 +68,7 @@ On Windows the snapshot replacement uses `MoveFileExW` with
 
 ## Integrity
 
-`chainstate.dat` stores and checks:
+`chainstate/chainstate.dat` stores and checks:
 
 - storage-format version;
 - QUINTUM network identity;
@@ -50,7 +80,7 @@ On Windows the snapshot replacement uses `MoveFileExW` with
 - complete UTXO set;
 - whole-file double-SHA-256 checksum.
 
-Each `blocks.dat` record has its own double-SHA-256 checksum.
+Each `blocks/blocks.dat` record has its own double-SHA-256 checksum.
 
 A snapshot for a different QUINTUM network is rejected before state is loaded.
 
@@ -94,7 +124,7 @@ The storage test suite covers:
 - rejection of wrong-network data;
 - rejection of corrupted snapshot checksum;
 - rejection of a truncated committed block record;
-- safe ignoring of an uncommitted `blocks.dat` crash tail.
+- safe ignoring of an uncommitted `blocks/blocks.dat` crash tail.
 
 This is the first durable storage layer. Future optimization can move large
 chainstate/index tables to a key-value database without changing consensus or

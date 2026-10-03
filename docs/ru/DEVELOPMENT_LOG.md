@@ -3379,3 +3379,70 @@ Consensus, Genesis, network magic, порты, PoW, difficulty, эмиссия, 
 
 
 **Этап 30 — Bitcoin Core-style desktop UX:** добавлены верхние меню File / Settings / Window / Help, горизонтальная навигация Overview / Send / Receive / Transactions + собственный Mining, Debug window с вкладками Information / Console / Network Traffic / Peers и выбор каталога данных при первом запуске. Неподдерживаемые RPC/traffic-функции не имитируются. Consensus/genesis/network magic/порты/адреса не менялись.
+
+
+---
+
+## 2026-10-03 — Этап 31. Structured data directory + safe legacy migration
+
+### Реализовано
+
+1. **Компонентная структура данных**
+   - blockchain blocks: `blocks/blocks.dat`;
+   - chainstate: `chainstate/chainstate.dat`;
+   - default wallet: `wallets/default/{wallet.dat,wallet_state.dat,wallet_meta.dat}`;
+   - `peers.dat` остаётся в корне network datadir;
+   - `indexes/` зарезервирован только под реальные будущие индексы; фиктивные базы/файлы не создаются.
+
+2. **Совместимость со старой flat-layout**
+   - старые `blocks.dat`, `chainstate.dat`, `wallet*.dat` распознаются автоматически;
+   - перенос выполняется same-filesystem rename без изменения байтов/форматов;
+   - существующий destination никогда не перезаписывается;
+   - если одновременно существуют legacy и new copies, startup останавливается с conflict и оставляет оба файла нетронутыми;
+   - частично завершённая миграция безопасно продолжается на следующем startup.
+
+3. **Walletless seed isolation**
+   - `--network-only` создаёт только blockchain/index layout;
+   - `wallets/` не создаётся;
+   - legacy wallet-файлы на seed не перемещаются и не инспектируются.
+
+4. **Runtime/desktop integration**
+   - обычный `NetworkRuntime` использует новую структуру;
+   - backup restore готовит wallet layout до восстановления;
+   - Qt проверяет новый путь wallet до Create/Recover/Open;
+   - duplicate conflict показывается пользователю вместо риска silent overwrite;
+   - низкоуровневые legacy constructors сохранены для regression/backward-compatibility тестов.
+
+### Найденный regression и исправление
+
+Первый Stage 31 CI корректно поймал старое допущение теста Stage 27: recovery test удалял flat `target_dir/wallet.dat`. Сам wallet/runtime уже работал по новой структуре; тест обновлён на `DataDirectoryLayout::wallet_file()`. После исправления полный набор снова зелёный.
+
+### QA
+
+Кодовый commit: `2f53fef00bbe74cf4acf8819bc1ad626fb8f4000`.
+
+- Linux core: **28/28 passed**;
+- Windows core: **28/28 passed**;
+- Linux Testnet network-only smoke: **success**;
+- explicit two-process P2P bootstrap smoke: **success**;
+- hardened Docker seed build/smoke: **success**;
+- Linux seed package: **success**;
+- GUI Linux/Windows: **success**;
+- Windows portable deployment: **success**;
+- Windows installer build: **success**;
+- install/update/uninstall/user-data preservation: **success**.
+
+### Compatibility
+
+Не изменены:
+- Genesis;
+- consensus transaction/block rules;
+- UTXO;
+- PoW/difficulty;
+- subsidy/halving/emission;
+- network magic и P2P ports;
+- address encoding;
+- block/chainstate record formats;
+- encrypted wallet.dat format и derivation.
+
+Изменилось только физическое размещение существующих файлов с fail-closed миграцией.
