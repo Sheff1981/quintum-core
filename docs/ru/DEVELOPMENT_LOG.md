@@ -3048,3 +3048,115 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 27 — Qt desktop operational completion:** recovery phrase UX, richer sync status, address-book editing, mining/status controls, settings и desktop error handling перед Windows packaging/installer.
+
+
+---
+
+## 2026-10-03 — Этап 27. Operational Qt desktop wallet
+
+### Цель
+
+Закрыть базовый пользовательский цикл desktop-wallet до Windows packaging: recovery 24 words, реальный sync-status, address book, PoW mining/status, Settings и нормальные сообщения ошибок. Consensus не переносить в GUI.
+
+### Реализовано
+
+1. **Create / Recover при первом запуске**
+   - если `wallet.dat` отсутствует, пользователь выбирает Create или Recover;
+   - новый wallet требует password + повтор password;
+   - Recover принимает 24 слова + новый password;
+   - `NetworkRuntimeConfig` получил recovery mnemonic/gap input;
+   - recovery выполняется внутри `NetworkRuntime::start()` поверх реального NodeRuntime/Chainstate/Mempool;
+   - используется существующий Stage 23 gap-aware BIP32 recovery;
+   - существующий `wallet.dat` никогда не перезаписывается;
+   - wrong word count / unknown word / checksum-order errors отображаются отдельно.
+
+2. **Recovery secret handling**
+   - mnemonic не попадает в обычный runtime status;
+   - config mnemonic и password best-effort стираются после handoff;
+   - desktop setup copies best-effort стираются после move;
+   - показанные recovery words best-effort стираются из desktop string после закрытия окна;
+   - private keys в Qt не передаются.
+
+3. **Synchronization status**
+   - runtime отслеживает `peer_best_height`;
+   - высота берётся из version handshake и обновляется при принятых blocks/sync;
+   - status содержит `synchronizing` и `sync_progress`;
+   - GUI показывает local height, peer target и progress;
+   - без peer target UI показывает Waiting for peers + 0%, а не ложные 100%.
+
+4. **Address Book**
+   - отдельная desktop page;
+   - add/update/delete;
+   - используется существующий `wallet_meta.dat`;
+   - canonical address/network validation остаётся в Wallet.
+
+5. **Real desktop mining**
+   - добавлен `NetworkRuntime::mine_wallet_block()`;
+   - payout script строится из wallet-owned address;
+   - GUI запускает bounded real PoW batches;
+   - hash rate вычисляется по фактическому `MiningResult::attempts`;
+   - найденный block проходит обычный NodeRuntime/Chainstate/storage path;
+   - wallet resync выполняется после accepted block;
+   - valid block объявляется peers через существующий P2P relay;
+   - GUI показывает status / H/s / attempts / blocks found.
+
+6. **Settings**
+   - network;
+   - default P2P port;
+   - active listen port;
+   - recommended fee rate;
+   - Show 24 recovery words;
+   - Backup wallet.dat;
+   - UI явно предупреждает, что текущий single-file backup пока не включает `wallet_meta.dat`.
+
+7. **Human-readable errors**
+   - send quote errors;
+   - stale/modified Preview;
+   - node rejection;
+   - wallet sync failure;
+   - recovery validation;
+   - metadata/address-book errors;
+   - mining/template/storage errors.
+
+### Новый regression suite
+
+Добавлен 25-й suite `stage27_desktop_operations`:
+
+- runtime mnemonic recovery;
+- recovered mnemonic identity;
+- recovery никогда не overwrites существующий `wallet.dat`;
+- исходный wallet после неудачной overwrite-попытки всё ещё открывается;
+- real two-node P2P synchronization;
+- peer best height отражает реальную remote chain;
+- sync status становится up-to-date после block sync;
+- real wallet-directed PoW mining;
+- mined block увеличивает height;
+- coinbase попадает в immature wallet balance.
+
+### Compatibility
+
+Этап 27 не меняет:
+
+- Genesis;
+- transaction/block consensus;
+- UTXO rules;
+- PoW algorithm;
+- difficulty rules;
+- monetary policy / subsidy / halving;
+- network magic;
+- ports;
+- blockchain storage format;
+- `wallet.dat` format;
+- `wallet_meta.dat` format.
+
+### QA до документационного commit
+
+На кодовом SHA Stage 27:
+
+- Linux core: **25/25 tests passed**;
+- Linux Qt build + live GUI/runtime smoke: success;
+- Windows core/Qt проходят тем же CI matrix (финальный exact-SHA результат фиксируется после документационного commit).
+
+### Следующий этап
+
+**Этап 28 — wallet release hardening:** encrypted `wallet_meta.dat`, полный backup/restore bundle, Windows ACL hardening и shutdown/restart soak перед созданием пользовательского Windows installer.

@@ -2,7 +2,7 @@
 
 Status: **pre-alpha**
 
-Stage 26 introduces the first Qt 6 Widgets desktop shell. The GUI is deliberately a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy or P2P rules itself.
+Stage 26 introduced the first Qt 6 Widgets desktop shell. Stage 27 makes it operational. The GUI remains a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy, recovery derivation, mining validation or P2P rules itself.
 
 ## Build
 
@@ -36,13 +36,15 @@ Without `--datadir`, Qt's application-data directory is used with a separate sub
 
 A newly created desktop wallet requires a password and uses the existing encrypted `wallet.dat` implementation. Existing legacy unencrypted development wallets may still be opened with an empty password.
 
-The GUI never receives or stores private keys directly. Receive-address generation, signing, transaction creation, balances, history and metadata all go through the existing wallet/runtime APIs.
+When no `wallet.dat` exists, the startup UI offers **Create new wallet** or **Recover from 24 words**. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. Invalid word count, unknown words and checksum/order errors are reported separately.
+
+The GUI never receives or stores private keys directly. Receive-address generation, signing, transaction creation, balances, history, recovery derivation, mining and metadata all go through existing core/runtime APIs. Password and mnemonic handoff strings are best-effort erased after use.
 
 ## Pages
 
 ### Overview
 
-Shows available, confirmed, pending and immature balances plus local block height, peer count and mempool size. The view refreshes from `desktop_snapshot()` once per second.
+Shows available, confirmed, pending and immature balances plus local block height, peer best height, peer count, mempool size and synchronization progress. With no peer target the UI shows **Waiting for peers** rather than a false 100%; once connected, progress is derived from the local height versus the best height reported/observed from live peers. The view refreshes from `desktop_snapshot()` once per second.
 
 ### Send
 
@@ -56,19 +58,38 @@ Shows the current receive address, supports clipboard copy, and requests a new a
 
 Shows status, txid, received/spent values, fee, confirmations and persistent user labels.
 
+### Address Book
+
+Lists persistent address labels from `wallet_meta.dat`. Entries can be added, updated and removed. Address/network validation remains in wallet core.
+
+### Mining
+
+The desktop mining control calls `NetworkRuntime::mine_wallet_block()` in bounded PoW batches. Payout is constructed from a wallet-owned receive key. The displayed hash rate is measured from real attempted hashes. A found block must pass normal local chain validation/storage before it counts and is then announced through the existing P2P block relay path.
+
+The current desktop miner is intentionally simple and single-process; it is a correctness/reference miner, not yet an optimized multi-threaded production miner.
+
+### Settings
+
+Shows network, P2P/listen ports and recommended fee rate. It also exposes:
+
+- **Show 24 recovery words** with an explicit secret warning;
+- **Backup wallet.dat** for spend-key backup.
+
+The current single-file backup does **not** include `wallet_meta.dat`; the UI states this explicitly. Stage 28 will replace this limitation with a complete backup bundle.
+
 ## CI smoke mode
 
 `--smoke-test` is for CI/development only. It creates a disposable encrypted Regtest wallet in a temporary directory, starts a real node runtime and MainWindow, then exits automatically. CI runs this mode headlessly on Linux and Windows.
 
 ## Not finished yet
 
-Stage 26 is the first functional shell, not the release UI. Before Windows distribution the desktop layer still needs:
+Stage 27 completes the functional desktop loop, but this is still pre-alpha. Before Windows distribution/release:
 
-- 24-word recovery display/import workflow;
-- richer synchronization progress/state;
-- address-book editing UI;
-- mining/status controls;
-- settings;
-- improved user-facing error mapping;
-- Qt runtime deployment and Windows installer;
-- release signing/update policy.
+- encrypt privacy-sensitive `wallet_meta.dat` at rest;
+- create one complete backup/restore bundle covering keys plus user metadata;
+- finish explicit Windows wallet/metadata ACL hardening;
+- strengthen clean-shutdown/restart and desktop soak tests;
+- deploy Qt runtime files with the Windows package;
+- build the Windows installer with safe upgrades and preserved user data;
+- define release signing/update policy;
+- later replace the reference desktop miner with optimized mining infrastructure only if needed.

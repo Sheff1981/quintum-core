@@ -40,12 +40,14 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M13 — Qt 6 desktop wallet shell (Stage 26):** QUINTUM now has its first real desktop application target, built with Qt 6 Widgets on top of the existing `NetworkRuntime` API.
+**M14 — Operational Qt desktop wallet (Stage 27):** the desktop application now covers the first complete day-to-day wallet loop without moving security-sensitive logic into Qt.
 
-The GUI provides **Overview, Send, Receive and Transactions** pages. It shows confirmed/available/pending/immature balances, current block height, peers and mempool state; creates and copies receive addresses; displays persistent labeled transaction history; and sends through the guarded Stage 25 Preview -> Confirm path with automatic fees.
+On first launch the user can either create a new encrypted wallet or recover one from the existing QUINTUM **24-word recovery phrase**. Recovery is performed by `NetworkRuntime` against the real chain before normal wallet startup, preserves the existing BIP32 derivation, rescans with the Stage 23 gap policy, and refuses to overwrite an existing `wallet.dat`.
 
-The desktop executable is `QUINTUM` (`QUINTUM.exe` on Windows). New GUI wallets require a password and are created through the existing encrypted wallet path. Pre-alpha builds default to **regtest** unless `--testnet` or `--mainnet` is explicitly selected.
+The GUI now includes **Overview, Send, Receive, Transactions, Address Book, Mining and Settings**. Overview shows local height, peer best height and synchronization progress. Address-book edits persist through `wallet_meta.dat`. Mining performs real PoW through the node runtime, pays coinbase to a wallet-owned key, reports measured hash attempts/rate, submits valid blocks locally and relays them to peers.
 
-Qt remains an optional build dependency: `quintum_core` and `quintumd` build without Qt. A dedicated GUI CI installs pinned Qt 6.8.0 and builds the desktop target on Linux and Windows. Its smoke mode starts a real regtest node, encrypted wallet and `MainWindow` in a temporary data directory, then shuts them down cleanly.
+Recovery words can be revealed only through an explicit warning flow and temporary desktop copies are best-effort erased after use. Send/recovery/mining errors are mapped to user-facing messages instead of generic failures.
 
-Next: Stage 27 — finish the operational desktop wallet: recovery phrase UX, richer sync status, address-book editing, mining/status controls and settings before Windows packaging.
+Stage 27 adds a 25th regression suite covering runtime mnemonic recovery, non-overwrite safety, real two-node peer-height synchronization and wallet-directed mining.
+
+Next: **Stage 28 — wallet release hardening:** encrypt privacy-sensitive metadata, create a complete backup bundle, finish Windows file ACL handling, and harden shutdown/restart behavior before Windows packaging/installer.
