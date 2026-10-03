@@ -184,7 +184,8 @@ NodeMineResult NodeRuntime::mine_mempool_block(
 NodeMineResult NodeRuntime::mine_mempool_block_at(
     const Bytes& payout_script,
     std::uint64_t adjusted_time,
-    std::uint64_t max_attempts)
+    std::uint64_t max_attempts,
+    std::uint64_t start_nonce)
 {
     if (!started_) {
         NodeMineResult out;
@@ -253,7 +254,8 @@ NodeMineResult NodeRuntime::mine_mempool_block_at(
         std::span<const Transaction>(
             transactions.data(),
             best
-        )
+        ),
+        start_nonce
     );
 }
 
@@ -274,7 +276,8 @@ NodeMineResult NodeRuntime::mine_block_at(
     const Bytes& payout_script,
     std::uint64_t adjusted_time,
     std::uint64_t max_attempts,
-    std::span<const Transaction> transactions)
+    std::span<const Transaction> transactions,
+    std::uint64_t start_nonce)
 {
     NodeMineResult out;
 
@@ -300,6 +303,7 @@ NodeMineResult NodeRuntime::mine_block_at(
     out.block = std::move(block_template.value.block);
     out.height = block_template.value.height;
     out.total_fees = block_template.value.total_fees;
+    out.block.header.nonce = start_nonce;
 
     out.mining =
         consensus::mine_header(
