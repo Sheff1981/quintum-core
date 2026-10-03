@@ -66,3 +66,17 @@ Mining requires a valid compressed secp256k1 public key. Private keys are never 
 ## Scope
 
 Stage 14 deliberately does not introduce a wallet, mempool or P2P networking. Those layers must use the same consensus and persistent-node path rather than creating alternative block acceptance logic.
+
+
+## Live persistence/relay verification — 2026-10-03
+
+The persistent runtime was verified on the first public Testnet VPS.
+
+A Windows peer mined two valid Testnet blocks and relayed them over the public P2P connection. The VPS accepted them through the normal runtime path. After the service was stopped and the same datadir was reopened, `quintumd` reported:
+
+- network: `testnet`;
+- height: `2`;
+- the persisted active tip hash;
+- clean shutdown at height 2.
+
+This is an external end-to-end confirmation that remote P2P block acceptance reaches the same durable `PersistentChainstate` used after restart.
