@@ -1,6 +1,7 @@
 #include "crypto/random.hpp"
 #include "crypto/secp256k1.hpp"
 #include "node/node.hpp"
+#include "net/runtime.hpp"
 #include "wallet/wallet.hpp"
 #include "wallet/mnemonic.hpp"
 #include "wallet/secure.hpp"
@@ -403,6 +404,56 @@ void test_mnemonic_recovery_discovers_gap_and_persists()
     );
 }
 
+void test_runtime_exposes_mnemonic_only_explicitly()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("runtime-mnemonic");
+
+    NetworkRuntime runtime{
+        consensus::regtest_params(),
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.accept_poll_ms = 10U;
+    config.wallet_passphrase =
+        "stage23-runtime-password";
+
+    const auto started =
+        runtime.start(
+            std::move(config)
+        );
+
+    assert(started.ok());
+
+    const auto phrase =
+        runtime.wallet_recovery_mnemonic();
+
+    assert(phrase.has_value());
+
+    const auto decoded =
+        decode_recovery_mnemonic(
+            *phrase
+        );
+
+    assert(decoded.ok());
+
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 void test_recovery_sync_failure_does_not_commit_wallet()
 {
     using namespace quintum;
@@ -547,6 +598,7 @@ int main()
     test_mnemonic_roundtrip_preserves_quintum_keys();
     test_mnemonic_validation_rejects_bad_input();
     test_mnemonic_recovery_discovers_gap_and_persists();
+    test_runtime_exposes_mnemonic_only_explicitly();
     test_recovery_sync_failure_does_not_commit_wallet();
     test_invalid_mnemonic_never_creates_wallet();
     return 0;
