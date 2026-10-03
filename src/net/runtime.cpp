@@ -315,6 +315,10 @@ NetworkRuntimeStatus NetworkRuntime::status() const
         node_.mempool().size();
     out.wallet_balance =
         wallet_.balance();
+    out.recommended_fee_rate_per_kb =
+        wallet::recommended_fee_rate(
+            node_.mempool()
+        );
 
     const auto wallet_addresses =
         wallet_.addresses();
@@ -325,6 +329,13 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     }
 
     return out;
+}
+
+std::vector<wallet::WalletTransactionRecord>
+NetworkRuntime::wallet_history() const
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.history();
 }
 
 NodeTransactionResult
