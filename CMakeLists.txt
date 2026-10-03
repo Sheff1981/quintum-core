@@ -101,6 +101,7 @@ add_library(quintum_core STATIC
     src/net/runtime.cpp
     src/wallet/address.cpp
     src/wallet/mnemonic.cpp
+    src/wallet/metadata.cpp
     src/wallet/secure.cpp
     src/wallet/fee_policy.cpp
     src/wallet/index.cpp
