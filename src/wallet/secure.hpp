@@ -2,6 +2,7 @@
 
 #include "consensus/chainparams.hpp"
 #include "core/types.hpp"
+#include "core/serialize.hpp"
 #include "crypto/secp256k1.hpp"
 
 #include <array>
