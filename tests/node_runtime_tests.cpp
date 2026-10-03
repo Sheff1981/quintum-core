@@ -78,6 +78,22 @@ int main()
         assert(std::filesystem::exists(node.store().blocks_path()));
         assert(std::filesystem::exists(node.store().state_path()));
 
+        const auto nonce_probe =
+            node.mine_block_at(
+                payout,
+                base_time + 1U,
+                0U,
+                {},
+                12'345U
+            );
+
+        assert(!nonce_probe.ok());
+        assert(nonce_probe.error ==
+               NodeMineError::proof_of_work_exhausted);
+        assert(nonce_probe.block.header.nonce ==
+               12'345U);
+        assert(*node.chain().height() == 0U);
+
         const auto first =
             node.mine_block_at(
                 payout,
