@@ -528,6 +528,197 @@ Wallet::new_receive_address()
     return reserve_key(false);
 }
 
+WalletStoreError Wallet::encrypt_wallet(
+    std::string_view passphrase)
+{
+    if (!started_) {
+        return WalletStoreError::io_error;
+    }
+
+    if (encrypted_) {
+        return WalletStoreError::none;
+    }
+
+    if (passphrase.empty()) {
+        return WalletStoreError::
+            invalid_passphrase;
+    }
+
+    WalletSalt salt{};
+    RecoverySeed seed{};
+    WalletEncryptionKey key{};
+
+    SecretArrayGuard salt_guard{&salt};
+    SecretArrayGuard seed_guard{&seed};
+    SecretArrayGuard key_guard{&key};
+
+    if (!crypto::secure_random_bytes(salt) ||
+        !crypto::secure_random_bytes(seed)) {
+        return WalletStoreError::crypto_error;
+    }
+
+    if (!derive_wallet_encryption_key(
+            passphrase,
+            salt,
+            kWalletArgon2MemoryBlocks,
+            kWalletArgon2Passes,
+            key)) {
+        return WalletStoreError::crypto_error;
+    }
+
+    encrypted_ = true;
+    recovery_seed_ = seed;
+    encryption_key_ = key;
+    encryption_salt_ = salt;
+    argon2_memory_blocks_ =
+        kWalletArgon2MemoryBlocks;
+    argon2_passes_ =
+        kWalletArgon2Passes;
+
+    const auto result =
+        save_keys(keys_);
+
+    if (result != WalletStoreError::none) {
+        encrypted_ = false;
+        crypto::secure_erase(
+            encryption_key_);
+        crypto::secure_erase(
+            encryption_salt_);
+
+        if (recovery_seed_) {
+            crypto::secure_erase(
+                *recovery_seed_);
+            recovery_seed_.reset();
+        }
+    }
+
+    return result;
+}
+
+WalletStoreError Wallet::recover_from_seed(
+    const RecoverySeed& seed,
+    std::string_view passphrase)
+{
+    if (started_) {
+        return WalletStoreError::target_exists;
+    }
+
+    if (passphrase.empty()) {
+        return WalletStoreError::
+            invalid_passphrase;
+    }
+
+    const bool seed_is_nonzero =
+        std::any_of(
+            seed.begin(),
+            seed.end(),
+            [](Byte value) {
+                return value != 0U;
+            }
+        );
+
+    if (!seed_is_nonzero) {
+        return WalletStoreError::crypto_error;
+    }
+
+    std::error_code ec;
+    if (std::filesystem::exists(
+            path_,
+            ec)) {
+        return ec
+            ? WalletStoreError::io_error
+            : WalletStoreError::target_exists;
+    }
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
+    WalletSalt salt{};
+    WalletEncryptionKey key{};
+
+    SecretArrayGuard salt_guard{&salt};
+    SecretArrayGuard key_guard{&key};
+
+    if (!crypto::secure_random_bytes(salt) ||
+        !derive_wallet_encryption_key(
+            passphrase,
+            salt,
+            kWalletArgon2MemoryBlocks,
+            kWalletArgon2Passes,
+            key)) {
+        return WalletStoreError::crypto_error;
+    }
+
+    encrypted_ = true;
+    recovery_seed_ = seed;
+    encryption_key_ = key;
+    encryption_salt_ = salt;
+    argon2_memory_blocks_ =
+        kWalletArgon2MemoryBlocks;
+    argon2_passes_ =
+        kWalletArgon2Passes;
+
+    std::vector<KeyRecord> initial;
+
+    if (!generate_pool_records(
+            initial,
+            false,
+            kWalletKeypoolSize + 1U) ||
+        !generate_pool_records(
+            initial,
+            true,
+            kWalletKeypoolSize)) {
+        encrypted_ = false;
+        crypto::secure_erase(
+            encryption_key_);
+        crypto::secure_erase(
+            encryption_salt_);
+        crypto::secure_erase(
+            *recovery_seed_);
+        recovery_seed_.reset();
+        return WalletStoreError::crypto_error;
+    }
+
+    initial.front().used = true;
+
+    const auto result =
+        save_keys(initial);
+
+    if (result != WalletStoreError::none) {
+        encrypted_ = false;
+        crypto::secure_erase(
+            encryption_key_);
+        crypto::secure_erase(
+            encryption_salt_);
+        crypto::secure_erase(
+            *recovery_seed_);
+        recovery_seed_.reset();
+        return result;
+    }
+
+    keys_ = std::move(initial);
+    started_ = true;
+    return WalletStoreError::none;
+}
+
+bool Wallet::encrypted() const noexcept
+{
+    return encrypted_;
+}
+
+std::optional<RecoverySeed>
+Wallet::recovery_seed() const noexcept
+{
+    if (!started_ ||
+        !encrypted_ ||
+        !recovery_seed_) {
+        return std::nullopt;
+    }
+
+    return recovery_seed_;
+}
+
 WalletKeyResult Wallet::import_private_key(
     const crypto::PrivateKey& private_key)
 {
@@ -2520,6 +2711,98 @@ bool Wallet::generate_pool_records(
     records.reserve(
         original_size + count
     );
+
+    if (encrypted_ && recovery_seed_) {
+        std::uint32_t next_index{0U};
+
+        for (const auto& record : records) {
+            if (!record.deterministic ||
+                record.internal != internal) {
+                continue;
+            }
+
+            if (record.hd_index ==
+                std::numeric_limits<
+                    std::uint32_t>::max()) {
+                return false;
+            }
+
+            next_index =
+                std::max(
+                    next_index,
+                    record.hd_index + 1U
+                );
+        }
+
+        while (records.size() <
+               original_size + count) {
+            auto private_key =
+                derive_hd_private_key(
+                    *recovery_seed_,
+                    params_.network,
+                    internal,
+                    next_index
+                );
+
+            if (!private_key) {
+                return false;
+            }
+
+            const auto public_key =
+                crypto::derive_public_key(
+                    *private_key
+                );
+
+            if (!public_key) {
+                crypto::secure_erase(
+                    *private_key
+                );
+                return false;
+            }
+
+            const bool duplicate =
+                std::any_of(
+                    records.begin(),
+                    records.end(),
+                    [&](const KeyRecord& key) {
+                        return key.public_key ==
+                               *public_key;
+                    }
+                );
+
+            if (duplicate) {
+                crypto::secure_erase(
+                    *private_key
+                );
+                return false;
+            }
+
+            records.emplace_back(
+                *private_key,
+                *public_key,
+                internal,
+                false,
+                true,
+                next_index
+            );
+
+            crypto::secure_erase(
+                *private_key
+            );
+
+            if (records.size() <
+                    original_size + count &&
+                next_index ==
+                    std::numeric_limits<
+                        std::uint32_t>::max()) {
+                return false;
+            }
+
+            ++next_index;
+        }
+
+        return true;
+    }
 
     while (records.size() <
            original_size + count) {
