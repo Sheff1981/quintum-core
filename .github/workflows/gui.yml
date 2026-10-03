@@ -39,6 +39,18 @@ jobs:
       - name: Build GUI
         run: cmake --build build-gui --config Release --target quintum_qt
 
+      - name: Smoke GUI binary
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:QT_ROOT\bin;$env:PATH"
+          & ".\build-gui\Release\QUINTUM.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke GUI binary
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build-gui/QUINTUM --version
+
   gui-windows:
     runs-on: windows-latest
 
