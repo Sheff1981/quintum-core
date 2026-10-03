@@ -27,11 +27,22 @@
 namespace quintum::wallet {
 namespace {
 
-constexpr std::array<Byte, 8> kMetadataMagic{
+constexpr std::array<Byte, 8> kMetadataMagicV1{
     'Q', 'W', 'M', 'E', 'T', 'A', '0', '1'
 };
-constexpr std::uint32_t kMetadataVersion{1U};
+constexpr std::array<Byte, 8> kMetadataMagicV2{
+    'Q', 'W', 'M', 'E', 'T', 'A', '0', '2'
+};
+constexpr std::uint32_t kMetadataVersionV1{1U};
+constexpr std::uint32_t kMetadataVersionV2{2U};
 constexpr std::size_t kChecksumSize{32U};
+constexpr std::size_t kMetadataV2HeaderSize{
+    kMetadataMagicV2.size() +
+    sizeof(std::uint32_t) +
+    4U +
+    Hash256{}.size() +
+    WalletNonce{}.size()
+};
 constexpr std::uintmax_t kMaxMetadataFileSize{
     8U * 1024U * 1024U
 };
@@ -377,6 +388,182 @@ bool read_exact(
     return true;
 }
 
+struct MetadataPlaintextGuard {
+    Bytes* bytes{nullptr};
+
+    ~MetadataPlaintextGuard()
+    {
+        if (bytes != nullptr) {
+            crypto::secure_erase(*bytes);
+        }
+    }
+};
+
+void append_metadata_payload(
+    Bytes& bytes,
+    const std::map<std::string, std::string>& address_labels,
+    const std::map<Hash256, std::string>& transaction_labels)
+{
+    append_compact_size(
+        bytes,
+        static_cast<std::uint64_t>(
+            address_labels.size()
+        )
+    );
+
+    for (const auto& [address, label] :
+         address_labels) {
+        append_string(bytes, address);
+        append_string(bytes, label);
+    }
+
+    append_compact_size(
+        bytes,
+        static_cast<std::uint64_t>(
+            transaction_labels.size()
+        )
+    );
+
+    for (const auto& [txid, label] :
+         transaction_labels) {
+        bytes.insert(
+            bytes.end(),
+            txid.begin(),
+            txid.end()
+        );
+        append_string(bytes, label);
+    }
+}
+
+bool parse_metadata_payload(
+    std::span<const Byte> payload,
+    const consensus::ChainParams& params,
+    std::map<std::string, std::string>& addresses,
+    std::map<Hash256, std::string>& transactions)
+{
+    std::size_t offset{0U};
+
+    const auto address_count =
+        read_compact_size(
+            payload,
+            offset
+        );
+
+    if (!address_count ||
+        *address_count >
+            kMaxMetadataEntries) {
+        return false;
+    }
+
+    std::map<std::string, std::string>
+        loaded_addresses;
+
+    for (std::uint64_t i = 0U;
+         i < *address_count;
+         ++i) {
+        auto address =
+            read_string(
+                payload,
+                offset,
+                kMaxAddressBytes
+            );
+
+        auto label =
+            read_string(
+                payload,
+                offset,
+                kMaxLabelBytes
+            );
+
+        if (!address ||
+            !label ||
+            !valid_label(*label)) {
+            return false;
+        }
+
+        const auto decoded =
+            decode_address(
+                params.network,
+                *address
+            );
+
+        if (!decoded.ok()) {
+            return false;
+        }
+
+        const std::string canonical =
+            encode_address(
+                params.network,
+                decoded.public_key
+            );
+
+        if (!loaded_addresses
+                 .emplace(
+                     canonical,
+                     std::move(*label)
+                 )
+                 .second) {
+            return false;
+        }
+    }
+
+    const auto transaction_count =
+        read_compact_size(
+            payload,
+            offset
+        );
+
+    if (!transaction_count ||
+        *transaction_count >
+            kMaxMetadataEntries) {
+        return false;
+    }
+
+    std::map<Hash256, std::string>
+        loaded_transactions;
+
+    for (std::uint64_t i = 0U;
+         i < *transaction_count;
+         ++i) {
+        Hash256 txid{};
+
+        if (!read_exact(
+                payload,
+                offset,
+                txid)) {
+            return false;
+        }
+
+        auto label =
+            read_string(
+                payload,
+                offset,
+                kMaxLabelBytes
+            );
+
+        if (!label ||
+            !valid_label(*label) ||
+            !loaded_transactions
+                 .emplace(
+                     txid,
+                     std::move(*label)
+                 )
+                 .second) {
+            return false;
+        }
+    }
+
+    if (offset != payload.size()) {
+        return false;
+    }
+
+    addresses =
+        std::move(loaded_addresses);
+    transactions =
+        std::move(loaded_transactions);
+    return true;
+}
+
 } // namespace
 
 WalletMetadataError Wallet::load_metadata()
@@ -406,7 +593,156 @@ WalletMetadataError Wallet::load_metadata()
 
     if (!bytes ||
         bytes->size() <
-            kMetadataMagic.size() +
+            kMetadataMagicV1.size() +
+                sizeof(std::uint32_t)) {
+        return WalletMetadataError::corrupt;
+    }
+
+    std::array<Byte, 8> magic{};
+    std::copy_n(
+        bytes->begin(),
+        static_cast<std::ptrdiff_t>(
+            magic.size()),
+        magic.begin()
+    );
+
+    const auto wallet_owns_id =
+        [&](const Hash256& wallet_id) {
+            return std::any_of(
+                keys_.begin(),
+                keys_.end(),
+                [&](const KeyRecord& key) {
+                    return metadata_wallet_id(
+                               key.public_key) ==
+                           wallet_id;
+                }
+            );
+        };
+
+    if (magic == kMetadataMagicV2) {
+        if (!encrypted_ ||
+            bytes->size() <
+                kMetadataV2HeaderSize +
+                    WalletTag{}.size()) {
+            return WalletMetadataError::corrupt;
+        }
+
+        std::size_t offset{
+            kMetadataMagicV2.size()
+        };
+
+        const auto version =
+            read_little_endian<std::uint32_t>(
+                *bytes,
+                offset
+            );
+
+        if (!version ||
+            *version != kMetadataVersionV2) {
+            return WalletMetadataError::corrupt;
+        }
+
+        std::array<Byte, 4> message_start{};
+
+        if (!read_exact(
+                *bytes,
+                offset,
+                message_start)) {
+            return WalletMetadataError::corrupt;
+        }
+
+        if (message_start !=
+            params_.message_start) {
+            return WalletMetadataError::wrong_network;
+        }
+
+        Hash256 stored_wallet_id{};
+
+        if (!read_exact(
+                *bytes,
+                offset,
+                stored_wallet_id)) {
+            return WalletMetadataError::corrupt;
+        }
+
+        if (keys_.empty() ||
+            !wallet_owns_id(
+                stored_wallet_id)) {
+            return WalletMetadataError::wrong_wallet;
+        }
+
+        WalletNonce nonce{};
+
+        if (!read_exact(
+                *bytes,
+                offset,
+                nonce) ||
+            offset != kMetadataV2HeaderSize) {
+            return WalletMetadataError::corrupt;
+        }
+
+        const std::size_t tag_offset =
+            bytes->size() -
+            WalletTag{}.size();
+
+        if (tag_offset < offset) {
+            return WalletMetadataError::corrupt;
+        }
+
+        WalletTag tag{};
+        std::copy_n(
+            bytes->begin() +
+                static_cast<std::ptrdiff_t>(
+                    tag_offset),
+            static_cast<std::ptrdiff_t>(
+                tag.size()),
+            tag.begin()
+        );
+
+        const std::span<const Byte>
+            associated_data{
+                bytes->data(),
+                kMetadataV2HeaderSize
+            };
+
+        const std::span<const Byte>
+            ciphertext{
+                bytes->data() + offset,
+                tag_offset - offset
+            };
+
+        Bytes plaintext;
+        MetadataPlaintextGuard guard{
+            &plaintext
+        };
+
+        if (!decrypt_wallet_payload(
+                ciphertext,
+                associated_data,
+                encryption_key_,
+                nonce,
+                tag,
+                plaintext)) {
+            return WalletMetadataError::corrupt;
+        }
+
+        if (!parse_metadata_payload(
+                plaintext,
+                params_,
+                address_labels_,
+                transaction_labels_)) {
+            return WalletMetadataError::corrupt;
+        }
+
+        metadata_wallet_id_ =
+            stored_wallet_id;
+        metadata_wallet_id_valid_ = true;
+        return WalletMetadataError::none;
+    }
+
+    if (magic != kMetadataMagicV1 ||
+        bytes->size() <
+            kMetadataMagicV1.size() +
                 sizeof(std::uint32_t) +
                 params_.message_start.size() +
                 Hash256{}.size() +
@@ -426,50 +762,44 @@ WalletMetadataError Wallet::load_metadata()
             }
         );
 
-    Hash256 stored{};
+    Hash256 stored_checksum{};
     std::copy_n(
         bytes->begin() +
             static_cast<std::ptrdiff_t>(
                 payload_size),
         static_cast<std::ptrdiff_t>(
-            stored.size()),
-        stored.begin()
+            stored_checksum.size()),
+        stored_checksum.begin()
     );
 
-    if (expected != stored) {
+    if (expected != stored_checksum) {
         return WalletMetadataError::corrupt;
     }
 
-    const std::span<const Byte> payload{
+    const std::span<const Byte> legacy{
         bytes->data(),
         payload_size
     };
 
-    std::size_t offset{0U};
-
-    std::array<Byte, 8> magic{};
-    if (!read_exact(
-            payload,
-            offset,
-            magic) ||
-        magic != kMetadataMagic) {
-        return WalletMetadataError::corrupt;
-    }
+    std::size_t offset{
+        kMetadataMagicV1.size()
+    };
 
     const auto version =
         read_little_endian<std::uint32_t>(
-            payload,
+            legacy,
             offset
         );
 
     if (!version ||
-        *version != kMetadataVersion) {
+        *version != kMetadataVersionV1) {
         return WalletMetadataError::corrupt;
     }
 
     std::array<Byte, 4> message_start{};
+
     if (!read_exact(
-            payload,
+            legacy,
             offset,
             message_start)) {
         return WalletMetadataError::corrupt;
@@ -480,156 +810,43 @@ WalletMetadataError Wallet::load_metadata()
         return WalletMetadataError::wrong_network;
     }
 
-    if (keys_.empty()) {
-        return WalletMetadataError::corrupt;
-    }
-
     Hash256 stored_wallet_id{};
 
     if (!read_exact(
-            payload,
+            legacy,
             offset,
             stored_wallet_id)) {
         return WalletMetadataError::corrupt;
     }
 
-    const bool owns_anchor =
-        std::any_of(
-            keys_.begin(),
-            keys_.end(),
-            [&](const KeyRecord& key) {
-                return metadata_wallet_id(
-                           key.public_key) ==
-                       stored_wallet_id;
-            }
-        );
-
-    if (!owns_anchor) {
+    if (keys_.empty() ||
+        !wallet_owns_id(
+            stored_wallet_id)) {
         return WalletMetadataError::wrong_wallet;
+    }
+
+    if (!parse_metadata_payload(
+            legacy.subspan(offset),
+            params_,
+            address_labels_,
+            transaction_labels_)) {
+        return WalletMetadataError::corrupt;
     }
 
     metadata_wallet_id_ =
         stored_wallet_id;
     metadata_wallet_id_valid_ = true;
 
-    const auto address_count =
-        read_compact_size(
-            payload,
-            offset
-        );
+    // Encrypted wallets migrate legacy plaintext metadata immediately.
+    if (encrypted_) {
+        const auto migrated =
+            save_metadata();
 
-    if (!address_count ||
-        *address_count >
-            kMaxMetadataEntries) {
-        return WalletMetadataError::corrupt;
-    }
-
-    std::map<std::string, std::string>
-        loaded_addresses;
-
-    for (std::uint64_t i = 0U;
-         i < *address_count;
-         ++i) {
-        auto address =
-            read_string(
-                payload,
-                offset,
-                kMaxAddressBytes
-            );
-
-        auto label =
-            read_string(
-                payload,
-                offset,
-                kMaxLabelBytes
-            );
-
-        if (!address ||
-            !label ||
-            !valid_label(*label)) {
-            return WalletMetadataError::corrupt;
-        }
-
-        const auto decoded =
-            decode_address(
-                params_.network,
-                *address
-            );
-
-        if (!decoded.ok()) {
-            return WalletMetadataError::corrupt;
-        }
-
-        const std::string canonical =
-            encode_address(
-                params_.network,
-                decoded.public_key
-            );
-
-        if (!loaded_addresses
-                 .emplace(
-                     canonical,
-                     std::move(*label)
-                 )
-                 .second) {
-            return WalletMetadataError::corrupt;
+        if (migrated !=
+            WalletMetadataError::none) {
+            return migrated;
         }
     }
-
-    const auto transaction_count =
-        read_compact_size(
-            payload,
-            offset
-        );
-
-    if (!transaction_count ||
-        *transaction_count >
-            kMaxMetadataEntries) {
-        return WalletMetadataError::corrupt;
-    }
-
-    std::map<Hash256, std::string>
-        loaded_transactions;
-
-    for (std::uint64_t i = 0U;
-         i < *transaction_count;
-         ++i) {
-        Hash256 txid{};
-
-        if (!read_exact(
-                payload,
-                offset,
-                txid)) {
-            return WalletMetadataError::corrupt;
-        }
-
-        auto label =
-            read_string(
-                payload,
-                offset,
-                kMaxLabelBytes
-            );
-
-        if (!label ||
-            !valid_label(*label) ||
-            !loaded_transactions
-                 .emplace(
-                     txid,
-                     std::move(*label)
-                 )
-                 .second) {
-            return WalletMetadataError::corrupt;
-        }
-    }
-
-    if (offset != payload.size()) {
-        return WalletMetadataError::corrupt;
-    }
-
-    address_labels_ =
-        std::move(loaded_addresses);
-    transaction_labels_ =
-        std::move(loaded_transactions);
 
     return WalletMetadataError::none;
 }
@@ -643,30 +860,6 @@ WalletMetadataError Wallet::save_metadata()
         return WalletMetadataError::
             too_many_entries;
     }
-
-    Bytes bytes;
-    bytes.reserve(
-        64U +
-        address_labels_.size() * 128U +
-        transaction_labels_.size() * 160U
-    );
-
-    bytes.insert(
-        bytes.end(),
-        kMetadataMagic.begin(),
-        kMetadataMagic.end()
-    );
-
-    append_little_endian(
-        bytes,
-        kMetadataVersion
-    );
-
-    bytes.insert(
-        bytes.end(),
-        params_.message_start.begin(),
-        params_.message_start.end()
-    );
 
     if (keys_.empty()) {
         return WalletMetadataError::corrupt;
@@ -697,50 +890,144 @@ WalletMetadataError Wallet::save_metadata()
         metadata_wallet_id_valid_ = true;
     }
 
-    bytes.insert(
-        bytes.end(),
-        metadata_wallet_id_.begin(),
-        metadata_wallet_id_.end()
+    Bytes payload;
+    payload.reserve(
+        address_labels_.size() * 128U +
+        transaction_labels_.size() * 160U +
+        16U
+    );
+    MetadataPlaintextGuard payload_guard{
+        &payload
+    };
+
+    append_metadata_payload(
+        payload,
+        address_labels_,
+        transaction_labels_
     );
 
-    append_compact_size(
-        bytes,
-        static_cast<std::uint64_t>(
-            address_labels_.size()
-        )
-    );
+    Bytes bytes;
 
-    for (const auto& [address, label] :
-         address_labels_) {
-        append_string(bytes, address);
-        append_string(bytes, label);
-    }
+    if (encrypted_) {
+        bytes.reserve(
+            kMetadataV2HeaderSize +
+            payload.size() +
+            WalletTag{}.size()
+        );
 
-    append_compact_size(
-        bytes,
-        static_cast<std::uint64_t>(
-            transaction_labels_.size()
-        )
-    );
-
-    for (const auto& [txid, label] :
-         transaction_labels_) {
         bytes.insert(
             bytes.end(),
-            txid.begin(),
-            txid.end()
+            kMetadataMagicV2.begin(),
+            kMetadataMagicV2.end()
         );
-        append_string(bytes, label);
+
+        append_little_endian(
+            bytes,
+            kMetadataVersionV2
+        );
+
+        bytes.insert(
+            bytes.end(),
+            params_.message_start.begin(),
+            params_.message_start.end()
+        );
+
+        bytes.insert(
+            bytes.end(),
+            metadata_wallet_id_.begin(),
+            metadata_wallet_id_.end()
+        );
+
+        WalletNonce nonce{};
+
+        if (!crypto::secure_random_bytes(
+                nonce)) {
+            return WalletMetadataError::io_error;
+        }
+
+        bytes.insert(
+            bytes.end(),
+            nonce.begin(),
+            nonce.end()
+        );
+
+        const std::span<const Byte>
+            associated_data{
+                bytes.data(),
+                bytes.size()
+            };
+
+        Bytes ciphertext;
+        WalletTag tag{};
+
+        if (!encrypt_wallet_payload(
+                payload,
+                associated_data,
+                encryption_key_,
+                nonce,
+                ciphertext,
+                tag)) {
+            return WalletMetadataError::io_error;
+        }
+
+        bytes.insert(
+            bytes.end(),
+            ciphertext.begin(),
+            ciphertext.end()
+        );
+        bytes.insert(
+            bytes.end(),
+            tag.begin(),
+            tag.end()
+        );
+    } else {
+        bytes.reserve(
+            kMetadataMagicV1.size() +
+            sizeof(std::uint32_t) +
+            params_.message_start.size() +
+            metadata_wallet_id_.size() +
+            payload.size() +
+            kChecksumSize
+        );
+
+        bytes.insert(
+            bytes.end(),
+            kMetadataMagicV1.begin(),
+            kMetadataMagicV1.end()
+        );
+
+        append_little_endian(
+            bytes,
+            kMetadataVersionV1
+        );
+
+        bytes.insert(
+            bytes.end(),
+            params_.message_start.begin(),
+            params_.message_start.end()
+        );
+
+        bytes.insert(
+            bytes.end(),
+            metadata_wallet_id_.begin(),
+            metadata_wallet_id_.end()
+        );
+
+        bytes.insert(
+            bytes.end(),
+            payload.begin(),
+            payload.end()
+        );
+
+        const Hash256 checksum =
+            crypto::double_sha256(bytes);
+
+        bytes.insert(
+            bytes.end(),
+            checksum.begin(),
+            checksum.end()
+        );
     }
-
-    const Hash256 checksum =
-        crypto::double_sha256(bytes);
-
-    bytes.insert(
-        bytes.end(),
-        checksum.begin(),
-        checksum.end()
-    );
 
     if (bytes.size() >
         kMaxMetadataFileSize) {
