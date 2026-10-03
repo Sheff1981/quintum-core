@@ -616,6 +616,16 @@ NetworkRuntime::wallet_recovery_mnemonic() const
     return wallet_.recovery_mnemonic();
 }
 
+bool NetworkRuntime::verify_wallet_passphrase(
+    std::string_view passphrase) const
+{
+    std::scoped_lock lock(state_mutex_);
+
+    return wallet_.verify_passphrase(
+        passphrase
+    );
+}
+
 NodeTransactionResult
 NetworkRuntime::submit_transaction(
     const Transaction& transaction)
