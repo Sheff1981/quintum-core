@@ -1,0 +1,12 @@
+.git
+build
+build-*
+dist
+quintum-data
+*.exe
+*.msi
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.dat
