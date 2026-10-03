@@ -6,6 +6,7 @@
 #include "crypto/secp256k1.hpp"
 #include "node/mempool.hpp"
 #include "wallet/address.hpp"
+#include "wallet/secure.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,9 @@ enum class WalletStoreError {
     corrupt,
     wrong_network,
     target_exists,
+    passphrase_required,
+    invalid_passphrase,
+    crypto_error,
 };
 
 enum class WalletStartError {
@@ -165,10 +169,26 @@ public:
     Wallet(const Wallet&) = delete;
     Wallet& operator=(const Wallet&) = delete;
 
-    [[nodiscard]] WalletStartResult start();
+    [[nodiscard]] WalletStartResult start(
+        std::string_view passphrase = {}
+    );
     [[nodiscard]] bool started() const noexcept;
 
     [[nodiscard]] WalletKeyResult new_receive_address();
+
+    [[nodiscard]] WalletStoreError encrypt_wallet(
+        std::string_view passphrase
+    );
+
+    [[nodiscard]] WalletStoreError recover_from_seed(
+        const RecoverySeed& seed,
+        std::string_view passphrase
+    );
+
+    [[nodiscard]] bool encrypted() const noexcept;
+
+    [[nodiscard]] std::optional<RecoverySeed>
+    recovery_seed() const noexcept;
 
     [[nodiscard]] WalletKeyResult import_private_key(
         const crypto::PrivateKey& private_key
@@ -208,6 +228,8 @@ private:
         crypto::PublicKey public_key{};
         bool internal{false};
         bool used{false};
+        bool deterministic{false};
+        std::uint32_t hd_index{0U};
 
         KeyRecord() = default;
 
@@ -215,12 +237,16 @@ private:
             const crypto::PrivateKey& secret,
             const crypto::PublicKey& public_value,
             bool internal_value,
-            bool used_value
+            bool used_value,
+            bool deterministic_value = false,
+            std::uint32_t hd_index_value = 0U
         ) noexcept
             : private_key(secret),
               public_key(public_value),
               internal(internal_value),
-              used(used_value)
+              used(used_value),
+              deterministic(deterministic_value),
+              hd_index(hd_index_value)
         {
         }
 
@@ -231,7 +257,9 @@ private:
             : private_key(other.private_key),
               public_key(other.public_key),
               internal(other.internal),
-              used(other.used)
+              used(other.used),
+              deterministic(other.deterministic),
+              hd_index(other.hd_index)
         {
             crypto::secure_erase(
                 other.private_key
@@ -250,6 +278,8 @@ private:
             public_key = other.public_key;
             internal = other.internal;
             used = other.used;
+            deterministic = other.deterministic;
+            hd_index = other.hd_index;
 
             crypto::secure_erase(
                 other.private_key
@@ -264,7 +294,9 @@ private:
         }
     };
 
-    [[nodiscard]] WalletStoreError load();
+    [[nodiscard]] WalletStoreError load(
+        std::string_view passphrase
+    );
     [[nodiscard]] WalletStoreError save_keys(
         const std::vector<KeyRecord>& keys
     ) const;
@@ -296,6 +328,16 @@ private:
     std::filesystem::path directory_{};
     std::filesystem::path path_{};
     bool started_{false};
+    bool encrypted_{false};
+    std::optional<RecoverySeed> recovery_seed_{};
+    WalletEncryptionKey encryption_key_{};
+    WalletSalt encryption_salt_{};
+    std::uint32_t argon2_memory_blocks_{
+        kWalletArgon2MemoryBlocks
+    };
+    std::uint32_t argon2_passes_{
+        kWalletArgon2Passes
+    };
     std::vector<KeyRecord> keys_{};
 
     WalletBalance balance_{};
