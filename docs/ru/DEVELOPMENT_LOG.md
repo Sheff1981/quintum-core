@@ -3446,3 +3446,28 @@ Consensus, Genesis, network magic, порты, PoW, difficulty, эмиссия, 
 - encrypted wallet.dat format и derivation.
 
 Изменилось только физическое размещение существующих файлов с fail-closed миграцией.
+
+
+### Stage 31 hardening — exclusive datadir lock
+
+После закрытия основной миграции добавлена защита от одновременного запуска двух процессов на одном network datadir:
+
+- постоянный файл `.lock` используется только как якорь; реальная эксклюзивность держится живым OS lock/handle;
+- Windows использует exclusive `CreateFileW`, POSIX — non-blocking `flock`;
+- второй процесс fail-closed останавливается до миграции/запуска node runtime;
+- lock удерживается весь lifetime runtime и освобождается при stop/destruction;
+- stale `.lock` после crash не мешает следующему запуску;
+- wallet restore также не выполняется поверх datadir, которым владеет живой процесс;
+- добавлен regression-тест на lock/release/retry и конкурентный `NetworkRuntime`.
+
+Последний hardening commit перед этой записью: `47ca2bdbfa10aa4337e0e0a5738dc5e7407e472d`.
+
+QA на этом commit:
+- Linux core/build: **success**;
+- Windows core/build: **success**;
+- GUI Linux: **success**;
+- GUI Windows: **success**;
+- Windows installer/update/uninstall/data preservation: **success**;
+- Testnet headless/bootstrap/Docker seed smoke: **success**.
+
+Consensus, Genesis, network magic, порты, PoW/difficulty, эмиссия, адреса и форматы blockchain/wallet не менялись.
