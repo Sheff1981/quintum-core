@@ -13,7 +13,9 @@ Regtest and testnet parameters, unique genesis blocks, mining and restart/recove
 Handshake, peer database, seeds, address relay, headers-first synchronization, block and transaction propagation.
 
 ## M4 — Wallet
-**Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery. Before public release: password encryption, HD recovery, fee estimation and persistent wallet history/indexing.
+**Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery.
+
+**Hardening implemented in Stage 21:** backward-compatible encrypted `wallet.dat` v2, Argon2id + XChaCha20-Poly1305, explicit v1 migration, BIP32 deterministic receive/change derivation and seed recovery foundation. Before public release: user-facing mnemonic/recovery UX, persistent transaction history/indexing, fee policy/estimation and further adversarial recovery testing.
 
 ## M5 — Desktop
 Qt 6 GUI, synchronization state, peers, balances, transaction history and mining status.
