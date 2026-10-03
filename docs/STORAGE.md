@@ -22,13 +22,13 @@ Each network has its own root directory:
 │     ├─ wallet.dat
 │     ├─ wallet_state.dat
 │     └─ wallet_meta.dat
-└─ peers.dat
+├─ peers.dat
+└─ .lock                         # OS-level exclusive datadir lock
 ```
 
 `blocks/blocks.dat` remains the existing append-only framed block store.
 `chainstate/chainstate.dat` remains the existing checksummed snapshot.
-`peers.dat` stays at the network root. No placeholder `mempool.dat`,
-banlist or index database is created until the corresponding feature is real.
+`peers.dat` stays at the network root. The persistent `.lock` file is only a lock anchor: exclusivity is enforced by the live OS handle (`CreateFileW` sharing rules on Windows, `flock` on POSIX), so a stale file after a clean or unclean shutdown does not block restart. A second live QUINTUM process using the same network datadir fails closed before migration or runtime startup. No placeholder `mempool.dat`, banlist or index database is created until the corresponding feature is real.
 
 ## Legacy flat-layout migration
 
