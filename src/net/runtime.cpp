@@ -6,6 +6,7 @@
 #include "crypto/sha256.hpp"
 #include "net/relay.hpp"
 #include "net/sync.hpp"
+#include "core/release.hpp"
 
 #include <algorithm>
 #include <array>
@@ -239,6 +240,15 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         out.error =
             NetworkRuntimeStartError::
                 already_running;
+        return out;
+    }
+
+    if (params_.network ==
+            consensus::Network::mainnet &&
+        !release::kMainnetEnabled) {
+        out.error =
+            NetworkRuntimeStartError::
+                network_disabled;
         return out;
     }
 
