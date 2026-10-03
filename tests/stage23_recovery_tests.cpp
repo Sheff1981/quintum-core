@@ -144,7 +144,6 @@ void test_mnemonic_validation_rejects_bad_input()
         decode_recovery_mnemonic(
             "legal winner thank year wave sausage worth useful "
             "legal winner thank year wave sausage worth useful "
-            "legal winner thank year wave sausage worth useful "
             "legal winner thank year wave sausage worth nope"
         );
     assert(!unknown.ok());
