@@ -1,6 +1,7 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
+#include "crypto/random.hpp"
 #include "net/runtime.hpp"
 
 #include <array>
@@ -9,7 +10,9 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -113,6 +116,66 @@ bool parse_u16(
     return true;
 }
 
+void wipe_string(std::string& value) noexcept
+{
+    if (!value.empty()) {
+        quintum::crypto::secure_erase(
+            std::span<quintum::Byte>{
+                reinterpret_cast<quintum::Byte*>(
+                    value.data()),
+                value.size()
+            }
+        );
+    }
+
+    value.clear();
+}
+
+std::optional<std::string> read_passphrase_file(
+    const std::filesystem::path& path)
+{
+    std::ifstream input(
+        path,
+        std::ios::binary
+    );
+
+    if (!input) {
+        return std::nullopt;
+    }
+
+    std::string value{
+        std::istreambuf_iterator<char>{input},
+        std::istreambuf_iterator<char>{}
+    };
+
+    if (!input.good() && !input.eof()) {
+        wipe_string(value);
+        return std::nullopt;
+    }
+
+    constexpr std::size_t kMaxPassphraseBytes{
+        4'096U
+    };
+
+    if (value.size() >
+        kMaxPassphraseBytes) {
+        wipe_string(value);
+        return std::nullopt;
+    }
+
+    while (!value.empty() &&
+           (value.back() == '\n' ||
+            value.back() == '\r')) {
+        value.pop_back();
+    }
+
+    if (value.empty()) {
+        return std::nullopt;
+    }
+
+    return value;
+}
+
 std::string hash_hex(const Hash256& hash)
 {
     constexpr std::array<char, 16> digits{
@@ -141,6 +204,8 @@ void print_usage()
         << " [--new-address]"
         << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
         << " [--backup-wallet PATH]"
+        << " [--wallet-passphrase-file PATH]"
+        << " [--encrypt-wallet]"
         << " [--mine-blocks N [--miner-pubkey HEX]]"
         << " [--max-attempts N]\n"
         << "The node keeps running until Ctrl+C.\n";
@@ -169,6 +234,9 @@ int main(int argc, char* argv[])
     Amount send_fee{0U};
     bool fee_was_set{false};
     std::optional<std::filesystem::path> wallet_backup;
+    std::optional<std::filesystem::path>
+        wallet_passphrase_file;
+    bool encrypt_wallet_requested{false};
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg{argv[i]};
@@ -283,6 +351,25 @@ int main(int argc, char* argv[])
             continue;
         }
 
+        if (arg == "--wallet-passphrase-file") {
+            if (i + 1 >= argc) {
+                std::cerr
+                    << "Missing value for --wallet-passphrase-file\n";
+                return 2;
+            }
+
+            wallet_passphrase_file =
+                std::filesystem::path{
+                    argv[++i]
+                };
+            continue;
+        }
+
+        if (arg == "--encrypt-wallet") {
+            encrypt_wallet_requested = true;
+            continue;
+        }
+
         if (arg == "--mine-blocks") {
             if (i + 1 >= argc ||
                 !parse_u64(argv[++i], mine_blocks)) {
@@ -336,6 +423,31 @@ int main(int argc, char* argv[])
         return 2;
     }
 
+    if (encrypt_wallet_requested &&
+        !wallet_passphrase_file) {
+        std::cerr
+            << "--encrypt-wallet requires --wallet-passphrase-file\n";
+        return 2;
+    }
+
+    std::string wallet_passphrase;
+
+    if (wallet_passphrase_file) {
+        auto loaded =
+            read_passphrase_file(
+                *wallet_passphrase_file
+            );
+
+        if (!loaded) {
+            std::cerr
+                << "Unable to read a non-empty wallet passphrase file\n";
+            return 2;
+        }
+
+        wallet_passphrase =
+            std::move(*loaded);
+    }
+
     const auto& params =
         consensus::chain_params(network);
 
@@ -349,9 +461,38 @@ int main(int argc, char* argv[])
 
     net::NetworkRuntimeConfig network_config;
     network_config.listen_port = listen_port;
+    network_config.wallet_passphrase =
+        wallet_passphrase;
 
     const auto start_result =
-        runtime.start(network_config);
+        runtime.start(
+            std::move(network_config)
+        );
+
+    if (start_result.ok() &&
+        encrypt_wallet_requested) {
+        const auto encryption_error =
+            runtime.encrypt_wallet(
+                wallet_passphrase
+            );
+
+        if (encryption_error !=
+            wallet::WalletStoreError::none) {
+            wipe_string(wallet_passphrase);
+            std::cerr
+                << "Wallet encryption failed: "
+                << static_cast<int>(
+                       encryption_error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "Wallet encryption enabled\n";
+    }
+
+    wipe_string(wallet_passphrase);
 
     if (!start_result.ok()) {
         std::cerr
