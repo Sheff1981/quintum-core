@@ -210,6 +210,17 @@ public:
         bool overwrite = false
     );
 
+    [[nodiscard]] wallet::WalletStoreError
+    backup_wallet_bundle(
+        const std::filesystem::path& destination,
+        bool overwrite = false
+    );
+
+    [[nodiscard]] wallet::WalletStoreError
+    restore_wallet_bundle(
+        const std::filesystem::path& source
+    );
+
     [[nodiscard]] wallet::WalletFeeQuote
     quote_send_fee(
         std::string_view destination,
