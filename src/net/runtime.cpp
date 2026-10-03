@@ -1,6 +1,7 @@
 #include "net/runtime.hpp"
 
 #include "net/relay.hpp"
+#include "crypto/random.hpp"
 #include "net/sync.hpp"
 
 #include <algorithm>
@@ -145,7 +146,9 @@ NetworkRuntimeStartResult NetworkRuntime::start(
 
         if (out.node.ok()) {
             out.wallet =
-                wallet_.start();
+                wallet_.start(
+                    config_.wallet_passphrase
+                );
 
             if (out.wallet.ok()) {
                 const auto synced =
@@ -158,6 +161,18 @@ NetworkRuntimeStartResult NetworkRuntime::start(
                     synced.error;
             }
         }
+    }
+
+    if (!config_.wallet_passphrase.empty()) {
+        crypto::secure_erase(
+            std::span<Byte>{
+                reinterpret_cast<Byte*>(
+                    config_.wallet_passphrase.data()),
+                config_.wallet_passphrase.size()
+            }
+        );
+        config_.wallet_passphrase.clear();
+        config_.wallet_passphrase.shrink_to_fit();
     }
 
     if (!out.node.ok()) {
@@ -344,6 +359,16 @@ NetworkRuntime::new_receive_address()
 {
     std::scoped_lock lock(state_mutex_);
     return wallet_.new_receive_address();
+}
+
+wallet::WalletStoreError
+NetworkRuntime::encrypt_wallet(
+    std::string_view passphrase)
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.encrypt_wallet(
+        passphrase
+    );
 }
 
 wallet::WalletStoreError
