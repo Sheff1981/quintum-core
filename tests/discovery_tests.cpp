@@ -218,6 +218,28 @@ void test_addrman_corruption_detection()
     std::filesystem::remove_all(dir, ec);
 }
 
+void test_network_hardcoded_seeds()
+{
+    using namespace quintum::net;
+
+    const auto mainnet =
+        hardcoded_seeds(
+            quintum::consensus::Network::mainnet);
+    const auto testnet =
+        hardcoded_seeds(
+            quintum::consensus::Network::testnet);
+    const auto regtest =
+        hardcoded_seeds(
+            quintum::consensus::Network::regtest);
+
+    assert(mainnet.empty());
+    assert(regtest.empty());
+    assert(testnet.size() == 1U);
+    assert(testnet.front().host ==
+           "212.193.15.139");
+    assert(testnet.front().port == 38444U);
+}
+
 void test_retry_backoff_and_seed_bootstrap()
 {
     using namespace quintum::net;
@@ -537,6 +559,7 @@ int main()
     test_address_codec();
     test_addrman_persistence_and_network_binding();
     test_addrman_corruption_detection();
+    test_network_hardcoded_seeds();
     test_retry_backoff_and_seed_bootstrap();
     test_real_peer_discovery_chain();
     test_connect_any_skips_failed_peer();
