@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduces the first real QUINTUM wallet core. It owns private keys, derives network-specific receive addresses, discovers wallet outputs on the active chain and mempool, constructs and signs spends, and persists the key material in `wallet.dat`.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardens that core with authenticated password encryption and deterministic BIP32 recovery while preserving the Stage 20 v1 wallet reader for migration.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -49,33 +49,48 @@ The address format is implemented and tested but remains a **pre-mainnet candida
 
 Each network directory has its own `wallet.dat`.
 
-The file contains:
+Two formats are recognized:
 
-- wallet magic/version;
-- network identity;
-- network message-start bytes;
-- key records;
-- receive/change usage flags;
-- double-SHA-256 checksum.
+- **v1 (legacy):** Stage 20 checksummed key records, still readable for backward compatibility;
+- **v2 (encrypted):** password-derived authenticated encryption for seed, private keys and key metadata.
 
-A wallet created for one network is rejected by another network.
+The v2 open header contains only the data required to select and authenticate the decryption parameters: wallet magic/version, network identity, Argon2 parameters, random salt, random nonce and encrypted-payload length.
 
-Wallet replacement is crash-safe:
+Sensitive payload protection:
+
+- password KDF: **Argon2id**, 64 MiB memory, 3 passes, one lane;
+- authenticated encryption: **XChaCha20-Poly1305**;
+- 16-byte random salt;
+- fresh 24-byte nonce on every wallet rewrite;
+- the entire open header is authenticated as AEAD associated data;
+- recovery seed, private keys and keypool metadata are encrypted;
+- wrong passwords and modified ciphertext fail authentication before any key is accepted.
+
+The cryptographic primitives come from pinned Monocypher 4.0.3; transaction signatures remain on the existing pinned libsecp256k1 path.
+
+Wallet replacement remains crash-safe:
 
 1. write a temporary file;
-2. flush it;
-3. force it to durable storage;
-4. atomically replace the old wallet.
+2. flush and force it to durable storage;
+3. atomically replace the old wallet.
 
-On POSIX systems the wallet and backup files are created with mode `0600`.
+On POSIX systems the wallet and backup files use mode `0600`.
 
-### Important encryption limitation
+A v1 wallet is never silently rewritten merely because a password was supplied. Migration is explicit through `Wallet::encrypt_wallet()` or the development CLI `--encrypt-wallet --wallet-passphrase-file PATH`.
 
-Stage 20 does **not** pretend that checksum protection is encryption.
+### Deterministic recovery
 
-Private keys in the current `wallet.dat` are **not password-encrypted at rest**. The checksum detects corruption; it does not protect a stolen wallet file.
+A password-created v2 wallet generates one 256-bit recovery seed from the operating-system CSPRNG.
 
-For that reason the project remains pre-mainnet. Password/KDF-based wallet encryption and production Windows data-directory hardening must be completed before a public-money release.
+Private keys use standard **BIP32 CKDpriv mechanics**: HMAC-SHA512 master/child derivation plus libsecp256k1 scalar tweak-add. QUINTUM reserves this path:
+
+`m/5329997'/network'/branch/index`
+
+where `network` is Mainnet/Testnet/Regtest and `branch` is 0 for receive keys or 1 for internal change keys.
+
+The path is versioned by the v2 wallet format and covered by a pinned derivation test vector.
+
+A seed-native v2 wallet can reconstruct its deterministic receive/change keypool from the seed. A migrated v1 wallet, or a v2 wallet containing imported random private keys, must still be backed up as `wallet.dat`; the API deliberately refuses to advertise seed-only recovery as complete in that case.
 
 ## Keypool and backup safety
 
@@ -95,7 +110,7 @@ If a keypool is exhausted, a new batch is generated. The result explicitly marks
 
 Imported private keys also require a fresh backup.
 
-This is not an HD deterministic seed wallet. A later wallet-hardening stage should replace finite keypool backup coverage with a deliberate HD/encrypted design before mainnet.
+For seed-native v2 wallets, keypool refill uses deterministic BIP32 branch/index derivation, so future deterministic keys remain recoverable from the seed. Legacy/imported keys retain the explicit backup requirement described above.
 
 ## Balance model
 
@@ -157,14 +172,18 @@ The development CLI can now:
 - create a new receive address;
 - send to a QUINTUM address with an explicit fee;
 - back up `wallet.dat`;
+- unlock/create encrypted v2 wallets using `--wallet-passphrase-file PATH`;
+- explicitly migrate a legacy v1 wallet with `--encrypt-wallet`;
 - mine to the wallet automatically when no explicit miner public key is supplied.
+
+The passphrase itself is not accepted as a command-line argument, avoiding normal process-argument exposure.
 
 ## Current limitations before production
 
 Stage 20 intentionally does not claim these are finished:
 
-- encrypted/password-protected wallet storage;
-- HD deterministic seed/mnemonic recovery;
+- user-facing mnemonic encoding/import and recovery UX;
+- deterministic gap-limit/rescan policy for mnemonic restoration;
 - dynamic fee estimation;
 - persistent transaction history/labels;
 - optimized incremental wallet indexing (the current correctness-first scan can rescan the active chain);
