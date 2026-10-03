@@ -12,6 +12,14 @@
 #include <string_view>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <aclapi.h>
+#endif
+
 namespace {
 
 std::filesystem::path unique_dir(std::string_view suffix)
@@ -242,6 +250,181 @@ void test_legacy_plaintext_metadata_migrates_on_encrypted_open()
     std::filesystem::remove_all(directory, ec);
 }
 
+#ifdef _WIN32
+bool current_user_only_dacl(
+    const std::filesystem::path& path)
+{
+    PACL dacl{nullptr};
+    PSECURITY_DESCRIPTOR descriptor{nullptr};
+    std::wstring writable =
+        path.native();
+
+    const DWORD result =
+        GetNamedSecurityInfoW(
+            writable.data(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            &dacl,
+            nullptr,
+            &descriptor
+        );
+
+    if (result != ERROR_SUCCESS ||
+        descriptor == nullptr ||
+        dacl == nullptr) {
+        if (descriptor != nullptr) {
+            LocalFree(descriptor);
+        }
+        return false;
+    }
+
+    SECURITY_DESCRIPTOR_CONTROL control{};
+    DWORD revision{0U};
+
+    if (!GetSecurityDescriptorControl(
+            descriptor,
+            &control,
+            &revision) ||
+        (control & SE_DACL_PROTECTED) == 0U) {
+        LocalFree(descriptor);
+        return false;
+    }
+
+    HANDLE token{nullptr};
+
+    if (!OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_QUERY,
+            &token)) {
+        LocalFree(descriptor);
+        return false;
+    }
+
+    DWORD required{0U};
+    (void)GetTokenInformation(
+        token,
+        TokenUser,
+        nullptr,
+        0U,
+        &required
+    );
+
+    if (required == 0U ||
+        GetLastError() !=
+            ERROR_INSUFFICIENT_BUFFER) {
+        CloseHandle(token);
+        LocalFree(descriptor);
+        return false;
+    }
+
+    std::vector<unsigned char> token_buffer(
+        required
+    );
+
+    if (!GetTokenInformation(
+            token,
+            TokenUser,
+            token_buffer.data(),
+            required,
+            &required)) {
+        CloseHandle(token);
+        LocalFree(descriptor);
+        return false;
+    }
+
+    const auto* token_user =
+        reinterpret_cast<const TOKEN_USER*>(
+            token_buffer.data()
+        );
+
+    bool found_current_user{false};
+
+    for (DWORD i = 0U;
+         i < dacl->AceCount;
+         ++i) {
+        void* raw_ace{nullptr};
+
+        if (!GetAce(
+                dacl,
+                i,
+                &raw_ace) ||
+            raw_ace == nullptr) {
+            CloseHandle(token);
+            LocalFree(descriptor);
+            return false;
+        }
+
+        const auto* header =
+            static_cast<const ACE_HEADER*>(
+                raw_ace
+            );
+
+        if (header->AceType !=
+            ACCESS_ALLOWED_ACE_TYPE) {
+            continue;
+        }
+
+        const auto* ace =
+            static_cast<
+                const ACCESS_ALLOWED_ACE*>(
+                    raw_ace
+                );
+
+        PSID sid =
+            const_cast<DWORD*>(
+                &ace->SidStart
+            );
+
+        if (!EqualSid(
+                sid,
+                token_user->User.Sid)) {
+            CloseHandle(token);
+            LocalFree(descriptor);
+            return false;
+        }
+
+        found_current_user = true;
+    }
+
+    CloseHandle(token);
+    LocalFree(descriptor);
+    return found_current_user;
+}
+
+void test_windows_wallet_files_have_private_acl()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("windows-acl");
+    const auto& params =
+        consensus::regtest_params();
+
+    {
+        Wallet wallet{params, directory};
+        const auto started =
+            wallet.start("stage28-acl-password");
+
+        assert(started.ok());
+        assert(wallet.set_address_label(
+                   started.receive_address,
+                   "ACL test") ==
+               WalletMetadataError::none);
+    }
+
+    assert(current_user_only_dacl(
+        directory / "wallet.dat"));
+    assert(current_user_only_dacl(
+        directory / "wallet_meta.dat"));
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+#endif
+
 void test_full_backup_bundle_roundtrip_and_guards()
 {
     using namespace quintum;
@@ -384,5 +567,8 @@ int main()
     test_encrypted_metadata_roundtrip_and_tamper();
     test_legacy_plaintext_metadata_migrates_on_encrypted_open();
     test_full_backup_bundle_roundtrip_and_guards();
+#ifdef _WIN32
+    test_windows_wallet_files_have_private_acl();
+#endif
     return 0;
 }
