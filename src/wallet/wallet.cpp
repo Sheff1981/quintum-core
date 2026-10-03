@@ -1250,39 +1250,6 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
     metadata_wallet_id_ = Hash256{};
     metadata_wallet_id_valid_ = false;
 
-    // wallet_meta.dat is user metadata bound to the previous wallet.
-    // If wallet.dat is absent, a successful recovery must not leave
-    // orphan metadata that would make the next startup fail as wrong_wallet.
-    ec.clear();
-
-    if (std::filesystem::exists(
-            metadata_path_,
-            ec)) {
-        if (ec ||
-            !std::filesystem::is_regular_file(
-                metadata_path_,
-                ec) ||
-            ec ||
-            !std::filesystem::remove(
-                metadata_path_,
-                ec) ||
-            ec) {
-            rollback_uncommitted();
-            out.error =
-                WalletRecoveryError::store_failed;
-            out.store_error =
-                WalletStoreError::io_error;
-            return out;
-        }
-    } else if (ec) {
-        rollback_uncommitted();
-        out.error =
-            WalletRecoveryError::store_failed;
-        out.store_error =
-            WalletStoreError::io_error;
-        return out;
-    }
-
     out.store_error =
         save_keys(keys_);
 
