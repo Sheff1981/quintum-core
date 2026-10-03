@@ -3257,7 +3257,7 @@ WalletStoreError Wallet::load(
         keys_ = std::move(loaded);
 
 #ifndef _WIN32
-        if (!restrict_permissions(path_)) {
+        if (!restrict_file_permissions(path_)) {
             clear_keys();
             return WalletStoreError::io_error;
         }
@@ -3651,7 +3651,7 @@ WalletStoreError Wallet::load(
     argon2_passes_ = *passes;
 
 #ifndef _WIN32
-    if (!restrict_permissions(path_)) {
+    if (!restrict_file_permissions(path_)) {
         clear_keys();
         crypto::secure_erase(
             encryption_key_);
