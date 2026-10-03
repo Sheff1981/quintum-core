@@ -163,8 +163,21 @@ jobs:
           & (Join-Path $installDir "QUINTUM.exe") --smoke-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+          $running = Start-Process -FilePath (Join-Path $installDir "QUINTUM.exe") -ArgumentList "--installer-hold-test" -PassThru
+          Start-Sleep -Seconds 2
+          if ($running.HasExited) { throw "Installed QUINTUM did not stay running for update test" }
+
           $second = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
-          if ($second.ExitCode -ne 0) { exit $second.ExitCode }
+          if ($second.ExitCode -ne 0) {
+            if (-not $running.HasExited) { Stop-Process -Id $running.Id -Force }
+            exit $second.ExitCode
+          }
+
+          $running.Refresh()
+          if (-not $running.HasExited) {
+            Stop-Process -Id $running.Id -Force
+            throw "Installer update did not close the running QUINTUM.exe"
+          }
 
           if (-not (Test-Path $sentinel)) {
             throw "User data was removed during installer update"
