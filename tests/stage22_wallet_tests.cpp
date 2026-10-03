@@ -2,6 +2,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "node/node.hpp"
+#include "net/runtime.hpp"
 #include "wallet/address.hpp"
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
@@ -579,11 +580,87 @@ void test_persistent_history_and_incremental_index()
     );
 }
 
+void test_network_runtime_exposes_wallet_history_and_fee_rate()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("runtime-api");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.accept_poll_ms = 10U;
+
+    const auto started =
+        runtime.start(config);
+
+    assert(started.ok());
+
+    const auto initial =
+        runtime.status();
+
+    assert(initial.recommended_fee_rate_per_kb ==
+           kDefaultFeeRatePerKb);
+
+    const auto decoded =
+        decode_address(
+            consensus::Network::regtest,
+            initial.receive_address
+        );
+
+    assert(decoded.ok());
+
+    const Bytes payout =
+        consensus::make_p2pk_locking_script(
+            decoded.public_key
+        );
+
+    const auto mined =
+        runtime.mine_mempool_block_at(
+            payout,
+            params.genesis.timestamp + 30'000U,
+            4'096U
+        );
+
+    assert(mined.ok());
+
+    const auto history =
+        runtime.wallet_history();
+
+    assert(history.size() == 1U);
+    assert(history.front().status ==
+           WalletTransactionStatus::confirmed);
+    assert(history.front().coinbase);
+    assert(history.front().received ==
+           consensus::kInitialSubsidy);
+
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
 {
     test_fee_policy_math_and_mempool_estimate();
     test_persistent_history_and_incremental_index();
+    test_network_runtime_exposes_wallet_history_and_fee_rate();
     return 0;
 }
