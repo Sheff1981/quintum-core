@@ -22,6 +22,7 @@ namespace quintum::net {
 struct NetworkRuntimeConfig {
     std::string bind_address{"0.0.0.0"};
     std::optional<std::uint16_t> listen_port{};
+    bool allow_ephemeral_listener_fallback{false};
     bool allow_local_peers{false};
     std::size_t target_outbound{8U};
     std::size_t max_connections{32U};
