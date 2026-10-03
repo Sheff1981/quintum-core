@@ -491,10 +491,25 @@ WalletMetadataError Wallet::load_metadata()
         return WalletMetadataError::corrupt;
     }
 
-    const Hash256 expected_wallet_id =
-        metadata_wallet_id(
-            keys_.front().public_key
+    Hash256 expected_wallet_id{};
+
+    const auto anchor =
+        std::find_if(
+            keys_.begin(),
+            keys_.end(),
+            [](const KeyRecord& key) {
+                return key.deterministic &&
+                       !key.internal &&
+                       key.hd_index == 0U;
+            }
         );
+
+    if (anchor != keys_.end()) {
+        expected_wallet_id =
+            metadata_wallet_id(
+                anchor->public_key
+            );
+    }
 
     if (stored_wallet_id !=
         expected_wallet_id) {
@@ -661,10 +676,25 @@ WalletMetadataError Wallet::save_metadata() const
         return WalletMetadataError::corrupt;
     }
 
-    const Hash256 wallet_id =
-        metadata_wallet_id(
-            keys_.front().public_key
+    Hash256 wallet_id{};
+
+    const auto anchor =
+        std::find_if(
+            keys_.begin(),
+            keys_.end(),
+            [](const KeyRecord& key) {
+                return key.deterministic &&
+                       !key.internal &&
+                       key.hd_index == 0U;
+            }
         );
+
+    if (anchor != keys_.end()) {
+        wallet_id =
+            metadata_wallet_id(
+                anchor->public_key
+            );
+    }
 
     bytes.insert(
         bytes.end(),
