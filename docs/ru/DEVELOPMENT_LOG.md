@@ -3346,3 +3346,18 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Что осталось до закрытия Stage 29
 
 Кодовая часть bootstrap/testnet готова к внешней проверке, но настоящий public testnet ещё не объявляется. Следующий обязательный шаг — поднять реальный публичный Testnet seed на TCP 38444, закрепить его реальный IP/DNS в seed list и провести multi-host Windows/Linux soak. Без реально доступного seed адрес не подставляется искусственно.
+
+
+### Продолжение Stage 29 — подготовка реального seed deployment
+
+Чтобы не подставлять фиктивный публичный адрес и не ждать VPS вслепую, добавлен воспроизводимый путь проверки будущего seed-узла:
+
+- headless `quintumd` получил `--addnode HOST[:PORT]` для явного IPv4/DNS bootstrap через обычный addrman/P2P handshake;
+- добавлен `--run-seconds N` для ограниченного по времени внешнего probe с итоговым peer count;
+- Linux CI запускает настоящий headless Testnet runtime;
+- Linux CI поднимает две Regtest-ноды как отдельные процессы и проверяет реальный outbound bootstrap через `--addnode`;
+- CI публикует `quintum-testnet-seed-linux-x64` с бинарником, systemd unit, SHA256 и operator runbook;
+- systemd unit запускает Testnet на TCP 38444, с отдельным системным пользователем, закрытым StateDirectory и базовым sandboxing;
+- реальный IPv4/DNS по-прежнему не hardcode-ится до успешного cross-network QUINTUM handshake.
+
+Consensus, Genesis, magic, порты, PoW, эмиссия, форматы blockchain/wallet не изменены.
