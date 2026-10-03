@@ -18,6 +18,12 @@ using CompactSignature = std::array<Byte, 64>;
     const PrivateKey& key
 ) noexcept;
 
+[[nodiscard]] std::optional<PrivateKey>
+tweak_add_private_key(
+    const PrivateKey& key,
+    const PrivateKey& tweak
+) noexcept;
+
 [[nodiscard]] std::optional<CompactSignature> sign_ecdsa(
     const Hash256& digest,
     const PrivateKey& key
