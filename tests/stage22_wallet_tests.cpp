@@ -819,9 +819,18 @@ void test_wallet_index_rebuilds_after_reorg()
     assert(after_reorg.ok());
     assert(after_reorg.index_rebuilt);
     assert(after_reorg.blocks_scanned == 4U);
-    assert(find_history(
-               wallet.history(),
-               abandoned_txid) == nullptr);
+    const auto* inactive =
+        find_history(
+            wallet.history(),
+            abandoned_txid
+        );
+
+    assert(inactive != nullptr);
+    assert(inactive->status ==
+           WalletTransactionStatus::inactive);
+    assert(inactive->confirmations == 0U);
+    assert(!inactive->block_height.has_value());
+    assert(!inactive->block_hash.has_value());
     assert(wallet.balance() ==
            WalletBalance{});
 
