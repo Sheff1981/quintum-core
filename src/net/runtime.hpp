@@ -4,6 +4,7 @@
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
 #include "node/node.hpp"
+#include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
 
 #include <atomic>
@@ -74,6 +75,9 @@ struct NetworkRuntimeStatus {
     std::optional<Hash256> tip{};
     std::size_t mempool_transactions{0U};
     wallet::WalletBalance wallet_balance{};
+    Amount recommended_fee_rate_per_kb{
+        wallet::kDefaultFeeRatePerKb
+    };
     std::string receive_address{};
 };
 
@@ -122,6 +126,10 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] NetworkRuntimeStatus status() const;
+
+    [[nodiscard]] std::vector<
+        wallet::WalletTransactionRecord>
+    wallet_history() const;
 
     [[nodiscard]] NodeTransactionResult submit_transaction(
         const Transaction& transaction
