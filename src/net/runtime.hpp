@@ -385,6 +385,7 @@ private:
     std::atomic<std::uint16_t> listen_port_{0U};
 
     std::uint64_t runtime_nonce_{0U};
+    std::uint64_t wallet_mining_nonce_{0U};
     std::uint64_t ping_counter_{0U};
     std::uint64_t next_outbound_attempt_{0U};
     std::thread worker_{};
