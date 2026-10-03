@@ -40,6 +40,7 @@ enum class WalletMetadataError {
     io_error,
     corrupt,
     wrong_network,
+    wrong_wallet,
     invalid_address,
     wrong_network_address,
     invalid_label,
