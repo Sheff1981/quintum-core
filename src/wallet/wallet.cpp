@@ -51,6 +51,16 @@ constexpr std::size_t kKeyRecordSize{
     1U + crypto::PrivateKey{}.size()
 };
 
+constexpr std::array<Byte, 8> kWalletStateMagic{
+    'Q', 'W', 'S', 'T', 'A', 'T', 'E', '1'
+};
+constexpr std::uint32_t kWalletStateVersion{1U};
+constexpr std::uintmax_t kMaxWalletStateFileSize{
+    128U * 1024U * 1024U
+};
+constexpr std::size_t kMaxWalletIndexedCoins{1'000'000U};
+constexpr std::size_t kMaxWalletHistoryRecords{1'000'000U};
+
 bool flush_file(std::FILE* file) noexcept
 {
     if (std::fflush(file) != 0) {
@@ -278,6 +288,58 @@ std::optional<Bytes> read_file(
     return bytes;
 }
 
+std::optional<Bytes> read_state_file(
+    const std::filesystem::path& path)
+{
+    std::ifstream input(
+        path,
+        std::ios::binary
+    );
+
+    if (!input) {
+        return std::nullopt;
+    }
+
+    input.seekg(0, std::ios::end);
+    const auto end = input.tellg();
+
+    if (end < 0) {
+        return std::nullopt;
+    }
+
+    const auto size =
+        static_cast<std::uintmax_t>(end);
+
+    if (size > kMaxWalletStateFileSize ||
+        size >
+            static_cast<std::uintmax_t>(
+                std::numeric_limits<
+                    std::size_t>::max())) {
+        return std::nullopt;
+    }
+
+    Bytes bytes(
+        static_cast<std::size_t>(size)
+    );
+
+    input.seekg(0, std::ios::beg);
+
+    if (!bytes.empty()) {
+        input.read(
+            reinterpret_cast<char*>(
+                bytes.data()),
+            static_cast<std::streamsize>(
+                bytes.size())
+        );
+    }
+
+    if (!input) {
+        return std::nullopt;
+    }
+
+    return bytes;
+}
+
 bool add_amount(
     Amount& total,
     Amount value) noexcept
@@ -335,7 +397,8 @@ Wallet::Wallet(
     std::filesystem::path directory)
     : params_(params),
       directory_(std::move(directory)),
-      path_(directory_ / "wallet.dat")
+      path_(directory_ / "wallet.dat"),
+      state_path_(directory_ / "wallet_state.dat")
 {
 }
 
