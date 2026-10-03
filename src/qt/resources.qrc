@@ -1,0 +1,14 @@
+<RCC>
+  <qresource prefix="/branding">
+    <file alias="quintum_icon.png">assets/quintum_icon.png</file>
+  </qresource>
+  <qresource prefix="/icons">
+    <file alias="home.svg">assets/home.svg</file>
+    <file alias="send.svg">assets/send.svg</file>
+    <file alias="receive.svg">assets/receive.svg</file>
+    <file alias="transactions.svg">assets/transactions.svg</file>
+    <file alias="addressbook.svg">assets/addressbook.svg</file>
+    <file alias="mining.svg">assets/mining.svg</file>
+    <file alias="settings.svg">assets/settings.svg</file>
+  </qresource>
+</RCC>
