@@ -25,7 +25,7 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - Durable restart-safe blockchain storage
 - Authenticated encrypted wallet storage with Argon2id + XChaCha20-Poly1305
 - BIP32 deterministic recovery with 24-word English recovery phrases and atomic restoration
-- Qt 6 desktop wallet planned after the node and network are stable
+- Qt 6 Widgets desktop wallet shell, kept separate from the consensus/core library
 
 ## Repository map
 
@@ -40,12 +40,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M12 — Desktop wallet API foundation (Stage 25):** the core now exposes the stable data and confirmation model needed by a Qt desktop wallet without allowing the UI to bypass wallet, mempool or consensus validation.
+**M13 — Qt 6 desktop wallet shell (Stage 26):** QUINTUM now has its first real desktop application target, built with Qt 6 Widgets on top of the existing `NetworkRuntime` API.
 
-Stage 25 adds durable address-book and transaction labels in a separate crash-safe `wallet_meta.dat`, bound to the QUINTUM network and an owned wallet-key anchor. Corrupt, wrong-network or wrong-wallet metadata fails explicitly instead of silently discarding user labels. Addresses are canonicalized before storage.
+The GUI provides **Overview, Send, Receive and Transactions** pages. It shows confirmed/available/pending/immature balances, current block height, peers and mempool state; creates and copies receive addresses; displays persistent labeled transaction history; and sends through the guarded Stage 25 Preview -> Confirm path with automatic fees.
 
-The desktop send flow is now two-step: `preview_send()` returns destination, amount, automatic fee quote, optional recipient label, a node-state hash and a tamper-evident preview id. `confirm_send()` revalidates the preview under the runtime lock and rejects a changed chain/mempool as `stale_preview` before any transaction is created or broadcast.
+The desktop executable is `QUINTUM` (`QUINTUM.exe` on Windows). New GUI wallets require a password and are created through the existing encrypted wallet path. Pre-alpha builds default to **regtest** unless `--testnet` or `--mainnet` is explicitly selected.
 
-`desktop_snapshot()` exposes one GUI-facing view of runtime/network status, balances, labeled transaction history and the address book.
+Qt remains an optional build dependency: `quintum_core` and `quintumd` build without Qt. A dedicated GUI CI installs pinned Qt 6.8.0 and builds the desktop target on Linux and Windows. Its smoke mode starts a real regtest node, encrypted wallet and `MainWindow` in a temporary data directory, then shuts them down cleanly.
 
-Next: Stage 26 — the first Qt 6 desktop wallet shell using these APIs: Overview, Send, Receive, Transactions and live synchronization/network status.
+Next: Stage 27 — finish the operational desktop wallet: recovery phrase UX, richer sync status, address-book editing, mining/status controls and settings before Windows packaging.

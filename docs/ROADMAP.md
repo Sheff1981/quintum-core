@@ -26,7 +26,9 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 **Desktop wallet API implemented in Stage 25:** persistent address-book and transaction labels, network/wallet-bound crash-safe metadata storage, unified desktop snapshot, and a guarded preview/confirm send contract that rejects tampered or stale previews before transaction creation. Before public release: Qt presentation/recovery UX, privacy hardening for metadata, bundled backups, historical/confirmation-target fee estimation and further adversarial/long-running wallet tests.
 
 ## M5 — Desktop
-**API foundation complete in Stage 25.** Stage 26 begins the Qt 6 GUI: Overview, Send, Receive, Transactions, synchronization state, peers and mining status.
+**Qt shell implemented in Stage 26:** optional Qt 6 Widgets target `QUINTUM` with Overview, Send, Receive and Transactions pages, password-protected wallet startup, live balance/block/peer/mempool refresh, guarded Preview -> Confirm sending, and Linux/Windows GUI build + live runtime smoke CI.
+
+**Next:** Stage 27 completes desktop operations: 24-word recovery UI, richer synchronization state, address-book editing, mining/status controls, settings and remaining desktop error handling before Windows distribution.
 
 ## M6 — Windows distribution
 Signed/reproducible release pipeline where possible, installer, safe upgrades, preserved wallet/blockchain data.

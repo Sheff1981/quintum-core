@@ -2935,3 +2935,116 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 26 — Qt 6 desktop wallet foundation:** первый настоящий GUI поверх уже готовых core/runtime API — Overview, Send, Receive, Transactions и live network/sync status.
+
+
+---
+
+## 2026-10-03 — Этап 26. Qt 6 desktop wallet foundation
+
+### Цель
+
+Поднять первый настоящий QUINTUM desktop wallet поверх уже проверенного NetworkRuntime, не встраивая Qt в consensus/core и не создавая обходов wallet/mempool/P2P.
+
+### Что добавлено
+
+1. **Отдельный Qt 6 target**
+   - CMake option `QUINTUM_BUILD_GUI=ON`;
+   - target `quintum_qt`;
+   - Windows output: `QUINTUM.exe`;
+   - Qt 6 Widgets;
+   - `quintum_core` и `quintumd` по-прежнему собираются без Qt;
+   - consensus/core не зависит от Qt.
+
+2. **Desktop startup**
+   - отдельный application entrypoint;
+   - Mainnet/Testnet/Regtest selection;
+   - безопасный pre-alpha default: Regtest;
+   - optional `--datadir`;
+   - новая GUI-wallet создаётся только с password;
+   - encrypted wallet открывается через существующий NetworkRuntime/Wallet path;
+   - отдельные data directories по network.
+
+3. **Overview**
+   - available balance;
+   - confirmed balance;
+   - pending balance;
+   - immature balance;
+   - current block height;
+   - peers;
+   - mempool size;
+   - live refresh раз в секунду.
+
+4. **Send**
+   - QUINTUM address;
+   - amount в QTM с точностью 8 decimal places;
+   - optional label;
+   - Stage 25 `preview_send()`;
+   - confirmation показывает amount, fee, total и label;
+   - Stage 25 `confirm_send()`;
+   - stale preview после chain/mempool change отклоняется;
+   - successful transaction идёт через обычный wallet -> mempool -> P2P relay;
+   - label сохраняется в wallet metadata после успешной отправки.
+
+5. **Receive**
+   - current receive address;
+   - Copy Address;
+   - New Address через существующий persistent keypool;
+   - никакой генерации ключей внутри GUI.
+
+6. **Transactions**
+   - status: pending/confirmed/inactive;
+   - txid;
+   - received;
+   - spent;
+   - fee;
+   - confirmations;
+   - persistent user label.
+
+7. **GUI CI**
+   - отдельный `.github/workflows/gui.yml`;
+   - pinned Qt 6.8.0;
+   - Linux GUI build;
+   - Windows MSVC2022 GUI build;
+   - обычный core CI остаётся независимым от Qt.
+
+8. **Live desktop smoke**
+   - hidden `--smoke-test` development mode;
+   - temporary Regtest data directory;
+   - real NetworkRuntime;
+   - real encrypted wallet;
+   - real MainWindow;
+   - headless Qt platform;
+   - automatic clean shutdown;
+   - smoke проходит на Linux и Windows.
+
+### QA
+
+На кодовом SHA Stage 26:
+
+- обычный core CI Linux — success;
+- обычный core CI Windows — success;
+- **24/24 core regression suites passed**;
+- Qt GUI build Linux — success;
+- Qt GUI build Windows — success;
+- live GUI/runtime smoke Linux — success;
+- live GUI/runtime smoke Windows — success.
+
+### Compatibility
+
+Не менялись:
+
+- Genesis;
+- block/transaction consensus;
+- UTXO rules;
+- PoW;
+- difficulty;
+- monetary policy;
+- network magic;
+- ports;
+- blockchain storage format;
+- `wallet.dat` format;
+- Stage 25 metadata format.
+
+### Следующий этап
+
+**Этап 27 — Qt desktop operational completion:** recovery phrase UX, richer sync status, address-book editing, mining/status controls, settings и desktop error handling перед Windows packaging/installer.
