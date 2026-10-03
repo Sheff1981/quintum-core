@@ -5,15 +5,19 @@
 
 #include <QAbstractItemView>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
+#include <QComboBox>
+#include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFileDialog>
-#include <QFormLayout>
 #include <QFont>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
@@ -21,6 +25,8 @@
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSize>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QStatusBar>
@@ -40,32 +46,372 @@
 namespace quintum::qtui {
 namespace {
 
-QLabel* make_amount_label()
+QString app_stylesheet()
 {
-    auto* label = new QLabel("0.00000000 QTM");
-    QFont font = label->font();
-    font.setPointSize(font.pointSize() + 5);
-    font.setBold(true);
-    label->setFont(font);
+    return QString::fromUtf8(R"QSS(
+QMainWindow {
+    background: #f8fbff;
+}
+QWidget {
+    color: #17243d;
+    font-family: "Segoe UI", "Inter", sans-serif;
+    font-size: 14px;
+}
+QWidget#appRoot {
+    background: #f8fbff;
+}
+QListWidget#navigation {
+    background: #f3f8fe;
+    border: none;
+    border-right: 1px solid #dbe5f1;
+    padding: 18px 7px;
+    outline: none;
+}
+QListWidget#navigation::item {
+    color: #273956;
+    height: 54px;
+    margin: 3px 5px;
+    padding-left: 13px;
+    border-radius: 10px;
+}
+QListWidget#navigation::item:hover {
+    background: #edf5ff;
+}
+QListWidget#navigation::item:selected {
+    color: #0869e8;
+    background: #e2f0ff;
+    font-weight: 600;
+}
+QLabel#pageTitle {
+    color: #080f24;
+    font-size: 34px;
+    font-weight: 700;
+}
+QLabel#pageSubtitle {
+    color: #526785;
+    font-size: 16px;
+}
+QLabel#sectionTitle {
+    color: #101b31;
+    font-size: 18px;
+    font-weight: 700;
+}
+QLabel#sectionSubtitle {
+    color: #617493;
+    font-size: 13px;
+}
+QFrame#card, QFrame#sectionCard, QFrame#metricCard {
+    background: #ffffff;
+    border: 1px solid #d8e4f0;
+    border-radius: 13px;
+}
+QFrame#metricCard[tone="blue"] {
+    background: #eef7ff;
+    border-color: #cfe4fa;
+}
+QFrame#metricCard[tone="green"] {
+    background: #effcf4;
+    border-color: #d2eedc;
+}
+QFrame#metricCard[tone="amber"] {
+    background: #fff8e9;
+    border-color: #f4e1b2;
+}
+QFrame#metricCard[tone="purple"] {
+    background: #f6f1ff;
+    border-color: #e2d7fb;
+}
+QLabel#metricIcon {
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 46px;
+    max-height: 46px;
+    border-radius: 23px;
+    font-size: 22px;
+    font-weight: 700;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#metricIcon[tone="blue"] {
+    background: #d9edff;
+    color: #056ce8;
+}
+QLabel#metricIcon[tone="green"] {
+    background: #d9f7e4;
+    color: #0a9e4a;
+}
+QLabel#metricIcon[tone="amber"] {
+    background: #ffebba;
+    color: #df8a00;
+}
+QLabel#metricIcon[tone="purple"] {
+    background: #e9defd;
+    color: #6631c8;
+}
+QLabel#metricCaption {
+    color: #263a59;
+    font-size: 14px;
+    font-weight: 600;
+}
+QLabel#metricValue {
+    color: #091226;
+    font-size: 24px;
+    font-weight: 700;
+}
+QLabel#metricUnit, QLabel#muted {
+    color: #60738f;
+    font-size: 13px;
+}
+QLineEdit, QComboBox {
+    background: #ffffff;
+    border: 1px solid #cad9e9;
+    border-radius: 8px;
+    min-height: 38px;
+    padding: 0 11px;
+    selection-background-color: #0c72ee;
+}
+QLineEdit:focus, QComboBox:focus {
+    border: 1px solid #0c72ee;
+}
+QPushButton {
+    background: #f6f9fd;
+    color: #1e4e87;
+    border: 1px solid #cbdced;
+    border-radius: 8px;
+    min-height: 40px;
+    padding: 0 17px;
+    font-weight: 600;
+}
+QPushButton:hover {
+    background: #edf5ff;
+    border-color: #9dc3eb;
+}
+QPushButton:disabled {
+    color: #9aa9bb;
+    background: #f6f8fa;
+    border-color: #e1e7ee;
+}
+QPushButton#primaryButton {
+    color: white;
+    background: #0b70ee;
+    border: 1px solid #0b70ee;
+    min-height: 44px;
+    font-size: 15px;
+}
+QPushButton#primaryButton:hover {
+    background: #0565dc;
+}
+QProgressBar {
+    background: #e7edf5;
+    border: 1px solid #cfdae8;
+    border-radius: 7px;
+    min-height: 14px;
+    max-height: 14px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    border-radius: 6px;
+    background: #0caf58;
+}
+QTableWidget {
+    background: #ffffff;
+    alternate-background-color: #f9fbfe;
+    border: 1px solid #d7e3ef;
+    border-radius: 10px;
+    gridline-color: #e4ebf3;
+    selection-background-color: #e7f2ff;
+    selection-color: #15243d;
+}
+QTableWidget::item {
+    padding: 6px;
+}
+QHeaderView::section {
+    color: #223754;
+    background: #f1f7fd;
+    border: none;
+    border-right: 1px solid #dce7f2;
+    border-bottom: 1px solid #dce7f2;
+    padding: 9px 7px;
+    font-weight: 700;
+}
+QScrollArea {
+    border: none;
+    background: transparent;
+}
+QStatusBar {
+    background: #f8fbff;
+    border-top: 1px solid #dbe5f1;
+    min-height: 42px;
+}
+QStatusBar QLabel {
+    color: #263a59;
+    padding: 0 12px;
+}
+QLabel#statusRunning {
+    color: #079b43;
+    font-weight: 700;
+}
+QLabel#statusStopped {
+    color: #c2413b;
+    font-weight: 700;
+}
+QCheckBox {
+    spacing: 8px;
+}
+)QSS");
+}
+
+QWidget* make_page_header(
+    const QString& title_text,
+    const QString& subtitle_text)
+{
+    auto* header = new QWidget;
+    auto* layout = new QVBoxLayout(header);
+    layout->setContentsMargins(0, 0, 0, 2);
+    layout->setSpacing(2);
+
+    auto* title = new QLabel(title_text);
+    title->setObjectName("pageTitle");
+
+    auto* subtitle = new QLabel(subtitle_text);
+    subtitle->setObjectName("pageSubtitle");
+    subtitle->setWordWrap(true);
+
+    layout->addWidget(title);
+    layout->addWidget(subtitle);
+    return header;
+}
+
+QFrame* make_card()
+{
+    auto* frame = new QFrame;
+    frame->setObjectName("card");
+    return frame;
+}
+
+QLabel* make_metric_icon(
+    const QString& glyph,
+    const QString& tone)
+{
+    auto* label = new QLabel(glyph);
+    label->setObjectName("metricIcon");
+    label->setProperty(
+        "tone",
+        tone
+    );
     return label;
 }
 
 QFrame* make_balance_card(
     const QString& title,
+    const QString& glyph,
+    const QString& tone,
     QLabel*& value)
 {
     auto* frame = new QFrame;
-    frame->setFrameShape(QFrame::StyledPanel);
+    frame->setObjectName("metricCard");
+    frame->setProperty("tone", tone);
 
     auto* layout = new QVBoxLayout(frame);
+    layout->setContentsMargins(18, 17, 18, 17);
+    layout->setSpacing(7);
+
+    layout->addWidget(
+        make_metric_icon(
+            glyph,
+            tone
+        ),
+        0,
+        Qt::AlignLeft
+    );
+
     auto* caption = new QLabel(title);
-    value = make_amount_label();
+    caption->setObjectName("metricCaption");
+
+    value = new QLabel("0.00000000");
+    value->setObjectName("metricValue");
+
+    auto* unit = new QLabel("QTM");
+    unit->setObjectName("metricUnit");
 
     layout->addWidget(caption);
     layout->addWidget(value);
+    layout->addWidget(unit);
     layout->addStretch();
 
     return frame;
+}
+
+QFrame* make_mining_metric(
+    const QString& title,
+    const QString& glyph,
+    const QString& tone,
+    const QString& subtext,
+    QLabel*& value)
+{
+    auto* frame = new QFrame;
+    frame->setObjectName("metricCard");
+    frame->setProperty("tone", tone);
+
+    auto* layout = new QVBoxLayout(frame);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(6);
+
+    auto* top = new QHBoxLayout;
+    top->setSpacing(10);
+    top->addWidget(
+        make_metric_icon(glyph, tone),
+        0
+    );
+
+    auto* caption = new QLabel(title);
+    caption->setObjectName("metricCaption");
+    top->addWidget(caption, 1);
+    layout->addLayout(top);
+
+    value = new QLabel("-");
+    value->setObjectName("metricValue");
+    layout->addWidget(value);
+
+    auto* detail = new QLabel(subtext);
+    detail->setObjectName("muted");
+    detail->setWordWrap(true);
+    layout->addWidget(detail);
+
+    return frame;
+}
+
+QWidget* make_section_heading(
+    const QString& title_text,
+    const QString& subtitle_text)
+{
+    auto* widget = new QWidget;
+    auto* layout = new QVBoxLayout(widget);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+
+    auto* title = new QLabel(title_text);
+    title->setObjectName("sectionTitle");
+    layout->addWidget(title);
+
+    if (!subtitle_text.isEmpty()) {
+        auto* subtitle = new QLabel(subtitle_text);
+        subtitle->setObjectName("sectionSubtitle");
+        subtitle->setWordWrap(true);
+        layout->addWidget(subtitle);
+    }
+
+    return widget;
+}
+
+QFrame* make_separator()
+{
+    auto* separator = new QFrame;
+    separator->setFrameShape(QFrame::VLine);
+    separator->setFrameShadow(QFrame::Plain);
+    separator->setStyleSheet(
+        "color:#d7e2ed;"
+    );
+    return separator;
 }
 
 QString status_text(
@@ -145,24 +491,52 @@ MainWindow::MainWindow(
       params_(params)
 {
     setWindowTitle("QUINTUM Core");
-    resize(1120, 720);
+    setWindowIcon(
+        QIcon(":/branding/quintum_icon.png")
+    );
+    QApplication::setWindowIcon(
+        QIcon(":/branding/quintum_icon.png")
+    );
+
+    resize(1280, 820);
+    setMinimumSize(1040, 680);
+    setStyleSheet(app_stylesheet());
 
     auto* root = new QWidget;
+    root->setObjectName("appRoot");
+
     auto* layout = new QHBoxLayout(root);
-    layout->setContentsMargins(12, 12, 12, 12);
-    layout->setSpacing(12);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
     auto* navigation = new QListWidget;
-    navigation->addItems({
-        "Overview",
-        "Send",
-        "Receive",
-        "Transactions",
-        "Address Book",
-        "Mining",
-        "Settings",
-    });
-    navigation->setFixedWidth(165);
+    navigation->setObjectName("navigation");
+    navigation->setFixedWidth(220);
+    navigation->setIconSize(QSize(28, 28));
+    navigation->setSpacing(3);
+
+    const std::array<std::pair<QString, QString>, 7>
+        nav_items{{
+            {":/icons/home.svg", "Overview"},
+            {":/icons/send.svg", "Send"},
+            {":/icons/receive.svg", "Receive"},
+            {":/icons/transactions.svg", "Transactions"},
+            {":/icons/addressbook.svg", "Address Book"},
+            {":/icons/mining.svg", "Mining"},
+            {":/icons/settings.svg", "Settings"},
+        }};
+
+    for (const auto& [icon_path, title] :
+         nav_items) {
+        auto* item =
+            new QListWidgetItem(
+                QIcon(icon_path),
+                title
+            );
+        item->setSizeHint(QSize(200, 56));
+        navigation->addItem(item);
+    }
+
     navigation->setCurrentRow(0);
 
     pages_ = new QStackedWidget;
@@ -190,10 +564,29 @@ MainWindow::MainWindow(
     status_peers_ = new QLabel;
     status_connection_ = new QLabel;
 
-    statusBar()->addPermanentWidget(status_network_);
-    statusBar()->addPermanentWidget(status_blocks_);
-    statusBar()->addPermanentWidget(status_peers_);
-    statusBar()->addPermanentWidget(status_connection_);
+    statusBar()->setSizeGripEnabled(false);
+    statusBar()->addWidget(
+        status_network_,
+        1
+    );
+    statusBar()->addPermanentWidget(
+        make_separator()
+    );
+    statusBar()->addPermanentWidget(
+        status_blocks_
+    );
+    statusBar()->addPermanentWidget(
+        make_separator()
+    );
+    statusBar()->addPermanentWidget(
+        status_peers_
+    );
+    statusBar()->addPermanentWidget(
+        make_separator()
+    );
+    statusBar()->addPermanentWidget(
+        status_connection_
+    );
 
     refresh_timer_ = new QTimer(this);
     refresh_timer_->setInterval(1000);
@@ -234,61 +627,190 @@ QWidget* MainWindow::build_overview_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(18);
 
-    auto* title = new QLabel("Overview");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Overview",
+            "Your QUINTUM wallet and network status at a glance."
+        )
+    );
 
     auto* balances = new QHBoxLayout;
+    balances->setSpacing(14);
     balances->addWidget(
         make_balance_card(
             "Available",
+            "▣",
+            "blue",
             available_value_
-        )
+        ),
+        1
     );
     balances->addWidget(
         make_balance_card(
             "Confirmed",
+            "≡",
+            "green",
             confirmed_value_
-        )
+        ),
+        1
     );
     balances->addWidget(
         make_balance_card(
             "Pending",
+            "◷",
+            "amber",
             pending_value_
-        )
+        ),
+        1
     );
     balances->addWidget(
         make_balance_card(
             "Immature",
+            "□",
+            "purple",
             immature_value_
+        ),
+        1
+    );
+    layout->addLayout(balances);
+
+    auto* network_frame = make_card();
+    auto* network_layout =
+        new QVBoxLayout(network_frame);
+    network_layout->setContentsMargins(
+        22,
+        19,
+        22,
+        20
+    );
+    network_layout->setSpacing(16);
+
+    network_layout->addWidget(
+        make_section_heading(
+            "Synchronization",
+            "Network and blockchain status"
         )
     );
 
-    auto* network_frame = new QFrame;
-    network_frame->setFrameShape(QFrame::StyledPanel);
-    auto* network_layout = new QFormLayout(network_frame);
+    auto* detail_grid = new QGridLayout;
+    detail_grid->setHorizontalSpacing(22);
+    detail_grid->setVerticalSpacing(12);
+    detail_grid->setColumnStretch(1, 1);
+    detail_grid->setColumnStretch(3, 1);
 
     overview_height_ = new QLabel("-");
     overview_peer_height_ = new QLabel("-");
     overview_peers_ = new QLabel("0");
     overview_mempool_ = new QLabel("0");
     overview_sync_state_ = new QLabel("Starting");
-    overview_sync_progress_ = new QProgressBar;
-    overview_sync_progress_->setRange(0, 100);
+
+    auto add_detail =
+        [detail_grid](
+            int row,
+            int column,
+            const QString& label_text,
+            QLabel* value) {
+            auto* label =
+                new QLabel(label_text);
+            label->setObjectName("muted");
+
+            QFont font = value->font();
+            font.setBold(true);
+            value->setFont(font);
+
+            detail_grid->addWidget(
+                label,
+                row,
+                column
+            );
+            detail_grid->addWidget(
+                value,
+                row,
+                column + 1
+            );
+        };
+
+    add_detail(
+        0,
+        0,
+        "Local block height:",
+        overview_height_
+    );
+    add_detail(
+        1,
+        0,
+        "Peer best height:",
+        overview_peer_height_
+    );
+    add_detail(
+        2,
+        0,
+        "Peers:",
+        overview_peers_
+    );
+    add_detail(
+        0,
+        2,
+        "Mempool:",
+        overview_mempool_
+    );
+    add_detail(
+        1,
+        2,
+        "Synchronization:",
+        overview_sync_state_
+    );
+
+    network_layout->addLayout(detail_grid);
+
+    auto* progress_label =
+        new QLabel("Blockchain progress:");
+    progress_label->setObjectName(
+        "metricCaption"
+    );
+    network_layout->addWidget(progress_label);
+
+    auto* progress_row = new QHBoxLayout;
+    overview_sync_progress_ =
+        new QProgressBar;
+    overview_sync_progress_->setRange(
+        0,
+        100
+    );
     overview_sync_progress_->setValue(0);
+    overview_sync_progress_->setTextVisible(
+        false
+    );
 
-    network_layout->addRow("Local block height:", overview_height_);
-    network_layout->addRow("Peer best height:", overview_peer_height_);
-    network_layout->addRow("Peers:", overview_peers_);
-    network_layout->addRow("Mempool:", overview_mempool_);
-    network_layout->addRow("Synchronization:", overview_sync_state_);
-    network_layout->addRow("Progress:", overview_sync_progress_);
+    auto* progress_percent =
+        new QLabel("0%");
+    progress_percent->setObjectName(
+        "muted"
+    );
 
-    layout->addWidget(title);
-    layout->addLayout(balances);
+    connect(
+        overview_sync_progress_,
+        &QProgressBar::valueChanged,
+        progress_percent,
+        [progress_percent](int value) {
+            progress_percent->setText(
+                QString::number(value) + "%"
+            );
+        }
+    );
+
+    progress_row->addWidget(
+        overview_sync_progress_,
+        1
+    );
+    progress_row->addWidget(
+        progress_percent
+    );
+    network_layout->addLayout(progress_row);
+
     layout->addWidget(network_frame);
     layout->addStretch();
 
@@ -299,29 +821,237 @@ QWidget* MainWindow::build_send_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(18);
 
-    auto* title = new QLabel("Send QUINTUM");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Send",
+            "Send QTM to another wallet address."
+        )
+    );
 
-    auto* form = new QFormLayout;
+    auto* recipient = make_card();
+    auto* recipient_layout =
+        new QVBoxLayout(recipient);
+    recipient_layout->setContentsMargins(
+        22,
+        18,
+        22,
+        20
+    );
+    recipient_layout->setSpacing(13);
+
+    auto* recipient_header = new QHBoxLayout;
+    recipient_header->addWidget(
+        make_section_heading(
+            "Recipient",
+            {}
+        )
+    );
+    recipient_header->addStretch();
+
+    auto* add_recipient =
+        new QPushButton("+  Add recipient");
+    add_recipient->setEnabled(false);
+    add_recipient->setToolTip(
+        "Multi-recipient transactions are intentionally disabled during Testnet validation."
+    );
+    recipient_header->addWidget(
+        add_recipient
+    );
+    recipient_layout->addLayout(
+        recipient_header
+    );
+
+    auto* form = new QGridLayout;
+    form->setHorizontalSpacing(14);
+    form->setVerticalSpacing(12);
+    form->setColumnStretch(1, 1);
 
     send_address_ = new QLineEdit;
-    send_address_->setPlaceholderText("QUINTUM address");
-
-    send_amount_ = new QLineEdit;
-    send_amount_->setPlaceholderText("0.00000000");
+    send_address_->setPlaceholderText(
+        "Enter a QTM address"
+    );
 
     send_label_ = new QLineEdit;
-    send_label_->setPlaceholderText("Optional recipient label");
+    send_label_->setPlaceholderText(
+        "e.g. Friend, Savings, Exchange..."
+    );
 
-    form->addRow("Pay to:", send_address_);
-    form->addRow("Amount (QTM):", send_amount_);
-    form->addRow("Label:", send_label_);
+    send_amount_ = new QLineEdit;
+    send_amount_->setPlaceholderText(
+        "0.00000000"
+    );
 
-    send_button_ = new QPushButton("Preview and send");
+    form->addWidget(
+        new QLabel("Pay to"),
+        0,
+        0
+    );
+    form->addWidget(
+        send_address_,
+        0,
+        1,
+        1,
+        2
+    );
+    form->addWidget(
+        new QLabel("Label (optional)"),
+        1,
+        0
+    );
+    form->addWidget(
+        send_label_,
+        1,
+        1,
+        1,
+        2
+    );
+    form->addWidget(
+        new QLabel("Amount (QTM)"),
+        2,
+        0
+    );
+    form->addWidget(
+        send_amount_,
+        2,
+        1
+    );
+
+    auto* unit = new QLabel("QTM");
+    unit->setObjectName("metricCaption");
+    form->addWidget(
+        unit,
+        2,
+        2
+    );
+
+    recipient_layout->addLayout(form);
+    layout->addWidget(recipient);
+
+    auto* fee_card = make_card();
+    auto* fee_layout =
+        new QVBoxLayout(fee_card);
+    fee_layout->setContentsMargins(
+        22,
+        18,
+        22,
+        20
+    );
+    fee_layout->setSpacing(14);
+
+    fee_layout->addWidget(
+        make_section_heading(
+            "Transaction Fee",
+            "QUINTUM calculates the safe relay fee automatically."
+        )
+    );
+
+    auto* fee_options = new QHBoxLayout;
+    fee_options->setSpacing(14);
+
+    auto* recommended = new QFrame;
+    recommended->setObjectName(
+        "metricCard"
+    );
+    recommended->setProperty(
+        "tone",
+        "blue"
+    );
+
+    auto* recommended_layout =
+        new QVBoxLayout(recommended);
+    recommended_layout->setContentsMargins(
+        18,
+        15,
+        18,
+        15
+    );
+    recommended_layout->addWidget(
+        new QLabel("●  Recommended")
+    );
+
+    send_fee_rate_ = new QLabel("-");
+    send_fee_rate_->setObjectName(
+        "metricValue"
+    );
+    recommended_layout->addWidget(
+        send_fee_rate_
+    );
+
+    auto* estimate =
+        new QLabel(
+            "Target block interval: ~10 minutes"
+        );
+    estimate->setObjectName("muted");
+    recommended_layout->addWidget(
+        estimate
+    );
+
+    auto* custom = new QFrame;
+    custom->setObjectName("card");
+    auto* custom_layout =
+        new QVBoxLayout(custom);
+    custom_layout->setContentsMargins(
+        18,
+        15,
+        18,
+        15
+    );
+    custom_layout->addWidget(
+        new QLabel("○  Custom")
+    );
+    auto* custom_note =
+        new QLabel(
+            "Disabled while Testnet fee policy is being validated."
+        );
+    custom_note->setObjectName("muted");
+    custom_note->setWordWrap(true);
+    custom_layout->addWidget(
+        custom_note
+    );
+
+    fee_options->addWidget(
+        recommended,
+        1
+    );
+    fee_options->addWidget(
+        custom,
+        1
+    );
+    fee_layout->addLayout(fee_options);
+
+    auto* policy =
+        new QLabel(
+            "Fee is added to the entered amount. The final amount, fee and total are shown before signing."
+        );
+    policy->setObjectName("muted");
+    policy->setWordWrap(true);
+    fee_layout->addWidget(policy);
+
+    auto* action_row = new QHBoxLayout;
+    action_row->addStretch();
+
+    auto* clear = new QPushButton("Clear");
+    connect(
+        clear,
+        &QPushButton::clicked,
+        this,
+        [this] {
+            send_address_->clear();
+            send_amount_->clear();
+            send_label_->clear();
+        }
+    );
+
+    send_button_ = new QPushButton(
+        "Send"
+    );
+    send_button_->setObjectName(
+        "primaryButton"
+    );
+    send_button_->setMinimumWidth(190);
 
     connect(
         send_button_,
@@ -332,9 +1062,11 @@ QWidget* MainWindow::build_send_page()
         }
     );
 
-    layout->addWidget(title);
-    layout->addLayout(form);
-    layout->addWidget(send_button_);
+    action_row->addWidget(clear);
+    action_row->addWidget(send_button_);
+    fee_layout->addLayout(action_row);
+
+    layout->addWidget(fee_card);
     layout->addStretch();
 
     return page;
@@ -344,19 +1076,48 @@ QWidget* MainWindow::build_receive_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(18);
 
-    auto* title = new QLabel("Receive QUINTUM");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Receive",
+            "Receive QTM to your wallet using the address below."
+        )
+    );
+
+    auto* main_row = new QHBoxLayout;
+    main_row->setSpacing(14);
+
+    auto* address_card = make_card();
+    auto* address_layout =
+        new QVBoxLayout(address_card);
+    address_layout->setContentsMargins(
+        22,
+        18,
+        22,
+        20
+    );
+    address_layout->setSpacing(13);
+
+    address_layout->addWidget(
+        make_section_heading(
+            "Your receive address",
+            "Share this address to receive QTM payments."
+        )
+    );
+
+    auto* address_row = new QHBoxLayout;
 
     receive_address_ = new QLineEdit;
     receive_address_->setReadOnly(true);
 
-    auto* buttons = new QHBoxLayout;
-    auto* copy = new QPushButton("Copy address");
-    auto* fresh = new QPushButton("New address");
+    auto* copy = new QPushButton(
+        "Copy"
+    );
+    copy->setToolTip(
+        "Copy receive address"
+    );
 
     connect(
         copy,
@@ -367,6 +1128,82 @@ QWidget* MainWindow::build_receive_page()
         }
     );
 
+    address_row->addWidget(
+        receive_address_,
+        1
+    );
+    address_row->addWidget(copy);
+    address_layout->addLayout(
+        address_row
+    );
+
+    auto* lower_row = new QHBoxLayout;
+    lower_row->setSpacing(18);
+
+    auto* brand_panel = new QFrame;
+    brand_panel->setObjectName("metricCard");
+    brand_panel->setProperty(
+        "tone",
+        "blue"
+    );
+    brand_panel->setFixedSize(
+        205,
+        205
+    );
+
+    auto* brand_layout =
+        new QVBoxLayout(brand_panel);
+    auto* brand =
+        new QLabel;
+    brand->setPixmap(
+        QIcon(":/branding/quintum_icon.png")
+            .pixmap(112, 112)
+    );
+    brand->setAlignment(
+        Qt::AlignCenter
+    );
+
+    auto* qr_note =
+        new QLabel(
+            "QTM address\nQR after payment-URI freeze"
+        );
+    qr_note->setAlignment(
+        Qt::AlignCenter
+    );
+    qr_note->setObjectName(
+        "muted"
+    );
+
+    brand_layout->addStretch();
+    brand_layout->addWidget(brand);
+    brand_layout->addWidget(qr_note);
+    brand_layout->addStretch();
+
+    auto* receive_actions =
+        new QVBoxLayout;
+
+    auto* copy_large =
+        new QPushButton(
+            "Copy address"
+        );
+    copy_large->setObjectName(
+        "primaryButton"
+    );
+
+    connect(
+        copy_large,
+        &QPushButton::clicked,
+        this,
+        [this] {
+            copy_receive_address();
+        }
+    );
+
+    auto* fresh =
+        new QPushButton(
+            "Generate new address"
+        );
+
     connect(
         fresh,
         &QPushButton::clicked,
@@ -376,16 +1213,162 @@ QWidget* MainWindow::build_receive_page()
         }
     );
 
-    buttons->addWidget(copy);
-    buttons->addWidget(fresh);
-    buttons->addStretch();
+    auto* helper =
+        new QLabel(
+            "Share this address with the sender. Payments appear in the wallet after they are relayed and confirmed by the network."
+        );
+    helper->setObjectName("muted");
+    helper->setWordWrap(true);
 
-    layout->addWidget(title);
-    layout->addWidget(new QLabel(
-        "Current receive address:"
-    ));
-    layout->addWidget(receive_address_);
-    layout->addLayout(buttons);
+    receive_actions->addWidget(
+        copy_large
+    );
+    receive_actions->addWidget(fresh);
+    receive_actions->addWidget(helper);
+    receive_actions->addStretch();
+
+    lower_row->addWidget(brand_panel);
+    lower_row->addLayout(
+        receive_actions,
+        1
+    );
+    address_layout->addLayout(
+        lower_row
+    );
+
+    main_row->addWidget(
+        address_card,
+        2
+    );
+
+    auto* status_card = make_card();
+    auto* status_layout =
+        new QVBoxLayout(status_card);
+    status_layout->setContentsMargins(
+        18,
+        18,
+        18,
+        18
+    );
+    status_layout->setSpacing(10);
+    status_layout->addWidget(
+        make_section_heading(
+            "Receiving status",
+            "Incoming payments to this wallet."
+        )
+    );
+
+    auto add_status =
+        [status_layout](
+            const QString& title,
+            const QString& tone,
+            QLabel*& value) {
+            auto* row = new QFrame;
+            row->setObjectName(
+                "metricCard"
+            );
+            row->setProperty(
+                "tone",
+                tone
+            );
+
+            auto* l =
+                new QVBoxLayout(row);
+            l->setContentsMargins(
+                14,
+                11,
+                14,
+                11
+            );
+
+            auto* caption =
+                new QLabel(title);
+            caption->setObjectName(
+                "metricCaption"
+            );
+            value =
+                new QLabel(
+                    "0.00000000 QTM"
+                );
+            value->setObjectName(
+                "metricValue"
+            );
+
+            l->addWidget(caption);
+            l->addWidget(value);
+            status_layout->addWidget(row);
+        };
+
+    add_status(
+        "Confirmed",
+        "green",
+        receive_confirmed_
+    );
+    add_status(
+        "Pending",
+        "amber",
+        receive_pending_
+    );
+    add_status(
+        "Total received",
+        "blue",
+        receive_total_
+    );
+    status_layout->addStretch();
+
+    main_row->addWidget(
+        status_card,
+        1
+    );
+
+    layout->addLayout(main_row);
+
+    auto* label_card = make_card();
+    auto* label_layout =
+        new QVBoxLayout(label_card);
+    label_layout->setContentsMargins(
+        22,
+        16,
+        22,
+        18
+    );
+    label_layout->setSpacing(9);
+
+    label_layout->addWidget(
+        make_section_heading(
+            "Address label (optional)",
+            "Save a local label in your address book for this receive address."
+        )
+    );
+
+    auto* label_row = new QHBoxLayout;
+    receive_label_ = new QLineEdit;
+    receive_label_->setPlaceholderText(
+        "My main receiving address"
+    );
+
+    auto* save_label =
+        new QPushButton("Save label");
+
+    connect(
+        save_label,
+        &QPushButton::clicked,
+        this,
+        [this] {
+            save_receive_label();
+        }
+    );
+
+    label_row->addWidget(
+        receive_label_,
+        1
+    );
+    label_row->addWidget(
+        save_label
+    );
+    label_layout->addLayout(label_row);
+
+    layout->addWidget(label_card);
     layout->addStretch();
 
     return page;
@@ -395,12 +1378,59 @@ QWidget* MainWindow::build_transactions_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(16);
 
-    auto* title = new QLabel("Transactions");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Transactions",
+            "View and manage your QUINTUM transaction history."
+        )
+    );
+
+    auto* filters = new QHBoxLayout;
+    filters->setSpacing(10);
+
+    transaction_search_ = new QLineEdit;
+    transaction_search_->setPlaceholderText(
+        "Search transactions (TxID, label, status)..."
+    );
+
+    auto* type_filter = new QComboBox;
+    type_filter->addItems({
+        "All types",
+        "Received",
+        "Spent",
+        "Mining rewards",
+    });
+    type_filter->setEnabled(false);
+    type_filter->setToolTip(
+        "Type filtering will be enabled after the transaction detail model is finalized."
+    );
+
+    transaction_status_filter_ =
+        new QComboBox;
+    transaction_status_filter_->addItems({
+        "All statuses",
+        "Confirmed",
+        "Pending",
+        "Inactive",
+    });
+
+    auto* time_filter = new QComboBox;
+    time_filter->addItem("All time");
+    time_filter->setEnabled(false);
+
+    filters->addWidget(
+        transaction_search_,
+        1
+    );
+    filters->addWidget(type_filter);
+    filters->addWidget(
+        transaction_status_filter_
+    );
+    filters->addWidget(time_filter);
+    layout->addLayout(filters);
 
     transactions_ = new QTableWidget;
     transactions_->setColumnCount(7);
@@ -419,15 +1449,47 @@ QWidget* MainWindow::build_transactions_page()
     transactions_->setSelectionBehavior(
         QAbstractItemView::SelectRows
     );
+    transactions_->setAlternatingRowColors(
+        true
+    );
+    transactions_->setShowGrid(true);
+    transactions_->verticalHeader()->setVisible(
+        false
+    );
     transactions_->horizontalHeader()
         ->setStretchLastSection(true);
     transactions_->horizontalHeader()
         ->setSectionResizeMode(
             QHeaderView::ResizeToContents
         );
+    transactions_->horizontalHeader()
+        ->setSectionResizeMode(
+            1,
+            QHeaderView::Stretch
+        );
 
-    layout->addWidget(title);
-    layout->addWidget(transactions_, 1);
+    connect(
+        transaction_search_,
+        &QLineEdit::textChanged,
+        this,
+        [this] {
+            filter_transactions();
+        }
+    );
+
+    connect(
+        transaction_status_filter_,
+        &QComboBox::currentTextChanged,
+        this,
+        [this] {
+            filter_transactions();
+        }
+    );
+
+    layout->addWidget(
+        transactions_,
+        1
+    );
 
     return page;
 }
@@ -436,12 +1498,15 @@ QWidget* MainWindow::build_address_book_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(16);
 
-    auto* title = new QLabel("Address Book");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Address Book",
+            "Keep local labels for people, services and your own QUINTUM addresses."
+        )
+    );
 
     address_book_table_ = new QTableWidget;
     address_book_table_->setColumnCount(2);
@@ -455,23 +1520,88 @@ QWidget* MainWindow::build_address_book_page()
     address_book_table_->setSelectionBehavior(
         QAbstractItemView::SelectRows
     );
+    address_book_table_->setAlternatingRowColors(
+        true
+    );
+    address_book_table_->verticalHeader()
+        ->setVisible(false);
     address_book_table_->horizontalHeader()
-        ->setStretchLastSection(true);
+        ->setSectionResizeMode(
+            0,
+            QHeaderView::Stretch
+        );
+    address_book_table_->horizontalHeader()
+        ->setSectionResizeMode(
+            1,
+            QHeaderView::ResizeToContents
+        );
 
-    auto* form = new QFormLayout;
-    address_book_address_ = new QLineEdit;
-    address_book_label_ = new QLineEdit;
+    layout->addWidget(
+        address_book_table_,
+        1
+    );
 
-    form->addRow("Address:", address_book_address_);
-    form->addRow("Label:", address_book_label_);
+    auto* editor = make_card();
+    auto* editor_layout =
+        new QVBoxLayout(editor);
+    editor_layout->setContentsMargins(
+        20,
+        16,
+        20,
+        18
+    );
+    editor_layout->setSpacing(10);
+
+    editor_layout->addWidget(
+        make_section_heading(
+            "Address label",
+            "Select a row to edit it, or enter a new address and label."
+        )
+    );
+
+    auto* form = new QGridLayout;
+    form->setColumnStretch(1, 1);
+    address_book_address_ =
+        new QLineEdit;
+    address_book_label_ =
+        new QLineEdit;
+
+    form->addWidget(
+        new QLabel("Address"),
+        0,
+        0
+    );
+    form->addWidget(
+        address_book_address_,
+        0,
+        1
+    );
+    form->addWidget(
+        new QLabel("Label"),
+        1,
+        0
+    );
+    form->addWidget(
+        address_book_label_,
+        1,
+        1
+    );
+    editor_layout->addLayout(form);
 
     auto* buttons = new QHBoxLayout;
-    auto* save = new QPushButton("Save");
-    auto* remove = new QPushButton("Delete");
-
-    buttons->addWidget(save);
-    buttons->addWidget(remove);
     buttons->addStretch();
+
+    auto* remove =
+        new QPushButton("Delete");
+    auto* save =
+        new QPushButton("Save");
+    save->setObjectName(
+        "primaryButton"
+    );
+
+    buttons->addWidget(remove);
+    buttons->addWidget(save);
+    editor_layout->addLayout(buttons);
 
     connect(
         save,
@@ -529,10 +1659,7 @@ QWidget* MainWindow::build_address_book_page()
         }
     );
 
-    layout->addWidget(title);
-    layout->addWidget(address_book_table_, 1);
-    layout->addLayout(form);
-    layout->addLayout(buttons);
+    layout->addWidget(editor);
 
     return page;
 }
@@ -541,31 +1668,108 @@ QWidget* MainWindow::build_mining_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(15);
 
-    auto* title = new QLabel("Mining");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
-
-    auto* info = new QLabel(
-        "Mining performs real QUINTUM Proof of Work and pays valid coinbase rewards to this wallet. "
-        "Found blocks are submitted locally and relayed to peers."
+    layout->addWidget(
+        make_page_header(
+            "Mining",
+            "Help secure the QUINTUM network and earn valid Proof-of-Work block rewards."
+        )
     );
-    info->setWordWrap(true);
 
-    auto* form = new QFormLayout;
-    mining_state_ = new QLabel("Stopped");
-    mining_hashrate_ = new QLabel("0 H/s");
-    mining_attempts_ = new QLabel("0");
-    mining_blocks_ = new QLabel("0");
+    auto* metrics = new QHBoxLayout;
+    metrics->setSpacing(12);
 
-    form->addRow("Status:", mining_state_);
-    form->addRow("Hash rate:", mining_hashrate_);
-    form->addRow("Hashes attempted:", mining_attempts_);
-    form->addRow("Blocks found:", mining_blocks_);
+    metrics->addWidget(
+        make_mining_metric(
+            "Status",
+            "▷",
+            "green",
+            "Current miner state",
+            mining_state_
+        ),
+        1
+    );
+    metrics->addWidget(
+        make_mining_metric(
+            "Hash rate",
+            "⌁",
+            "blue",
+            "Current mining speed",
+            mining_hashrate_
+        ),
+        1
+    );
+    metrics->addWidget(
+        make_mining_metric(
+            "Hashes attempted",
+            "≋",
+            "purple",
+            "Total this session",
+            mining_attempts_
+        ),
+        1
+    );
+    metrics->addWidget(
+        make_mining_metric(
+            "Blocks found",
+            "◇",
+            "green",
+            "Total this session",
+            mining_blocks_
+        ),
+        1
+    );
 
-    mining_button_ = new QPushButton("Start mining");
+    layout->addLayout(metrics);
+
+    auto* secondary = new QHBoxLayout;
+    secondary->setSpacing(12);
+
+    secondary->addWidget(
+        make_mining_metric(
+            "Current difficulty",
+            "▥",
+            "amber",
+            "Live difficulty display will follow the active-chain header metric.",
+            mining_difficulty_
+        ),
+        1
+    );
+
+    secondary->addWidget(
+        make_mining_metric(
+            "Estimated time per block",
+            "◷",
+            "blue",
+            "Observed average for this mining session",
+            mining_eta_
+        ),
+        1
+    );
+
+    layout->addLayout(secondary);
+
+    auto* control = make_card();
+    auto* control_layout =
+        new QHBoxLayout(control);
+    control_layout->setContentsMargins(
+        20,
+        17,
+        20,
+        17
+    );
+    control_layout->setSpacing(22);
+
+    mining_button_ =
+        new QPushButton("Start mining");
+    mining_button_->setObjectName(
+        "primaryButton"
+    );
+    mining_button_->setMinimumWidth(
+        280
+    );
 
     connect(
         mining_button_,
@@ -576,11 +1780,125 @@ QWidget* MainWindow::build_mining_page()
         }
     );
 
-    layout->addWidget(title);
-    layout->addWidget(info);
-    layout->addLayout(form);
-    layout->addWidget(mining_button_);
-    layout->addStretch();
+    control_layout->addWidget(
+        mining_button_
+    );
+    control_layout->addWidget(
+        make_separator()
+    );
+
+    auto* performance =
+        make_section_heading(
+            "Performance mode",
+            "CPU-friendly desktop mining. QUINTUM stays responsive while testing real PoW on ordinary computers."
+        );
+    control_layout->addWidget(
+        performance,
+        1
+    );
+
+    layout->addWidget(control);
+
+    auto* activity_row = new QHBoxLayout;
+    activity_row->setSpacing(12);
+
+    auto* activity = make_card();
+    auto* activity_layout =
+        new QVBoxLayout(activity);
+    activity_layout->setContentsMargins(
+        18,
+        15,
+        18,
+        16
+    );
+
+    activity_layout->addWidget(
+        make_section_heading(
+            "Recent activity",
+            "Hash rate updates continuously while mining."
+        )
+    );
+
+    auto* activity_line =
+        new QFrame;
+    activity_line->setFixedHeight(5);
+    activity_line->setStyleSheet(
+        "background:#0b70ee;border-radius:2px;"
+    );
+    activity_layout->addStretch();
+    activity_layout->addWidget(
+        activity_line
+    );
+    activity_layout->addStretch();
+
+    activity_row->addWidget(
+        activity,
+        2
+    );
+
+    auto* blocks_card = make_card();
+    auto* blocks_layout =
+        new QVBoxLayout(blocks_card);
+    blocks_layout->setContentsMargins(
+        18,
+        15,
+        18,
+        16
+    );
+
+    blocks_layout->addWidget(
+        make_section_heading(
+            "Recent blocks",
+            "Blocks found by this mining session."
+        )
+    );
+
+    mining_recent_blocks_ =
+        new QTableWidget;
+    mining_recent_blocks_->setColumnCount(
+        3
+    );
+    mining_recent_blocks_
+        ->setHorizontalHeaderLabels({
+            "Height",
+            "Reward",
+            "Time",
+        });
+    mining_recent_blocks_
+        ->verticalHeader()
+        ->setVisible(false);
+    mining_recent_blocks_->setEditTriggers(
+        QAbstractItemView::NoEditTriggers
+    );
+    mining_recent_blocks_
+        ->horizontalHeader()
+        ->setSectionResizeMode(
+            QHeaderView::Stretch
+        );
+    mining_recent_blocks_->setMaximumHeight(
+        150
+    );
+
+    blocks_layout->addWidget(
+        mining_recent_blocks_
+    );
+
+    activity_row->addWidget(
+        blocks_card,
+        1
+    );
+
+    layout->addLayout(
+        activity_row,
+        1
+    );
+
+    mining_state_->setText("Ready");
+    mining_hashrate_->setText("0.00 H/s");
+    mining_attempts_->setText("0");
+    mining_blocks_->setText("0");
+    mining_difficulty_->setText("—");
+    mining_eta_->setText("—");
 
     return page;
 }
@@ -589,35 +1907,134 @@ QWidget* MainWindow::build_settings_page()
 {
     auto* page = new QWidget;
     auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(30, 25, 30, 25);
+    layout->setSpacing(15);
 
-    auto* title = new QLabel("Settings");
-    QFont title_font = title->font();
-    title_font.setPointSize(title_font.pointSize() + 7);
-    title_font.setBold(true);
-    title->setFont(title_font);
+    layout->addWidget(
+        make_page_header(
+            "Settings",
+            "Configure QUINTUM Core and manage your wallet."
+        )
+    );
 
-    auto* form = new QFormLayout;
+    auto* network = make_card();
+    auto* network_layout =
+        new QVBoxLayout(network);
+    network_layout->setContentsMargins(
+        22,
+        17,
+        22,
+        19
+    );
+    network_layout->setSpacing(12);
+    network_layout->addWidget(
+        make_section_heading(
+            "Network",
+            "Network connection and peer-to-peer settings"
+        )
+    );
+
+    auto* grid = new QGridLayout;
+    grid->setHorizontalSpacing(18);
+    grid->setVerticalSpacing(10);
+    grid->setColumnStretch(1, 1);
+
     settings_network_ = new QLabel;
     settings_p2p_port_ = new QLabel;
     settings_listen_port_ = new QLabel;
     settings_fee_rate_ = new QLabel;
 
-    form->addRow("Network:", settings_network_);
-    form->addRow("Default P2P port:", settings_p2p_port_);
-    form->addRow("Listening port:", settings_listen_port_);
-    form->addRow("Recommended fee rate:", settings_fee_rate_);
+    const std::array<
+        std::pair<QString, QLabel*>,
+        4> network_rows{{
+            {"Network:", settings_network_},
+            {"Default P2P port:", settings_p2p_port_},
+            {"Listening port:", settings_listen_port_},
+            {"Recommended fee rate:", settings_fee_rate_},
+        }};
+
+    for (std::size_t i = 0U;
+         i < network_rows.size();
+         ++i) {
+        auto* label =
+            new QLabel(
+                network_rows[i].first
+            );
+        label->setObjectName("muted");
+
+        auto* value =
+            network_rows[i].second;
+        QFont font = value->font();
+        font.setBold(true);
+        value->setFont(font);
+
+        grid->addWidget(
+            label,
+            static_cast<int>(i),
+            0
+        );
+        grid->addWidget(
+            value,
+            static_cast<int>(i),
+            1
+        );
+    }
+
+    network_layout->addLayout(grid);
+    layout->addWidget(network);
+
+    auto* safety = make_card();
+    auto* safety_layout =
+        new QVBoxLayout(safety);
+    safety_layout->setContentsMargins(
+        22,
+        17,
+        22,
+        19
+    );
+    safety_layout->setSpacing(11);
+
+    safety_layout->addWidget(
+        make_section_heading(
+            "Wallet Safety and Recovery",
+            "Protect your funds and manage wallet backups."
+        )
+    );
+
+    auto* recovery_row =
+        new QFrame;
+    recovery_row->setObjectName(
+        "metricCard"
+    );
+    recovery_row->setProperty(
+        "tone",
+        "purple"
+    );
+
+    auto* recovery_layout =
+        new QHBoxLayout(recovery_row);
+    recovery_layout->setContentsMargins(
+        16,
+        12,
+        16,
+        12
+    );
+
+    recovery_layout->addWidget(
+        make_section_heading(
+            "Show 24 recovery words",
+            "View the wallet recovery phrase after password verification."
+        ),
+        1
+    );
 
     auto* recovery = new QPushButton(
         "Show 24 recovery words"
     );
-    auto* backup = new QPushButton(
-        "Backup complete wallet"
+    recovery->setObjectName(
+        "primaryButton"
     );
-
-    auto* backup_note = new QLabel(
-        "Creates one .qtmbackup file containing wallet.dat and encrypted wallet metadata. Blockchain data is not included because it can be synchronized again."
-    );
-    backup_note->setWordWrap(true);
+    recovery_layout->addWidget(recovery);
 
     connect(
         recovery,
@@ -628,6 +2045,42 @@ QWidget* MainWindow::build_settings_page()
         }
     );
 
+    safety_layout->addWidget(
+        recovery_row
+    );
+
+    auto* backup_row =
+        new QFrame;
+    backup_row->setObjectName(
+        "metricCard"
+    );
+    backup_row->setProperty(
+        "tone",
+        "green"
+    );
+
+    auto* backup_layout =
+        new QHBoxLayout(backup_row);
+    backup_layout->setContentsMargins(
+        16,
+        12,
+        16,
+        12
+    );
+
+    backup_layout->addWidget(
+        make_section_heading(
+            "Backup complete wallet",
+            "Create a .qtmbackup containing wallet.dat and encrypted metadata."
+        ),
+        1
+    );
+
+    auto* backup = new QPushButton(
+        "Backup wallet..."
+    );
+    backup_layout->addWidget(backup);
+
     connect(
         backup,
         &QPushButton::clicked,
@@ -637,11 +2090,40 @@ QWidget* MainWindow::build_settings_page()
         }
     );
 
-    layout->addWidget(title);
-    layout->addLayout(form);
-    layout->addWidget(recovery);
-    layout->addWidget(backup);
-    layout->addWidget(backup_note);
+    safety_layout->addWidget(
+        backup_row
+    );
+    layout->addWidget(safety);
+
+    auto* advanced = make_card();
+    auto* advanced_layout =
+        new QVBoxLayout(advanced);
+    advanced_layout->setContentsMargins(
+        22,
+        17,
+        22,
+        19
+    );
+    advanced_layout->setSpacing(10);
+
+    advanced_layout->addWidget(
+        make_section_heading(
+            "Advanced",
+            "Consensus and wallet safety values shown here are read-only in this Testnet build."
+        )
+    );
+
+    auto* advanced_note =
+        new QLabel(
+            "Network identity, genesis parameters, address format and consensus rules are intentionally not editable from the GUI."
+        );
+    advanced_note->setObjectName("muted");
+    advanced_note->setWordWrap(true);
+    advanced_layout->addWidget(
+        advanced_note
+    );
+
+    layout->addWidget(advanced);
     layout->addStretch();
 
     return page;
@@ -661,19 +2143,41 @@ void MainWindow::apply_snapshot(
     const auto& balance = status.wallet_balance;
 
     available_value_->setText(
-        format_amount(balance.available) +
-        " QTM"
+        format_amount(balance.available)
     );
     confirmed_value_->setText(
+        format_amount(balance.confirmed)
+    );
+    pending_value_->setText(
+        format_amount(balance.pending)
+    );
+    immature_value_->setText(
+        format_amount(balance.immature)
+    );
+
+    receive_confirmed_->setText(
         format_amount(balance.confirmed) +
         " QTM"
     );
-    pending_value_->setText(
+    receive_pending_->setText(
         format_amount(balance.pending) +
         " QTM"
     );
-    immature_value_->setText(
-        format_amount(balance.immature) +
+
+    Amount received_total{0U};
+
+    for (const auto& view :
+         snapshot.transactions) {
+        if (view.record.received <=
+            std::numeric_limits<Amount>::max() -
+                received_total) {
+            received_total +=
+                view.record.received;
+        }
+    }
+
+    receive_total_->setText(
+        format_amount(received_total) +
         " QTM"
     );
 
@@ -704,17 +2208,29 @@ void MainWindow::apply_snapshot(
         overview_sync_state_->setText(
             "Synchronizing"
         );
+        overview_sync_state_->setStyleSheet(
+            "color:#d18200;font-weight:700;"
+        );
     } else if (status.peer_best_height) {
         overview_sync_state_->setText(
             "Up to date"
+        );
+        overview_sync_state_->setStyleSheet(
+            "color:#079b43;font-weight:700;"
         );
     } else if (status.peers == 0U) {
         overview_sync_state_->setText(
             "Waiting for peers"
         );
+        overview_sync_state_->setStyleSheet(
+            "color:#c2413b;font-weight:700;"
+        );
     } else {
         overview_sync_state_->setText(
             "Connected"
+        );
+        overview_sync_state_->setStyleSheet(
+            "color:#079b43;font-weight:700;"
         );
     }
 
@@ -741,7 +2257,7 @@ void MainWindow::apply_snapshot(
     );
 
     status_network_->setText(
-        QString("Network: %1")
+        QString("◉  Network: %1")
             .arg(
                 QString::fromUtf8(
                     params_.name.data(),
@@ -752,17 +2268,26 @@ void MainWindow::apply_snapshot(
             )
     );
     status_blocks_->setText(
-        "Blocks: " + height
+        "▤  Blocks: " + height
     );
     status_peers_->setText(
-        QString("Peers: %1")
+        QString("●●  Peers: %1")
             .arg(status.peers)
     );
     status_connection_->setText(
         status.running
-            ? "Node: running"
-            : "Node: stopped"
+            ? "●  Node: running"
+            : "●  Node: stopped"
     );
+    status_connection_->setObjectName(
+        status.running
+            ? "statusRunning"
+            : "statusStopped"
+    );
+    status_connection_->style()
+        ->unpolish(status_connection_);
+    status_connection_->style()
+        ->polish(status_connection_);
 
     settings_network_->setText(
         QString::fromUtf8(
@@ -792,6 +2317,13 @@ void MainWindow::apply_snapshot(
             )
     );
 
+    send_fee_rate_->setText(
+        format_amount(
+            status.recommended_fee_rate_per_kb
+        ) +
+        " QTM/kB"
+    );
+
     transactions_->setRowCount(
         static_cast<int>(
             snapshot.transactions.size()
@@ -807,32 +2339,96 @@ void MainWindow::apply_snapshot(
         const int row =
             static_cast<int>(i);
 
+        auto* status_item =
+            new QTableWidgetItem(
+                status_text(tx.status)
+            );
+
+        if (tx.status ==
+            wallet::WalletTransactionStatus::
+                confirmed) {
+            status_item->setForeground(
+                QColor("#079b43")
+            );
+        } else if (
+            tx.status ==
+            wallet::WalletTransactionStatus::
+                unconfirmed) {
+            status_item->setForeground(
+                QColor("#d18200")
+            );
+        } else {
+            status_item->setForeground(
+                QColor("#6c4ec4")
+            );
+        }
+
         transactions_->setItem(
             row,
             0,
-            new QTableWidgetItem(
-                status_text(tx.status)
-            )
+            status_item
         );
+
+        const QString full_txid =
+            hash_hex(tx.txid);
+        const QString short_txid =
+            full_txid.size() > 18
+                ? full_txid.left(9) +
+                    "..." +
+                    full_txid.right(7)
+                : full_txid;
+
+        auto* txid_item =
+            new QTableWidgetItem(
+                short_txid
+            );
+        txid_item->setToolTip(
+            full_txid
+        );
+        txid_item->setForeground(
+            QColor("#0869e8")
+        );
+
         transactions_->setItem(
             row,
             1,
-            new QTableWidgetItem(
-                hash_hex(tx.txid)
-            )
+            txid_item
         );
+
+        auto* received_item =
+            new QTableWidgetItem(
+                tx.received > 0U
+                    ? "+" +
+                        format_amount(
+                            tx.received
+                        ) +
+                        " QTM"
+                    : "-"
+            );
+
+        if (tx.received > 0U) {
+            received_item->setForeground(
+                QColor("#079b43")
+            );
+        }
+
         transactions_->setItem(
             row,
             2,
-            new QTableWidgetItem(
-                format_amount(tx.received)
-            )
+            received_item
         );
+
         transactions_->setItem(
             row,
             3,
             new QTableWidgetItem(
-                format_amount(tx.spent)
+                tx.spent > 0U
+                    ? "-" +
+                        format_amount(
+                            tx.spent
+                        ) +
+                        " QTM"
+                    : "-"
             )
         );
         transactions_->setItem(
@@ -861,10 +2457,16 @@ void MainWindow::apply_snapshot(
                     ? QString::fromStdString(
                           *view.label
                       )
-                    : QString{}
+                    : (
+                          tx.coinbase
+                              ? "Mining Reward"
+                              : QString{}
+                      )
             )
         );
     }
+
+    filter_transactions();
 
     address_book_table_->setRowCount(
         static_cast<int>(
@@ -897,6 +2499,83 @@ void MainWindow::apply_snapshot(
                         label
                 )
             )
+        );
+    }
+}
+
+void MainWindow::filter_transactions()
+{
+    if (transactions_ == nullptr ||
+        transaction_search_ == nullptr ||
+        transaction_status_filter_ ==
+            nullptr) {
+        return;
+    }
+
+    const QString needle =
+        transaction_search_
+            ->text()
+            .trimmed();
+
+    const QString status_filter =
+        transaction_status_filter_
+            ->currentText();
+
+    for (int row = 0;
+         row < transactions_->rowCount();
+         ++row) {
+        bool text_match =
+            needle.isEmpty();
+
+        if (!text_match) {
+            for (int column = 0;
+                 column <
+                    transactions_
+                        ->columnCount();
+                 ++column) {
+                const auto* item =
+                    transactions_->item(
+                        row,
+                        column
+                    );
+
+                if (item != nullptr &&
+                    item->text().contains(
+                        needle,
+                        Qt::CaseInsensitive
+                    )) {
+                    text_match = true;
+                    break;
+                }
+
+                if (item != nullptr &&
+                    item->toolTip().contains(
+                        needle,
+                        Qt::CaseInsensitive
+                    )) {
+                    text_match = true;
+                    break;
+                }
+            }
+        }
+
+        const auto* status_item =
+            transactions_->item(
+                row,
+                0
+            );
+
+        const bool status_match =
+            status_filter ==
+                "All statuses" ||
+            (status_item != nullptr &&
+             status_item->text() ==
+                 status_filter);
+
+        transactions_->setRowHidden(
+            row,
+            !(text_match &&
+              status_match)
         );
     }
 }
@@ -1091,6 +2770,8 @@ void MainWindow::new_receive_address()
         )
     );
 
+    receive_label_->clear();
+
     QApplication::clipboard()->setText(
         receive_address_->text()
     );
@@ -1103,6 +2784,53 @@ void MainWindow::copy_receive_address()
     QApplication::clipboard()->setText(
         receive_address_->text()
     );
+}
+
+void MainWindow::save_receive_label()
+{
+    const QString address =
+        receive_address_
+            ->text()
+            .trimmed();
+
+    const QString label =
+        receive_label_
+            ->text()
+            .trimmed();
+
+    if (address.isEmpty() ||
+        label.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            "Receive label",
+            "Enter a label for the current receive address."
+        );
+        return;
+    }
+
+    const auto result =
+        runtime_.set_address_label(
+            address.toStdString(),
+            label.toStdString()
+        );
+
+    if (result !=
+        wallet::WalletMetadataError::none) {
+        QMessageBox::warning(
+            this,
+            "Label not saved",
+            metadata_error_text(result)
+        );
+        return;
+    }
+
+    QMessageBox::information(
+        this,
+        "Address label saved",
+        "The receive address label was saved locally."
+    );
+
+    refresh();
 }
 
 void MainWindow::save_address_book_entry()
@@ -1202,8 +2930,10 @@ void MainWindow::toggle_mining()
 {
     if (mining_timer_->isActive()) {
         mining_timer_->stop();
-        mining_state_->setText("Stopped");
-        mining_button_->setText("Start mining");
+        mining_state_->setText("Ready");
+        mining_button_->setText(
+            "Start mining"
+        );
         return;
     }
 
@@ -1211,8 +2941,16 @@ void MainWindow::toggle_mining()
     mining_blocks_found_ = 0U;
     mining_elapsed_.restart();
 
+    if (mining_recent_blocks_ !=
+        nullptr) {
+        mining_recent_blocks_
+            ->setRowCount(0);
+    }
+
     mining_state_->setText("Mining");
-    mining_button_->setText("Stop mining");
+    mining_button_->setText(
+        "Stop mining"
+    );
     mining_timer_->start();
     mine_once();
 }
@@ -1233,6 +2971,17 @@ void MainWindow::mine_once()
 
     if (result.ok()) {
         ++mining_blocks_found_;
+
+        const Amount reward =
+            consensus::block_subsidy(
+                result.height
+            ) +
+            result.total_fees;
+
+        add_recent_mined_block(
+            result.height,
+            reward
+        );
     } else if (result.error !=
                NodeMineError::
                    proof_of_work_exhausted) {
@@ -1292,8 +3041,88 @@ void MainWindow::mine_once()
         )
     );
 
+    if (mining_blocks_found_ > 0U) {
+        const double seconds =
+            static_cast<double>(
+                elapsed_ms
+            ) /
+            1000.0 /
+            static_cast<double>(
+                mining_blocks_found_
+            );
+
+        if (seconds < 60.0) {
+            mining_eta_->setText(
+                QString("%1 s")
+                    .arg(
+                        seconds,
+                        0,
+                        'f',
+                        1
+                    )
+            );
+        } else {
+            mining_eta_->setText(
+                QString("%1 min")
+                    .arg(
+                        seconds / 60.0,
+                        0,
+                        'f',
+                        1
+                    )
+            );
+        }
+    } else {
+        mining_eta_->setText("—");
+    }
+
     if (mining_timer_->isActive()) {
         mining_state_->setText("Mining");
+    }
+}
+
+void MainWindow::add_recent_mined_block(
+    std::uint32_t height,
+    Amount reward)
+{
+    if (mining_recent_blocks_ ==
+        nullptr) {
+        return;
+    }
+
+    mining_recent_blocks_->insertRow(0);
+
+    mining_recent_blocks_->setItem(
+        0,
+        0,
+        new QTableWidgetItem(
+            QString::number(height)
+        )
+    );
+    mining_recent_blocks_->setItem(
+        0,
+        1,
+        new QTableWidgetItem(
+            format_amount(reward) +
+            " QTM"
+        )
+    );
+    mining_recent_blocks_->setItem(
+        0,
+        2,
+        new QTableWidgetItem(
+            QDateTime::currentDateTime()
+                .toString("HH:mm:ss")
+        )
+    );
+
+    while (mining_recent_blocks_
+               ->rowCount() > 5) {
+        mining_recent_blocks_
+            ->removeRow(
+                mining_recent_blocks_
+                    ->rowCount() - 1
+            );
     }
 }
 
