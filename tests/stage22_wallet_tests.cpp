@@ -840,6 +840,103 @@ void test_wallet_index_rebuilds_after_reorg()
     );
 }
 
+void test_imported_key_invalidates_live_index_immediately()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_directory =
+        unique_dir("import-live-chain");
+    const auto wallet_directory =
+        unique_dir("import-live-wallet");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 45'000U;
+
+    NodeRuntime node{
+        params,
+        chain_directory
+    };
+
+    assert(node.start_at(base_time).ok());
+
+    const Bytes imported_payout =
+        consensus::make_p2pk_locking_script(
+            public_key_from_scalar(69U)
+        );
+
+    const auto historical =
+        node.mine_block_at(
+            imported_payout,
+            base_time + 1U,
+            4'096U
+        );
+
+    assert(historical.ok());
+
+    const Hash256 historical_txid =
+        transaction_id(
+            historical.block.transactions.front()
+        );
+
+    Wallet wallet{
+        params,
+        wallet_directory
+    };
+
+    assert(wallet.start().ok());
+
+    const auto baseline =
+        wallet.sync(
+            node.chain(),
+            node.mempool()
+        );
+
+    assert(baseline.ok());
+    assert(baseline.index_rebuilt);
+    assert(wallet.history().empty());
+
+    const auto imported =
+        wallet.import_private_key(
+            key_from_scalar(69U)
+        );
+
+    assert(imported.ok());
+
+    const auto rescanned =
+        wallet.sync(
+            node.chain(),
+            node.mempool()
+        );
+
+    assert(rescanned.ok());
+    assert(rescanned.index_rebuilt);
+    assert(rescanned.blocks_scanned == 2U);
+
+    const auto* record =
+        find_history(
+            wallet.history(),
+            historical_txid
+        );
+
+    assert(record != nullptr);
+    assert(record->received ==
+           consensus::kInitialSubsidy);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        chain_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        wallet_directory,
+        ec
+    );
+}
+
 void test_imported_key_invalidates_persisted_index_across_restart()
 {
     using namespace quintum;
@@ -962,6 +1059,7 @@ int main()
     test_persistent_history_and_incremental_index();
     test_network_runtime_exposes_wallet_history_and_fee_rate();
     test_wallet_index_rebuilds_after_reorg();
+    test_imported_key_invalidates_live_index_immediately();
     test_imported_key_invalidates_persisted_index_across_restart();
     return 0;
 }
