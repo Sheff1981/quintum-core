@@ -91,6 +91,7 @@ add_library(quintum_core STATIC
     src/mining/block_template.cpp
     src/node/node.cpp
     src/node/mempool.cpp
+    src/policy/fees.cpp
     src/net/protocol.cpp
     src/net/peer.cpp
     src/net/address.cpp
