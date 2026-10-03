@@ -60,6 +60,103 @@ constexpr std::uintmax_t kMaxBackupBundleSize{
     20U * 1024U * 1024U
 };
 
+enum class PathTargetRelation {
+    distinct,
+    same,
+    io_error,
+};
+
+PathTargetRelation path_target_relation(
+    const std::filesystem::path& lhs,
+    const std::filesystem::path& rhs) noexcept
+{
+    std::error_code ec;
+    const bool lhs_exists =
+        std::filesystem::exists(lhs, ec);
+
+    if (ec) {
+        return PathTargetRelation::io_error;
+    }
+
+    const bool rhs_exists =
+        std::filesystem::exists(rhs, ec);
+
+    if (ec) {
+        return PathTargetRelation::io_error;
+    }
+
+    if (lhs_exists && rhs_exists) {
+        const bool equivalent =
+            std::filesystem::equivalent(
+                lhs,
+                rhs,
+                ec
+            );
+
+        if (ec) {
+            return PathTargetRelation::io_error;
+        }
+
+        if (equivalent) {
+            return PathTargetRelation::same;
+        }
+    }
+
+    const auto canonical_lhs =
+        std::filesystem::weakly_canonical(
+            lhs,
+            ec
+        );
+
+    if (ec) {
+        return PathTargetRelation::io_error;
+    }
+
+    const auto canonical_rhs =
+        std::filesystem::weakly_canonical(
+            rhs,
+            ec
+        );
+
+    if (ec) {
+        return PathTargetRelation::io_error;
+    }
+
+    return canonical_lhs == canonical_rhs
+        ? PathTargetRelation::same
+        : PathTargetRelation::distinct;
+}
+
+WalletStoreError validate_backup_destination(
+    const std::filesystem::path& destination,
+    const std::filesystem::path& wallet_path,
+    const std::filesystem::path& state_path,
+    const std::filesystem::path& metadata_path) noexcept
+{
+    for (const auto* protected_path : {
+             &wallet_path,
+             &state_path,
+             &metadata_path}) {
+        const auto relation =
+            path_target_relation(
+                destination,
+                *protected_path
+            );
+
+        if (relation ==
+            PathTargetRelation::io_error) {
+            return WalletStoreError::io_error;
+        }
+
+        if (relation ==
+            PathTargetRelation::same) {
+            return WalletStoreError::unsafe_destination;
+        }
+    }
+
+    return WalletStoreError::none;
+}
+
 bool flush_file(std::FILE* file) noexcept
 {
     if (std::fflush(file) != 0) {
@@ -1505,6 +1602,19 @@ WalletStoreError Wallet::backup(
         return WalletStoreError::io_error;
     }
 
+    const auto destination_error =
+        validate_backup_destination(
+            destination,
+            path_,
+            state_path_,
+            metadata_path_
+        );
+
+    if (destination_error !=
+        WalletStoreError::none) {
+        return destination_error;
+    }
+
     auto bytes =
         read_file(path_);
 
@@ -1527,6 +1637,19 @@ WalletStoreError Wallet::backup_bundle(
 {
     if (!started_) {
         return WalletStoreError::io_error;
+    }
+
+    const auto destination_error =
+        validate_backup_destination(
+            destination,
+            path_,
+            state_path_,
+            metadata_path_
+        );
+
+    if (destination_error !=
+        WalletStoreError::none) {
+        return destination_error;
     }
 
     auto wallet_bytes =
@@ -1823,6 +1946,32 @@ WalletStoreError Wallet::restore_bundle(
             metadata_count
         };
 
+    // wallet_state.dat is derived cache data. Remove a stale copy before
+    // writing restored primary wallet material so a cleanup failure cannot
+    // turn a reported restore success into a broken first startup.
+    ec.clear();
+    const bool state_exists =
+        std::filesystem::exists(
+            state_path_,
+            ec
+        );
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
+    if (state_exists) {
+        const bool removed =
+            std::filesystem::remove(
+                state_path_,
+                ec
+            );
+
+        if (ec || !removed) {
+            return WalletStoreError::io_error;
+        }
+    }
+
     auto result =
         write_atomic(
             path_,
@@ -1875,18 +2024,6 @@ WalletStoreError Wallet::restore_bundle(
             rollback_wallet();
             return WalletStoreError::io_error;
         }
-    }
-
-    ec.clear();
-
-    if (std::filesystem::exists(
-            state_path_,
-            ec) &&
-        !ec) {
-        std::filesystem::remove(
-            state_path_,
-            ec
-        );
     }
 
     return WalletStoreError::none;
