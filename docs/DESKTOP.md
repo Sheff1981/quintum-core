@@ -102,9 +102,27 @@ The Windows artifact contains:
 
 The pre-alpha installer is currently unsigned. Production signing is deferred until a real code-signing certificate is provisioned.
 
+## Live Windows/Testnet verification — 2026-10-03
+
+A freshly built Windows installer was installed on a real Windows laptop and tested against the public Testnet seed without manual peer configuration.
+
+Observed live status:
+
+- `Network: testnet`;
+- `Peers: 1`;
+- `Node: running`;
+- automatic connection to the public seed at `212.193.15.139:38444`;
+- real desktop PoW mining at roughly 37 kH/s;
+- two accepted blocks;
+- local height 2;
+- 100 QTM shown as immature coinbase balance;
+- both blocks independently present and durable on the remote VPS at height 2.
+
+This confirms that the ordinary installer path now reaches a live public peer and relays mined blocks end to end without manual IP entry.
+
 ## Remaining pre-mainnet work
 
-- public seed/bootstrap infrastructure and geographically separate nodes;
+- additional independent/geographically separate public seed nodes and DNS seeds;
 - long-duration network/reorg/disconnect soak tests;
 - confirmation-target fee estimator;
 - external Windows installation testing across supported machines;
