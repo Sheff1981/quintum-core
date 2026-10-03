@@ -4,6 +4,7 @@
 #include "core/serialize.hpp"
 #include "crypto/random.hpp"
 #include "crypto/sha256.hpp"
+#include "wallet/fee_policy.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1851,6 +1852,311 @@ WalletSyncResult Wallet::sync(
     return out;
 }
 
+WalletFeeQuote Wallet::quote_auto_fee(
+    std::string_view destination,
+    Amount amount,
+    const Chainstate& chain,
+    const Mempool& mempool)
+{
+    WalletFeeQuote out;
+    out.amount = amount;
+
+    if (!started_) {
+        out.error =
+            WalletCreateError::not_started;
+        return out;
+    }
+
+    const auto synced =
+        sync(chain, mempool);
+
+    if (!synced.ok()) {
+        out.error =
+            WalletCreateError::sync_failed;
+        out.sync_error = synced.error;
+        return out;
+    }
+
+    const auto decoded =
+        decode_address(
+            params_.network,
+            destination
+        );
+
+    if (!decoded.ok()) {
+        out.address_error =
+            decoded.error;
+        out.error =
+            decoded.error ==
+                    AddressError::wrong_network
+                ? WalletCreateError::
+                      wrong_network_address
+                : WalletCreateError::
+                      invalid_address;
+        return out;
+    }
+
+    if (amount == 0U) {
+        out.error =
+            WalletCreateError::zero_amount;
+        return out;
+    }
+
+    if (!consensus::money_range(amount)) {
+        out.error =
+            WalletCreateError::
+                amount_out_of_range;
+        return out;
+    }
+
+    out.fee_rate_per_kb =
+        recommended_fee_rate(mempool);
+
+    if (!consensus::money_range(
+            out.fee_rate_per_kb)) {
+        out.error =
+            WalletCreateError::
+                fee_out_of_range;
+        return out;
+    }
+
+    std::vector<WalletCoin> candidates;
+    candidates.reserve(
+        available_coins_.size()
+    );
+
+    for (const auto& [outpoint, coin] :
+         available_coins_) {
+        (void)outpoint;
+        candidates.push_back(coin);
+    }
+
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const WalletCoin& lhs,
+           const WalletCoin& rhs) {
+            if (lhs.coin.height !=
+                rhs.coin.height) {
+                return lhs.coin.height <
+                       rhs.coin.height;
+            }
+
+            return OutPointLess{}(
+                lhs.outpoint,
+                rhs.outpoint
+            );
+        }
+    );
+
+    Amount selected_value{0U};
+    std::size_t selected_count{0U};
+
+    for (const auto& coin : candidates) {
+        if (coin.coin.output.value >
+            consensus::kMaxMoney -
+                selected_value) {
+            out.error =
+                WalletCreateError::
+                    value_overflow;
+            return out;
+        }
+
+        selected_value +=
+            coin.coin.output.value;
+        ++selected_count;
+
+        const auto no_change_size =
+            estimate_p2pk_transaction_size(
+                selected_count,
+                1U
+            );
+
+        if (!no_change_size) {
+            out.error =
+                WalletCreateError::
+                    validation_failed;
+            return out;
+        }
+
+        const auto no_change_fee =
+            policy::fee_for_size(
+                *no_change_size,
+                out.fee_rate_per_kb
+            );
+
+        if (!no_change_fee) {
+            out.error =
+                WalletCreateError::
+                    fee_out_of_range;
+            return out;
+        }
+
+        if (*no_change_fee >
+            consensus::kMaxMoney - amount) {
+            out.error =
+                WalletCreateError::
+                    value_overflow;
+            return out;
+        }
+
+        const Amount no_change_target =
+            amount + *no_change_fee;
+
+        if (selected_value <
+            no_change_target) {
+            continue;
+        }
+
+        const auto with_change_size =
+            estimate_p2pk_transaction_size(
+                selected_count,
+                2U
+            );
+
+        if (!with_change_size) {
+            out.error =
+                WalletCreateError::
+                    validation_failed;
+            return out;
+        }
+
+        const auto with_change_fee =
+            policy::fee_for_size(
+                *with_change_size,
+                out.fee_rate_per_kb
+            );
+
+        if (!with_change_fee) {
+            out.error =
+                WalletCreateError::
+                    fee_out_of_range;
+            return out;
+        }
+
+        const bool can_make_change =
+            *with_change_fee <=
+                consensus::kMaxMoney - amount &&
+            selected_value >
+                amount + *with_change_fee;
+
+        out.selected_value =
+            selected_value;
+        out.input_count =
+            selected_count;
+
+        if (can_make_change) {
+            out.fee =
+                *with_change_fee;
+            out.change =
+                selected_value -
+                amount -
+                out.fee;
+            out.serialized_size =
+                *with_change_size;
+            out.output_count = 2U;
+        } else {
+            out.fee =
+                selected_value -
+                amount;
+            out.change = 0U;
+            out.serialized_size =
+                *no_change_size;
+            out.output_count = 1U;
+        }
+
+        if (!consensus::money_range(
+                out.fee)) {
+            out.error =
+                WalletCreateError::
+                    fee_out_of_range;
+            return out;
+        }
+
+        return out;
+    }
+
+    out.error =
+        WalletCreateError::
+            insufficient_funds;
+    return out;
+}
+
+WalletCreateResult
+Wallet::create_transaction_auto_fee(
+    std::string_view destination,
+    Amount amount,
+    const Chainstate& chain,
+    const Mempool& mempool)
+{
+    const auto quote =
+        quote_auto_fee(
+            destination,
+            amount,
+            chain,
+            mempool
+        );
+
+    if (!quote.ok()) {
+        WalletCreateResult out;
+        out.error = quote.error;
+        out.address_error =
+            quote.address_error;
+        out.sync_error =
+            quote.sync_error;
+        out.amount = amount;
+        return out;
+    }
+
+    auto out =
+        create_transaction(
+            destination,
+            amount,
+            quote.fee,
+            chain,
+            mempool
+        );
+
+    if (!out.ok()) {
+        return out;
+    }
+
+    out.fee_rate_per_kb =
+        quote.fee_rate_per_kb;
+    out.serialized_size =
+        quote.serialized_size;
+
+    const auto actual_size =
+        serialized_transaction_size(
+            out.transaction
+        );
+
+    if (!actual_size ||
+        *actual_size !=
+            quote.serialized_size) {
+        out.error =
+            WalletCreateError::
+                validation_failed;
+        return out;
+    }
+
+    const auto required =
+        policy::fee_for_size(
+            *actual_size,
+            quote.fee_rate_per_kb
+        );
+
+    if (!required ||
+        out.fee < *required) {
+        out.error =
+            WalletCreateError::
+                validation_failed;
+        return out;
+    }
+
+    return out;
+}
+
 WalletCreateResult Wallet::create_transaction(
     std::string_view destination,
     Amount amount,
@@ -2088,6 +2394,20 @@ WalletCreateResult Wallet::create_transaction(
 
     const auto transaction_size =
         serialized_transaction_size(tx);
+
+    if (transaction_size) {
+        out.serialized_size =
+            *transaction_size;
+
+        const auto effective_rate =
+            policy::fee_rate_for_size(
+                fee,
+                *transaction_size
+            );
+
+        out.fee_rate_per_kb =
+            effective_rate.value_or(0U);
+    }
 
     if (!transaction_size ||
         *transaction_size >
