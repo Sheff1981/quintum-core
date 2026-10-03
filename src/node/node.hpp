@@ -127,7 +127,8 @@ public:
     [[nodiscard]] NodeMineResult mine_mempool_block_at(
         const Bytes& payout_script,
         std::uint64_t adjusted_time,
-        std::uint64_t max_attempts
+        std::uint64_t max_attempts,
+        std::uint64_t start_nonce = 0U
     );
 
     [[nodiscard]] NodeMineResult mine_block(
@@ -140,7 +141,8 @@ public:
         const Bytes& payout_script,
         std::uint64_t adjusted_time,
         std::uint64_t max_attempts,
-        std::span<const Transaction> transactions = {}
+        std::span<const Transaction> transactions = {},
+        std::uint64_t start_nonce = 0U
     );
 
 private:
