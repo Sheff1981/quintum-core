@@ -116,9 +116,15 @@ A corrupt or wrong-network peer database is rejected. It is not silently treated
 
 The discovery layer supports pinned numeric hardcoded seed endpoints and can import them into the address manager on first start.
 
-The built-in Mainnet/Testnet/Regtest seed lists are currently intentionally empty because there is not yet a real public QUINTUM seed node. The implementation does not invent a developer-controlled server merely to make discovery appear complete.
+The public Testnet has its first pinned numeric bootstrap endpoint:
 
-DNS seed resolution is a later network-deployment step.
+- `212.193.15.139:38444`
+
+Mainnet and Regtest seed lists remain empty. The Testnet endpoint is imported into addrman on first start and normal outbound connection logic handles it exactly like any other eligible peer.
+
+On 2026-10-03 this seed was verified from an external mobile network: TCP port 38444 was reachable, a fresh Windows desktop install started in Testnet mode, discovered the node without any manual IP entry, completed the QUINTUM version/verack handshake and showed one live peer.
+
+DNS seed resolution remains a later network-deployment step.
 
 ## Security boundary
 
@@ -128,9 +134,9 @@ Block and transaction bytes received from peers enter the same validated Chainst
 
 ## Deployment items not implemented yet
 
-The network runtime is functional, but public deployment infrastructure is intentionally still absent:
+The first public Testnet seed node is deployed and externally verified. Remaining deployment/hardening items are:
 
-- live public seed nodes;
+- additional independent/geographically separate seed nodes;
 - DNS seeds;
 - UPnP/NAT-PMP automatic inbound port mapping;
 - production-grade peer reputation/eviction policy.
@@ -294,3 +300,27 @@ The integration suite prepares two persistent nodes with a five-block height dif
 - automatic reconnect after the server returns on the same endpoint;
 - live propagation of height 107 after reconnect;
 - graceful shutdown of both runtimes.
+
+
+## Live public Testnet verification — 2026-10-03
+
+The Stage 29 deployment was verified across two real machines and the public Internet, not only by unit/integration tests.
+
+Verified path:
+
+1. Ubuntu 24.04 VPS runs `quintumd --testnet` as a persistent systemd service.
+2. The service listens on `0.0.0.0:38444`; host firewall allows the port.
+3. An external mobile connection successfully opened TCP to `212.193.15.139:38444`.
+4. A fresh Windows QUINTUM installer started the GUI in Testnet by default.
+5. The Windows node discovered the hardcoded seed automatically with no manual peer/IP configuration.
+6. GUI status showed `Network: testnet`, `Peers: 1`, `Node: running`.
+7. The Windows reference miner performed real PoW at roughly 37 kH/s and found two valid blocks.
+8. Local chain height advanced to 2 and the wallet showed 100 QTM as immature coinbase balance, consistent with two 50 QTM rewards and the 100-block maturity rule.
+9. The VPS accepted the relayed blocks through normal P2P/consensus handling and persisted them.
+10. After stopping the persistent service and reopening the same Testnet datadir with `quintumd`, the VPS reported `Height: 2` and the matching active tip, proving durable remote acceptance rather than GUI-only/local state.
+
+This verifies the live end-to-end bootstrap and block path:
+
+`fresh Windows install -> hardcoded seed discovery -> TCP handshake -> live peer -> real PoW -> local validation/storage -> inv/getdata/block relay -> remote consensus acceptance -> remote durable storage`.
+
+No manual IP entry, PowerShell peer injection, private consensus bypass or developer mint path was used.
