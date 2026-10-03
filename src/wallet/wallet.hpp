@@ -30,6 +30,7 @@ enum class WalletStoreError {
     corrupt,
     wrong_network,
     target_exists,
+    unsafe_destination,
     passphrase_required,
     invalid_passphrase,
     crypto_error,
