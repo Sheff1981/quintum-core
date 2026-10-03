@@ -302,11 +302,22 @@ Hash256 Wallet::wallet_index_id() const
         return {};
     }
 
+    Bytes material;
+    material.reserve(
+        keys_.size() *
+        crypto::PublicKey{}.size()
+    );
+
+    for (const auto& key : keys_) {
+        material.insert(
+            material.end(),
+            key.public_key.begin(),
+            key.public_key.end()
+        );
+    }
+
     return crypto::double_sha256(
-        std::span<const Byte>{
-            keys_.front().public_key.data(),
-            keys_.front().public_key.size()
-        }
+        material
     );
 }
 
