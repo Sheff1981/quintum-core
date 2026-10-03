@@ -134,6 +134,12 @@ void test_wallet_metadata_persists_and_validates_network()
                WalletMetadataError::
                    wrong_network_address);
 
+        // Key reservation reorders wallet key records. Metadata identity
+        // must remain stable across ordinary New Address operations.
+        const auto next_address =
+            wallet.new_receive_address();
+        assert(next_address.ok());
+
         const auto entries =
             wallet.address_book();
 
