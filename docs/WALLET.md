@@ -123,7 +123,7 @@ The state file is bound to:
 - the indexed active-chain height and tip hash;
 - a double-SHA-256 checksum.
 
-It contains **no private keys or recovery seed**. If it is missing, corrupt, belongs to another wallet, or its indexed tip is no longer on the active chain after a reorg, the wallet discards the cache and rebuilds it from the authoritative blockchain. Importing a private key also invalidates the cache so historical funds for that key cannot be missed, including the crash-before-rescan case.
+It contains **no private keys or recovery seed**. The file is checksummed but intentionally not encrypted because it is a rebuildable index; it does contain privacy-sensitive public-key/transaction metadata, so it should still be treated as private user data. If it is missing, corrupt, belongs to another wallet, or its indexed tip is no longer on the active chain after a reorg, the wallet discards the cache and rebuilds it from the authoritative blockchain. Importing a private key also invalidates the cache so historical funds for that key cannot be missed, including both immediate in-process rescan and the crash-before-rescan case.
 
 It exposes four amounts:
 
@@ -149,7 +149,7 @@ A history record contains:
 - block height/hash for confirmed transactions;
 - current confirmation count.
 
-Because the node mempool is intentionally memory-only, a transaction that was unconfirmed before restart is loaded as **inactive** until the transaction is observed again in the current mempool or confirmed in a block. This avoids falsely presenting a stale transaction as currently broadcast.
+Because the node mempool is intentionally memory-only, a transaction that was unconfirmed before restart is loaded as **inactive** until the transaction is observed again in the current mempool or confirmed in a block. A transaction that was confirmed on a branch later removed by reorg is also retained as **inactive**, with its old block association and confirmation count cleared. This avoids both falsely presenting stale transactions as currently broadcast and silently deleting user-visible history during a reorg.
 
 For wallet-created transactions all inputs belong to the wallet, so the exact fee is retained. For arbitrary transactions involving external inputs, a fee is recorded only when it can be proven from the wallet-visible inputs.
 
