@@ -471,9 +471,42 @@ void test_real_testnet_params_bootstrap_and_peer_store()
 
 } // namespace
 
+
+void test_mainnet_is_runtime_gated_before_launch()
+{
+    using namespace quintum;
+
+    const auto root =
+        unique_directory("mainnet-gate");
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+
+    net::NetworkRuntime runtime{
+        consensus::mainnet_params(),
+        root
+    };
+
+    net::NetworkRuntimeConfig config;
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.enable_wallet = false;
+
+    const auto started =
+        runtime.start(std::move(config));
+
+    assert(started.error ==
+           net::NetworkRuntimeStartError::network_disabled);
+    assert(!runtime.running());
+    assert(!std::filesystem::exists(root));
+
+    runtime.stop();
+    std::filesystem::remove_all(root, ec);
+}
+
 int main()
 {
     test_real_testnet_params_bootstrap_and_peer_store();
     test_three_node_partition_reorg_reconnect_restart();
+    test_mainnet_is_runtime_gated_before_launch();
     return 0;
 }
