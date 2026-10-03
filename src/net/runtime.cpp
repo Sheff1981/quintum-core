@@ -1568,38 +1568,36 @@ bool NetworkRuntime::prepare_live_peer(
 
     std::optional<Hash256> synchronized_tip;
 
-    if (local_is_behind) {
-        {
-            std::scoped_lock lock(state_mutex_);
+    {
+        std::scoped_lock lock(state_mutex_);
 
-            const auto synced =
-                sync_from_peer(
-                    peer.session,
-                    node_,
-                    now
-                );
-
-            if (!synced.ok()) {
-                return false;
-            }
-
-            if (synced.blocks_accepted > 0U ||
-                synced.reorganized) {
-                synchronized_tip =
-                    node_.chain().tip_hash();
-            }
-
-            if (!sync_wallet_locked()) {
-                return false;
-            }
-        }
-
-        if (synchronized_tip) {
-            queue_announcement(
-                kInventoryBlock,
-                *synchronized_tip
+        const auto synced =
+            sync_from_peer(
+                peer.session,
+                node_,
+                now
             );
+
+        if (!synced.ok()) {
+            return false;
         }
+
+        if (synced.blocks_accepted > 0U ||
+            synced.reorganized) {
+            synchronized_tip =
+                node_.chain().tip_hash();
+        }
+
+        if (!sync_wallet_locked()) {
+            return false;
+        }
+    }
+
+    if (synchronized_tip) {
+        queue_announcement(
+            kInventoryBlock,
+            *synchronized_tip
+        );
     }
 
     const auto learned =
