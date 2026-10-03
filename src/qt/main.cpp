@@ -468,6 +468,12 @@ QString startup_error_text(
     }
 
     if (result.error ==
+        NetworkRuntimeStartError::network_disabled) {
+        return
+            "QUINTUM Mainnet has not launched yet. This build intentionally permits Testnet and Regtest only.";
+    }
+
+    if (result.error ==
         NetworkRuntimeStartError::data_directory_locked) {
         return
             "Another QUINTUM Core process is already using this data directory. "
