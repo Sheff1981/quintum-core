@@ -380,11 +380,11 @@ int main(int argc, char* argv[])
     };
     const QCommandLineOption testnet{
         "testnet",
-        "Use the QUINTUM test network."
+        "Use the QUINTUM public test network (default)."
     };
     const QCommandLineOption regtest{
         "regtest",
-        "Use local regression-test mode (default)."
+        "Use local regression-test mode."
     };
     const QCommandLineOption datadir{
         "datadir",
@@ -429,7 +429,7 @@ int main(int argc, char* argv[])
     }
 
     quintum::consensus::Network network =
-        quintum::consensus::Network::regtest;
+        quintum::consensus::Network::testnet;
 
     if (parser.isSet(mainnet)) {
         network =
