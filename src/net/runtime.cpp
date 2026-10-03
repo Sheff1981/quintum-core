@@ -242,6 +242,20 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         return out;
     }
 
+    // A worker may have terminated itself after a runtime/P2P exception.
+    // std::thread remains joinable even after its function has returned;
+    // assigning a new worker over it would call std::terminate(). Reap it
+    // before attempting a clean restart.
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+
+    peer_count_.store(0U);
+    outbound_count_.store(0U);
+    peer_best_height_.store(0U);
+    have_peer_height_.store(false);
+    listen_port_.store(0U);
+
     config_ = std::move(config);
 
     DataDirectoryLock startup_lock;
@@ -490,6 +504,8 @@ void NetworkRuntime::stop() noexcept
 
     peer_count_.store(0U);
     outbound_count_.store(0U);
+    peer_best_height_.store(0U);
+    have_peer_height_.store(false);
     listen_port_.store(0U);
     running_.store(false);
     data_lock_.release();
@@ -1323,6 +1339,17 @@ void NetworkRuntime::run_loop() noexcept
         update_peer_counts();
     }
 
+    // The worker owns live P2P activity. If it exits unexpectedly, release
+    // every process-lifetime resource here as well as in stop() so a later
+    // restart cannot inherit a stale listener or datadir lock.
+    listener_.close();
+    reconnect_candidates_.clear();
+    peer_count_.store(0U);
+    outbound_count_.store(0U);
+    peer_best_height_.store(0U);
+    have_peer_height_.store(false);
+    listen_port_.store(0U);
+    data_lock_.release();
     running_.store(false);
 }
 
