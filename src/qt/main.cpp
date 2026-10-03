@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -25,6 +26,8 @@
 
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -93,6 +96,30 @@ void wipe_string(std::string& value)
             }
         );
         value.clear();
+    }
+}
+
+void write_startup_stage(
+    const std::filesystem::path& data_path,
+    std::string_view stage) noexcept
+{
+    try {
+        std::filesystem::create_directories(
+            data_path
+        );
+
+        std::ofstream out(
+            data_path / "startup.log",
+            std::ios::binary |
+                std::ios::trunc
+        );
+
+        if (out) {
+            out << stage << '\n';
+            out.flush();
+        }
+    } catch (...) {
+        // Diagnostics must never prevent startup.
     }
 }
 
@@ -451,6 +478,13 @@ QString startup_error_text(
 
 int main(int argc, char* argv[])
 {
+#ifdef _WIN32
+    // Remote Desktop / Windows Server sessions can expose incomplete or
+    // unstable hardware graphics stacks. QUINTUM is a QWidget application,
+    // so prefer the software backend for maximum server compatibility.
+    qputenv("QT_OPENGL", "software");
+#endif
+
     QApplication app(argc, argv);
 
     QCoreApplication::setOrganizationName(
@@ -779,6 +813,25 @@ int main(int argc, char* argv[])
         return 0;
     }
 
+    write_startup_stage(
+        data_path,
+        "wallet_setup_complete"
+    );
+
+    QProgressDialog startup_progress;
+    startup_progress.setWindowTitle(
+        "Starting QUINTUM Core"
+    );
+    startup_progress.setLabelText(
+        "Opening wallet and starting the node..."
+    );
+    startup_progress.setCancelButton(nullptr);
+    startup_progress.setRange(0, 0);
+    startup_progress.setMinimumDuration(0);
+    startup_progress.setAutoClose(false);
+    startup_progress.show();
+    QApplication::processEvents();
+
     quintum::net::NetworkRuntime runtime{
         params,
         data_path
@@ -815,6 +868,11 @@ int main(int argc, char* argv[])
     wipe_string(setup.mnemonic);
 
     quintum::net::NetworkRuntimeStartResult started;
+
+    write_startup_stage(
+        data_path,
+        "runtime_start_begin"
+    );
 
     try {
         started =
@@ -856,11 +914,74 @@ int main(int argc, char* argv[])
         return 6;
     }
 
-    quintum::qtui::MainWindow window{
-        runtime,
-        params
-    };
-    window.show();
+    write_startup_stage(
+        data_path,
+        "runtime_start_ok"
+    );
+
+    startup_progress.setLabelText(
+        "Opening QUINTUM interface..."
+    );
+    QApplication::processEvents();
+
+    std::unique_ptr<quintum::qtui::MainWindow>
+        window;
+
+    try {
+        write_startup_stage(
+            data_path,
+            "mainwindow_construct_begin"
+        );
+
+        window =
+            std::make_unique<
+                quintum::qtui::MainWindow>(
+                    runtime,
+                    params
+                );
+
+        write_startup_stage(
+            data_path,
+            "mainwindow_construct_ok"
+        );
+
+        window->show();
+        window->raise();
+        window->activateWindow();
+        QApplication::processEvents();
+
+        write_startup_stage(
+            data_path,
+            "ready"
+        );
+    } catch (const std::exception& error) {
+        startup_progress.close();
+        QMessageBox::critical(
+            nullptr,
+            "QUINTUM interface could not start",
+            QString(
+                "The node and wallet started, but the desktop interface failed to open.\n\n%1\n\nNo wallet data was intentionally discarded."
+            ).arg(
+                QString::fromUtf8(
+                    error.what()
+                )
+            )
+        );
+        runtime.stop();
+        return 8;
+    } catch (...) {
+        startup_progress.close();
+        QMessageBox::critical(
+            nullptr,
+            "QUINTUM interface could not start",
+            "The node and wallet started, but the desktop interface failed to open. "
+            "No wallet data was intentionally discarded."
+        );
+        runtime.stop();
+        return 8;
+    }
+
+    startup_progress.close();
 
     const auto live_status =
         runtime.status();
@@ -870,12 +991,12 @@ int main(int argc, char* argv[])
         live_status.listen_port != 0U) {
         QTimer::singleShot(
             0,
-            &window,
-            [&window,
+            window.get(),
+            [parent = window.get(),
              actual_port = live_status.listen_port,
              expected_port = params.p2p_port] {
                 QMessageBox::warning(
-                    &window,
+                    parent,
                     "P2P port fallback",
                     QString(
                         "The default P2P port %1 was unavailable. "
@@ -891,7 +1012,7 @@ int main(int argc, char* argv[])
 
     if (started.recovered_wallet) {
         QMessageBox::information(
-            &window,
+            window.get(),
             "Wallet recovered",
             "The wallet was recovered from the 24 words and rescanned successfully."
         );
