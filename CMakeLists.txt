@@ -13,6 +13,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include(FetchContent)
 find_package(Threads REQUIRED)
 
+option(
+    QUINTUM_BUILD_GUI
+    "Build the Qt 6 desktop wallet"
+    OFF
+)
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
 set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
@@ -120,6 +126,39 @@ add_executable(quintumd
 )
 target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
+
+if(QUINTUM_BUILD_GUI)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets)
+    qt_standard_project_setup()
+
+    qt_add_executable(
+        quintum_qt
+        MANUAL_FINALIZATION
+        src/qt/main.cpp
+        src/qt/mainwindow.cpp
+        src/qt/mainwindow.hpp
+    )
+
+    target_link_libraries(
+        quintum_qt
+        PRIVATE
+            quintum_core
+            Threads::Threads
+            Qt6::Widgets
+    )
+
+    quintum_strict_warnings(quintum_qt)
+
+    set_target_properties(
+        quintum_qt
+        PROPERTIES
+            OUTPUT_NAME "QUINTUM"
+            WIN32_EXECUTABLE ON
+            MACOSX_BUNDLE ON
+    )
+
+    qt_finalize_executable(quintum_qt)
+endif()
 
 enable_testing()
 
