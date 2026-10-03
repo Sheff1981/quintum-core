@@ -706,6 +706,434 @@ WalletStoreError Wallet::recover_from_seed(
     return WalletStoreError::none;
 }
 
+WalletRecoveryResult Wallet::recover_from_mnemonic(
+    std::string_view mnemonic,
+    std::string_view passphrase,
+    const Chainstate& chain,
+    const Mempool& mempool,
+    std::uint32_t gap_limit)
+{
+    WalletRecoveryResult out;
+
+    if (started_) {
+        out.error =
+            WalletRecoveryError::already_started;
+        return out;
+    }
+
+    if (passphrase.empty()) {
+        out.error =
+            WalletRecoveryError::invalid_passphrase;
+        out.store_error =
+            WalletStoreError::invalid_passphrase;
+        return out;
+    }
+
+    if (gap_limit == 0U ||
+        gap_limit >
+            static_cast<std::uint32_t>(
+                kMaxWalletKeys)) {
+        out.error =
+            WalletRecoveryError::invalid_gap_limit;
+        return out;
+    }
+
+    std::error_code ec;
+
+    if (std::filesystem::exists(
+            path_,
+            ec)) {
+        out.error =
+            WalletRecoveryError::target_exists;
+        out.store_error =
+            ec
+                ? WalletStoreError::io_error
+                : WalletStoreError::target_exists;
+        return out;
+    }
+
+    if (ec) {
+        out.error =
+            WalletRecoveryError::store_failed;
+        out.store_error =
+            WalletStoreError::io_error;
+        return out;
+    }
+
+    const auto height =
+        chain.height();
+
+    if (!height ||
+        *height ==
+            std::numeric_limits<
+                std::uint32_t>::max()) {
+        out.error =
+            WalletRecoveryError::chain_not_ready;
+        return out;
+    }
+
+    auto decoded =
+        decode_recovery_mnemonic(
+            mnemonic
+        );
+
+    if (!decoded.ok()) {
+        out.error =
+            WalletRecoveryError::invalid_mnemonic;
+        out.mnemonic_error =
+            decoded.error;
+        return out;
+    }
+
+    SecretArrayGuard seed_guard{
+        &decoded.seed
+    };
+
+    std::vector<KeyRecord> recovered;
+    recovered.reserve(
+        static_cast<std::size_t>(
+            gap_limit) * 2U + 1U
+    );
+
+    std::map<crypto::PublicKey, bool>
+        all_public_keys;
+
+    const auto scan_branch =
+        [&](bool internal,
+            std::size_t minimum_keys,
+            std::size_t& key_count) -> bool {
+            std::vector<KeyRecord> branch;
+            std::optional<std::uint32_t>
+                highest_seen;
+
+            const std::size_t initial_count =
+                std::max(
+                    minimum_keys,
+                    static_cast<std::size_t>(
+                        gap_limit)
+                );
+
+            if (initial_count >
+                kMaxWalletKeys -
+                    recovered.size()) {
+                out.error =
+                    WalletRecoveryError::key_limit;
+                return false;
+            }
+
+            std::size_t target_count =
+                initial_count;
+
+            while (branch.size() <
+                   target_count) {
+                const std::size_t start =
+                    branch.size();
+
+                if (target_count >
+                    static_cast<std::size_t>(
+                        std::numeric_limits<
+                            std::uint32_t>::max()) ||
+                    target_count >
+                        kMaxWalletKeys -
+                            recovered.size()) {
+                    out.error =
+                        WalletRecoveryError::key_limit;
+                    return false;
+                }
+
+                std::map<
+                    crypto::PublicKey,
+                    std::size_t> new_keys;
+
+                branch.reserve(target_count);
+
+                for (std::size_t position = start;
+                     position < target_count;
+                     ++position) {
+                    const auto index =
+                        static_cast<
+                            std::uint32_t>(
+                                position
+                            );
+
+                    auto private_key =
+                        derive_hd_private_key(
+                            decoded.seed,
+                            params_.network,
+                            internal,
+                            index
+                        );
+
+                    if (!private_key) {
+                        out.error =
+                            WalletRecoveryError::
+                                derivation_failed;
+                        return false;
+                    }
+
+                    const auto public_key =
+                        crypto::derive_public_key(
+                            *private_key
+                        );
+
+                    if (!public_key) {
+                        crypto::secure_erase(
+                            *private_key
+                        );
+                        out.error =
+                            WalletRecoveryError::
+                                derivation_failed;
+                        return false;
+                    }
+
+                    if (!all_public_keys
+                             .emplace(
+                                 *public_key,
+                                 true)
+                             .second) {
+                        crypto::secure_erase(
+                            *private_key
+                        );
+                        out.error =
+                            WalletRecoveryError::
+                                derivation_failed;
+                        return false;
+                    }
+
+                    branch.emplace_back(
+                        *private_key,
+                        *public_key,
+                        internal,
+                        false,
+                        true,
+                        index
+                    );
+
+                    crypto::secure_erase(
+                        *private_key
+                    );
+
+                    new_keys.emplace(
+                        *public_key,
+                        branch.size() - 1U
+                    );
+                }
+
+                for (std::uint64_t current = 0U;
+                     current <=
+                         static_cast<
+                             std::uint64_t>(
+                                 *height);
+                     ++current) {
+                    const auto active_hash =
+                        chain.active_hash(
+                            static_cast<
+                                std::uint32_t>(
+                                    current
+                                )
+                        );
+
+                    if (!active_hash) {
+                        out.error =
+                            WalletRecoveryError::
+                                chain_not_ready;
+                        return false;
+                    }
+
+                    const Block* block =
+                        chain.block(
+                            *active_hash
+                        );
+
+                    if (block == nullptr) {
+                        out.error =
+                            WalletRecoveryError::
+                                chain_not_ready;
+                        return false;
+                    }
+
+                    for (const auto& tx :
+                         block->transactions) {
+                        for (const auto& output :
+                             tx.outputs) {
+                            const auto public_key =
+                                consensus::
+                                    parse_p2pk_locking_script(
+                                        output.locking_script
+                                    );
+
+                            if (!public_key) {
+                                continue;
+                            }
+
+                            const auto found =
+                                new_keys.find(
+                                    *public_key
+                                );
+
+                            if (found ==
+                                new_keys.end()) {
+                                continue;
+                            }
+
+                            auto& record =
+                                branch[found->second];
+
+                            record.used = true;
+
+                            if (!highest_seen ||
+                                record.hd_index >
+                                    *highest_seen) {
+                                highest_seen =
+                                    record.hd_index;
+                            }
+                        }
+                    }
+                }
+
+                if (!highest_seen) {
+                    break;
+                }
+
+                const std::uint64_t required =
+                    static_cast<std::uint64_t>(
+                        *highest_seen) +
+                    1U +
+                    static_cast<std::uint64_t>(
+                        gap_limit);
+
+                if (required >
+                    static_cast<std::uint64_t>(
+                        kMaxWalletKeys -
+                        recovered.size())) {
+                    out.error =
+                        WalletRecoveryError::key_limit;
+                    return false;
+                }
+
+                if (required <= branch.size()) {
+                    break;
+                }
+
+                target_count =
+                    static_cast<std::size_t>(
+                        required
+                    );
+            }
+
+            if (!internal &&
+                !branch.empty()) {
+                branch.front().used = true;
+            }
+
+            key_count = branch.size();
+
+            for (auto& record :
+                 branch) {
+                recovered.push_back(
+                    std::move(record)
+                );
+            }
+
+            return true;
+        };
+
+    const std::size_t receive_minimum =
+        kWalletKeypoolSize + 1U;
+    const std::size_t change_minimum =
+        kWalletKeypoolSize;
+
+    if (!scan_branch(
+            false,
+            receive_minimum,
+            out.receive_keys) ||
+        !scan_branch(
+            true,
+            change_minimum,
+            out.change_keys)) {
+        for (auto& record :
+             recovered) {
+            crypto::secure_erase(
+                record.private_key
+            );
+        }
+        return out;
+    }
+
+    WalletSalt salt{};
+    WalletEncryptionKey key{};
+
+    SecretArrayGuard salt_guard{&salt};
+    SecretArrayGuard key_guard{&key};
+
+    if (!crypto::secure_random_bytes(
+            salt) ||
+        !derive_wallet_encryption_key(
+            passphrase,
+            salt,
+            kWalletArgon2MemoryBlocks,
+            kWalletArgon2Passes,
+            key)) {
+        out.error =
+            WalletRecoveryError::store_failed;
+        out.store_error =
+            WalletStoreError::crypto_error;
+        return out;
+    }
+
+    encrypted_ = true;
+    recovery_seed_ = decoded.seed;
+    encryption_key_ = key;
+    encryption_salt_ = salt;
+    argon2_memory_blocks_ =
+        kWalletArgon2MemoryBlocks;
+    argon2_passes_ =
+        kWalletArgon2Passes;
+
+    out.store_error =
+        save_keys(recovered);
+
+    if (out.store_error !=
+        WalletStoreError::none) {
+        encrypted_ = false;
+        crypto::secure_erase(
+            encryption_key_
+        );
+        crypto::secure_erase(
+            encryption_salt_
+        );
+
+        if (recovery_seed_) {
+            crypto::secure_erase(
+                *recovery_seed_
+            );
+            recovery_seed_.reset();
+        }
+
+        out.error =
+            WalletRecoveryError::store_failed;
+        return out;
+    }
+
+    keys_ = std::move(recovered);
+    started_ = true;
+    reset_index_state();
+
+    out.sync =
+        sync(
+            chain,
+            mempool
+        );
+
+    if (!out.sync.ok()) {
+        out.error =
+            WalletRecoveryError::sync_failed;
+        return out;
+    }
+
+    return out;
+}
+
 bool Wallet::encrypted() const noexcept
 {
     return encrypted_;
@@ -734,6 +1162,32 @@ Wallet::recovery_seed() const noexcept
     }
 
     return recovery_seed_;
+}
+
+std::optional<std::string>
+Wallet::recovery_mnemonic() const
+{
+    auto seed =
+        recovery_seed();
+
+    if (!seed) {
+        return std::nullopt;
+    }
+
+    SecretArrayGuard seed_guard{
+        &*seed
+    };
+
+    auto encoded =
+        encode_recovery_mnemonic(
+            *seed
+        );
+
+    if (!encoded.ok()) {
+        return std::nullopt;
+    }
+
+    return encoded.words;
 }
 
 WalletKeyResult Wallet::import_private_key(
