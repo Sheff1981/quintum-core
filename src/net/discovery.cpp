@@ -41,20 +41,24 @@ std::size_t PeerDiscovery::bootstrap_seeds(
     std::size_t added{0U};
 
     for (const auto& seed : seeds) {
-        const auto ipv4 = parse_ipv4(seed.host);
-        if (!ipv4 || seed.port == 0U) {
+        if (seed.port == 0U) {
             continue;
         }
 
-        PeerAddress address{
-            .ipv4 = *ipv4,
-            .port = seed.port,
-            .services = 1U,
-            .last_seen = now,
-        };
+        const auto resolved =
+            resolve_ipv4_host(seed.host);
 
-        if (addrman_.add(address)) {
-            ++added;
+        for (const auto ipv4 : resolved) {
+            PeerAddress address{
+                .ipv4 = ipv4,
+                .port = seed.port,
+                .services = 1U,
+                .last_seen = now,
+            };
+
+            if (addrman_.add(address)) {
+                ++added;
+            }
         }
     }
 
