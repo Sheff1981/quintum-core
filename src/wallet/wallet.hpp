@@ -445,7 +445,7 @@ private:
     );
 
     [[nodiscard]] WalletMetadataError load_metadata();
-    [[nodiscard]] WalletMetadataError save_metadata() const;
+    [[nodiscard]] WalletMetadataError save_metadata();
 
     void load_index_state() noexcept;
     [[nodiscard]] WalletStoreError save_index_state() const;
@@ -506,6 +506,8 @@ private:
         address_labels_{};
     std::map<Hash256, std::string>
         transaction_labels_{};
+    Hash256 metadata_wallet_id_{};
+    bool metadata_wallet_id_valid_{false};
 
     bool index_valid_{false};
     std::uint32_t indexed_height_{0U};
