@@ -108,6 +108,7 @@ add_library(quintum_core STATIC
     src/wallet/address.cpp
     src/wallet/mnemonic.cpp
     src/wallet/metadata.cpp
+    src/wallet/file_security.cpp
     src/wallet/secure.cpp
     src/wallet/fee_policy.cpp
     src/wallet/index.cpp
@@ -117,7 +118,7 @@ target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
 target_link_libraries(quintum_core PUBLIC secp256k1 monocypher)
 if(WIN32)
-    target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt)
+    target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt advapi32)
 endif()
 quintum_strict_warnings(quintum_core)
 
