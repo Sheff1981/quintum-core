@@ -138,6 +138,11 @@ bool bip32_child(
         data.size()
     );
 
+    crypto_wipe(
+        data.data(),
+        data.size()
+    );
+
     crypto::PrivateKey tweak{};
     std::copy_n(
         digest.begin(),
@@ -174,6 +179,9 @@ bool bip32_child(
 
     output.private_key =
         *child_private;
+    crypto::secure_erase(
+        *child_private
+    );
 
     std::copy_n(
         digest.begin() + 32,
