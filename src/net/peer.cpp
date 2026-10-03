@@ -1239,6 +1239,63 @@ void PeerListener::close() noexcept
     local_port_ = 0U;
 }
 
+std::vector<std::uint32_t> resolve_ipv4_host(
+    std::string_view host)
+{
+    std::vector<std::uint32_t> out;
+
+    if (host.empty() ||
+        !socket_runtime_ready()) {
+        return out;
+    }
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    addrinfo* addresses{nullptr};
+    const std::string host_text{host};
+
+    if (getaddrinfo(
+            host_text.c_str(),
+            nullptr,
+            &hints,
+            &addresses) != 0 ||
+        addresses == nullptr) {
+        return out;
+    }
+
+    for (addrinfo* current = addresses;
+         current != nullptr;
+         current = current->ai_next) {
+        if (current->ai_family != AF_INET ||
+            current->ai_addr == nullptr ||
+            current->ai_addrlen <
+                sizeof(sockaddr_in)) {
+            continue;
+        }
+
+        const auto* address =
+            reinterpret_cast<const sockaddr_in*>(
+                current->ai_addr
+            );
+
+        const std::uint32_t ipv4 =
+            ntohl(address->sin_addr.s_addr);
+
+        if (std::find(
+                out.begin(),
+                out.end(),
+                ipv4) == out.end()) {
+            out.push_back(ipv4);
+        }
+    }
+
+    freeaddrinfo(addresses);
+    return out;
+}
+
 PeerHandshakeResult connect_and_handshake(
     const consensus::ChainParams& params,
     std::string_view host,
