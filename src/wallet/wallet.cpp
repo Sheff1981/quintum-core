@@ -528,6 +528,8 @@ WalletStartResult Wallet::start(
     keys_ = std::move(initial);
     address_labels_.clear();
     transaction_labels_.clear();
+    metadata_wallet_id_ = Hash256{};
+    metadata_wallet_id_valid_ = false;
     started_ = true;
     reset_index_state();
     out.created = true;
@@ -731,6 +733,8 @@ WalletStoreError Wallet::recover_from_seed(
     keys_ = std::move(initial);
     address_labels_.clear();
     transaction_labels_.clear();
+    metadata_wallet_id_ = Hash256{};
+    metadata_wallet_id_valid_ = false;
     started_ = true;
     reset_index_state();
     return WalletStoreError::none;
@@ -1243,6 +1247,8 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
 
     address_labels_.clear();
     transaction_labels_.clear();
+    metadata_wallet_id_ = Hash256{};
+    metadata_wallet_id_valid_ = false;
 
     out.store_error =
         save_keys(keys_);
