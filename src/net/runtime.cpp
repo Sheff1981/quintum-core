@@ -536,6 +536,29 @@ NetworkRuntime::desktop_snapshot() const
 
     out.status.height =
         node_.chain().height();
+
+    if (have_peer_height_.load()) {
+        out.status.peer_best_height =
+            peer_best_height_.load();
+    }
+
+    if (out.status.height &&
+        out.status.peer_best_height &&
+        *out.status.peer_best_height >
+            *out.status.height) {
+        out.status.synchronizing = true;
+        out.status.sync_progress =
+            static_cast<double>(
+                *out.status.height
+            ) /
+            static_cast<double>(
+                *out.status.peer_best_height
+            );
+    } else {
+        out.status.synchronizing = false;
+        out.status.sync_progress = 1.0;
+    }
+
     out.status.tip =
         node_.chain().tip_hash();
     out.status.mempool_transactions =
