@@ -315,6 +315,15 @@ public:
         bool overwrite = false
     ) const;
 
+    [[nodiscard]] WalletStoreError backup_bundle(
+        const std::filesystem::path& destination,
+        bool overwrite = false
+    ) const;
+
+    [[nodiscard]] WalletStoreError restore_bundle(
+        const std::filesystem::path& source
+    );
+
     [[nodiscard]] WalletSyncResult sync(
         const Chainstate& chain,
         const Mempool& mempool
