@@ -6,6 +6,7 @@
 #include "crypto/secp256k1.hpp"
 #include "node/mempool.hpp"
 #include "wallet/address.hpp"
+#include "wallet/mnemonic.hpp"
 #include "wallet/secure.hpp"
 
 #include <cstddef>
@@ -133,6 +134,36 @@ struct WalletSyncResult {
     }
 };
 
+inline constexpr std::uint32_t kWalletRecoveryGapLimit{100U};
+
+enum class WalletRecoveryError {
+    none,
+    already_started,
+    target_exists,
+    invalid_mnemonic,
+    invalid_passphrase,
+    chain_not_ready,
+    invalid_gap_limit,
+    derivation_failed,
+    key_limit,
+    store_failed,
+    sync_failed,
+};
+
+struct WalletRecoveryResult {
+    WalletRecoveryError error{WalletRecoveryError::none};
+    MnemonicError mnemonic_error{MnemonicError::none};
+    WalletStoreError store_error{WalletStoreError::none};
+    WalletSyncResult sync{};
+    std::size_t receive_keys{0U};
+    std::size_t change_keys{0U};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == WalletRecoveryError::none;
+    }
+};
+
 struct WalletCoin {
     OutPoint outpoint{};
     Coin coin{};
@@ -210,10 +241,21 @@ public:
         std::string_view passphrase
     );
 
+    [[nodiscard]] WalletRecoveryResult recover_from_mnemonic(
+        std::string_view mnemonic,
+        std::string_view passphrase,
+        const Chainstate& chain,
+        const Mempool& mempool,
+        std::uint32_t gap_limit = kWalletRecoveryGapLimit
+    );
+
     [[nodiscard]] bool encrypted() const noexcept;
 
     [[nodiscard]] std::optional<RecoverySeed>
     recovery_seed() const noexcept;
+
+    [[nodiscard]] std::optional<std::string>
+    recovery_mnemonic() const;
 
     [[nodiscard]] WalletKeyResult import_private_key(
         const crypto::PrivateKey& private_key
