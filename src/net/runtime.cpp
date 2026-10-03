@@ -338,6 +338,13 @@ NetworkRuntime::wallet_history() const
     return wallet_.history();
 }
 
+std::optional<std::string>
+NetworkRuntime::wallet_recovery_mnemonic() const
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.recovery_mnemonic();
+}
+
 NodeTransactionResult
 NetworkRuntime::submit_transaction(
     const Transaction& transaction)
