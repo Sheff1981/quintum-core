@@ -36,7 +36,7 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 **Installer pipeline implemented in Stage 28:** per-user Inno Setup installer, portable Qt deployment, Start Menu/optional desktop shortcut, live-process update closure, safe reinstall/update, preserved AppData wallet/blockchain data on update/uninstall, and CI-published Windows artifacts. Production code-signing remains pending a real signing certificate.
 
 ## M7 — Public testnet
-**Stage 29 in progress:** the desktop now defaults to Testnet; seed bootstrap resolves literal IPv4 or DNS hostnames; persisted good peers reconnect immediately after process restart; and the 27th regression suite covers real Testnet bootstrap plus a three-node partition/heavier-chain reorg/reconnect/restart/two-hop relay scenario. Code-side Linux/Windows core and GUI/installer CI are green.
+**Stage 29 in progress:** the desktop now defaults to Testnet; seed bootstrap resolves literal IPv4 or DNS hostnames; persisted good peers reconnect immediately after process restart; the 27th regression suite covers real Testnet bootstrap plus a three-node partition/heavier-chain reorg/reconnect/restart/two-hop relay scenario; and CI packages a headless Linux seed-node bundle with bounded `--addnode` cross-network probe support. Code-side Linux/Windows core and GUI/installer CI must remain green.
 
 **Deployment gate remaining:** provision real publicly reachable Testnet seed nodes, pin their real IP/DNS endpoints, perform geographically separate external Windows/Linux installs, then run long-duration soak/adversarial testing before a Testnet release candidate is frozen.
 
