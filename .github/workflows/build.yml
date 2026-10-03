@@ -78,6 +78,26 @@ jobs:
           test ! -e "$tmp/a/regtest/wallet.dat"
           test ! -e "$tmp/b/regtest/wallet.dat"
 
+      - name: Build hardened seed container
+        if: runner.os == 'Linux'
+        shell: bash
+        run: docker build -t quintum-testnet-seed:ci .
+
+      - name: Smoke hardened seed container
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test "$(docker inspect --format '{{.Config.User}}' quintum-testnet-seed:ci)" = "quintum"
+          docker run --rm quintum-testnet-seed:ci \
+            --testnet --network-only \
+            --datadir /tmp/quintum-data \
+            --listen-port 0 --run-seconds 1 \
+            > seed-container.log 2>&1
+          cat seed-container.log
+          grep -q "Network: testnet" seed-container.log
+          grep -q "Wallet: disabled (network-only mode)" seed-container.log
+          grep -q "Final peers:" seed-container.log
+
       - name: Package Linux Testnet seed node
         if: runner.os == 'Linux'
         shell: bash
