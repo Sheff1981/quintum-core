@@ -382,6 +382,9 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         addrman_.size()
     );
 
+    const bool using_default_port =
+        !config_.listen_port.has_value();
+
     const std::uint16_t port =
         config_.listen_port.value_or(
             params_.p2p_port
@@ -392,6 +395,21 @@ NetworkRuntimeStartResult NetworkRuntime::start(
             config_.bind_address,
             port
         );
+
+    if (out.peer_error != PeerError::none &&
+        using_default_port &&
+        config_.
+            allow_ephemeral_listener_fallback &&
+        (out.peer_error ==
+             PeerError::bind_failed ||
+         out.peer_error ==
+             PeerError::listen_failed)) {
+        out.peer_error =
+            listener_.listen(
+                config_.bind_address,
+                0U
+            );
+    }
 
     if (out.peer_error != PeerError::none) {
         out.error =
