@@ -1329,6 +1329,52 @@ void test_network_runtime_encrypted_wallet_lifecycle()
 }
 
 
+void test_bip32_quintum_derivation_vector()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    RecoverySeed seed{};
+    for (std::size_t i = 0U;
+         i < seed.size();
+         ++i) {
+        seed[i] = static_cast<Byte>(i);
+    }
+
+    auto private_key =
+        derive_hd_private_key(
+            seed,
+            consensus::Network::regtest,
+            false,
+            0U
+        );
+
+    assert(private_key.has_value());
+
+    const auto public_key =
+        crypto::derive_public_key(
+            *private_key
+        );
+
+    assert(public_key.has_value());
+
+    const crypto::PublicKey expected{
+        0x02U, 0x0cU, 0x10U, 0x22U, 0x88U,
+        0x78U, 0xd4U, 0x71U, 0x46U, 0xedU,
+        0x23U, 0xe3U, 0xddU, 0xa1U, 0x17U,
+        0xcdU, 0x53U, 0x81U, 0xe8U, 0xb0U,
+        0xa8U, 0x52U, 0x7cU, 0x69U, 0x41U,
+        0x8fU, 0xceU, 0xc8U, 0x1aU, 0xd5U,
+        0x2fU, 0xc1U, 0x0aU
+    };
+
+    assert(*public_key == expected);
+
+    crypto::secure_erase(*private_key);
+    crypto::secure_erase(seed);
+}
+
+
 } // namespace
 
 int main()
@@ -1341,5 +1387,6 @@ int main()
     test_encrypted_wallet_and_hd_recovery();
     test_legacy_wallet_encryption_migration();
     test_network_runtime_encrypted_wallet_lifecycle();
+    test_bip32_quintum_derivation_vector();
     return 0;
 }
