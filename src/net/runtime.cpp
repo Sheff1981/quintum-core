@@ -1894,6 +1894,17 @@ bool NetworkRuntime::process_inventory(
 
             if (item.type ==
                 kInventoryBlock) {
+                if (const auto active_height =
+                        node_.chain().active_height(
+                            item.hash)) {
+                    peer.reported_height =
+                        std::max(
+                            peer.reported_height,
+                            *active_height
+                        );
+                    continue;
+                }
+
                 if (node_.chain().has_block(
                         item.hash) ||
                     contains_hash(
@@ -1908,6 +1919,8 @@ bool NetworkRuntime::process_inventory(
             }
         }
     }
+
+    update_peer_counts();
 
     if (wanted.empty()) {
         return true;
