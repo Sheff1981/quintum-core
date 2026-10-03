@@ -1,23 +1,39 @@
 #include "qt/mainwindow.hpp"
 
 #include "consensus/chainparams.hpp"
+#include "crypto/random.hpp"
 
 #include <QApplication>
 #include <QByteArray>
 #include <QCommandLineOption>
 #include <QCommandLineParser>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QFormLayout>
 #include <QInputDialog>
+#include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTextEdit>
 #include <QTimer>
+#include <QVBoxLayout>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace {
+
+struct WalletSetup {
+    bool accepted{false};
+    std::string password{};
+    std::string mnemonic{};
+};
 
 std::filesystem::path filesystem_path(
     const QString& value)
@@ -56,11 +72,205 @@ QString network_directory_name(
     return "unknown";
 }
 
+void wipe_byte_array(QByteArray& bytes)
+{
+    bytes.fill('\0');
+    bytes.clear();
+    bytes.squeeze();
+}
+
+WalletSetup request_wallet_setup(
+    QWidget* parent,
+    bool recover)
+{
+    QDialog dialog(parent);
+    dialog.setWindowTitle(
+        recover
+            ? "Recover QUINTUM wallet"
+            : "Create QUINTUM wallet"
+    );
+    dialog.setMinimumWidth(520);
+
+    auto* layout = new QVBoxLayout(&dialog);
+
+    QTextEdit* mnemonic{nullptr};
+
+    if (recover) {
+        auto* warning = new QLabel(
+            "Enter exactly the 24 recovery words in order. "
+            "Recovery will rescan the active blockchain."
+        );
+        warning->setWordWrap(true);
+        layout->addWidget(warning);
+
+        mnemonic = new QTextEdit;
+        mnemonic->setPlaceholderText(
+            "word1 word2 ... word24"
+        );
+        mnemonic->setAcceptRichText(false);
+        mnemonic->setTabChangesFocus(true);
+        layout->addWidget(mnemonic);
+    }
+
+    auto* form = new QFormLayout;
+    auto* password = new QLineEdit;
+    auto* confirmation = new QLineEdit;
+
+    password->setEchoMode(QLineEdit::Password);
+    confirmation->setEchoMode(QLineEdit::Password);
+
+    form->addRow("New wallet password:", password);
+    form->addRow("Confirm password:", confirmation);
+    layout->addLayout(form);
+
+    auto* buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok |
+        QDialogButtonBox::Cancel
+    );
+    layout->addWidget(buttons);
+
+    QObject::connect(
+        buttons,
+        &QDialogButtonBox::rejected,
+        &dialog,
+        &QDialog::reject
+    );
+
+    QObject::connect(
+        buttons,
+        &QDialogButtonBox::accepted,
+        &dialog,
+        [&] {
+            if (password->text().isEmpty()) {
+                QMessageBox::warning(
+                    &dialog,
+                    "Password required",
+                    "Desktop wallets must be encrypted with a password."
+                );
+                return;
+            }
+
+            if (password->text() !=
+                confirmation->text()) {
+                QMessageBox::warning(
+                    &dialog,
+                    "Passwords do not match",
+                    "Enter the same password twice."
+                );
+                return;
+            }
+
+            if (recover &&
+                (mnemonic == nullptr ||
+                 mnemonic->toPlainText()
+                     .simplified()
+                     .isEmpty())) {
+                QMessageBox::warning(
+                    &dialog,
+                    "Recovery words required",
+                    "Enter the 24 recovery words."
+                );
+                return;
+            }
+
+            dialog.accept();
+        }
+    );
+
+    WalletSetup out;
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return out;
+    }
+
+    QByteArray password_utf8 =
+        password->text().toUtf8();
+
+    out.password.assign(
+        password_utf8.constData(),
+        static_cast<std::size_t>(
+            password_utf8.size()
+        )
+    );
+
+    if (recover && mnemonic != nullptr) {
+        QByteArray words_utf8 =
+            mnemonic->toPlainText()
+                .simplified()
+                .toUtf8();
+
+        out.mnemonic.assign(
+            words_utf8.constData(),
+            static_cast<std::size_t>(
+                words_utf8.size()
+            )
+        );
+
+        wipe_byte_array(words_utf8);
+        mnemonic->clear();
+    }
+
+    wipe_byte_array(password_utf8);
+    password->clear();
+    confirmation->clear();
+
+    out.accepted = true;
+    return out;
+}
+
+QString recovery_error_text(
+    const quintum::net::NetworkRuntimeStartResult& result)
+{
+    using quintum::wallet::MnemonicError;
+    using quintum::wallet::WalletRecoveryError;
+
+    switch (result.wallet_recovery.error) {
+    case WalletRecoveryError::invalid_mnemonic:
+        switch (result.wallet_recovery.mnemonic_error) {
+        case MnemonicError::wrong_word_count:
+            return "Recovery requires exactly 24 words.";
+        case MnemonicError::unknown_word:
+            return "One or more recovery words are not recognized.";
+        case MnemonicError::invalid_checksum:
+            return "The 24 recovery words have an invalid checksum or order.";
+        default:
+            return "The recovery phrase is invalid.";
+        }
+    case WalletRecoveryError::target_exists:
+        return "wallet.dat already exists. QUINTUM will not overwrite an existing wallet.";
+    case WalletRecoveryError::invalid_passphrase:
+        return "The new wallet password is not valid.";
+    case WalletRecoveryError::chain_not_ready:
+        return "The blockchain is not ready for wallet recovery.";
+    case WalletRecoveryError::derivation_failed:
+    case WalletRecoveryError::key_limit:
+        return "Recovery key derivation failed.";
+    case WalletRecoveryError::store_failed:
+        return "Recovered keys could not be saved safely.";
+    case WalletRecoveryError::sync_failed:
+        return "The wallet could not complete its recovery rescan.";
+    case WalletRecoveryError::already_started:
+    case WalletRecoveryError::invalid_gap_limit:
+        return "Wallet recovery could not be started safely.";
+    case WalletRecoveryError::none:
+        break;
+    }
+
+    return {};
+}
+
 QString startup_error_text(
     const quintum::net::NetworkRuntimeStartResult& result)
 {
     using quintum::net::NetworkRuntimeStartError;
     using quintum::wallet::WalletStartError;
+
+    const QString recovery =
+        recovery_error_text(result);
+
+    if (!recovery.isEmpty()) {
+        return recovery;
+    }
 
     if (result.error ==
             NetworkRuntimeStartError::wallet_failed &&
@@ -199,7 +409,7 @@ int main(int argc, char* argv[])
         smoke_config.listen_port = 0U;
         smoke_config.target_outbound = 0U;
         smoke_config.wallet_passphrase =
-            "stage26-disposable-smoke-wallet";
+            "stage27-disposable-smoke-wallet";
 
         const auto smoke_started =
             smoke_runtime.start(
@@ -282,39 +492,86 @@ int main(int argc, char* argv[])
         return 4;
     }
 
-    bool accepted{false};
+    WalletSetup setup;
 
-    QString passphrase =
-        QInputDialog::getText(
-            nullptr,
-            wallet_exists
-                ? "Open QUINTUM wallet"
-                : "Create QUINTUM wallet",
-            wallet_exists
-                ? "Wallet password "
-                  "(leave blank only for a legacy unencrypted wallet):"
-                : "Create a wallet password:",
-            QLineEdit::Password,
-            {},
-            &accepted
+    if (wallet_exists) {
+        bool accepted{false};
+
+        QString passphrase =
+            QInputDialog::getText(
+                nullptr,
+                "Open QUINTUM wallet",
+                "Wallet password "
+                "(leave blank only for a legacy unencrypted wallet):",
+                QLineEdit::Password,
+                {},
+                &accepted
+            );
+
+        if (!accepted) {
+            return 0;
+        }
+
+        QByteArray password_utf8 =
+            passphrase.toUtf8();
+
+        setup.password.assign(
+            password_utf8.constData(),
+            static_cast<std::size_t>(
+                password_utf8.size()
+            )
         );
 
-    if (!accepted) {
+        wipe_byte_array(password_utf8);
+        passphrase.fill(QChar{0});
+        passphrase.clear();
+        setup.accepted = true;
+    } else {
+        QMessageBox chooser;
+        chooser.setWindowTitle(
+            "Set up QUINTUM wallet"
+        );
+        chooser.setText(
+            "Create a new encrypted wallet or recover an existing wallet from its 24 words."
+        );
+
+        auto* create_button =
+            chooser.addButton(
+                "Create new wallet",
+                QMessageBox::AcceptRole
+            );
+        auto* recover_button =
+            chooser.addButton(
+                "Recover from 24 words",
+                QMessageBox::ActionRole
+            );
+        chooser.addButton(
+            QMessageBox::Cancel
+        );
+        chooser.exec();
+
+        if (chooser.clickedButton() ==
+            create_button) {
+            setup =
+                request_wallet_setup(
+                    nullptr,
+                    false
+                );
+        } else if (chooser.clickedButton() ==
+                   recover_button) {
+            setup =
+                request_wallet_setup(
+                    nullptr,
+                    true
+                );
+        } else {
+            return 0;
+        }
+    }
+
+    if (!setup.accepted) {
         return 0;
     }
-
-    if (!wallet_exists &&
-        passphrase.isEmpty()) {
-        QMessageBox::warning(
-            nullptr,
-            "Password required",
-            "New desktop wallets must be encrypted with a password."
-        );
-        return 5;
-    }
-
-    QByteArray passphrase_utf8 =
-        passphrase.toUtf8();
 
     quintum::net::NetworkRuntime runtime{
         params,
@@ -323,17 +580,9 @@ int main(int argc, char* argv[])
 
     quintum::net::NetworkRuntimeConfig config;
     config.wallet_passphrase =
-        std::string{
-            passphrase_utf8.constData(),
-            static_cast<std::size_t>(
-                passphrase_utf8.size()
-            )
-        };
-
-    passphrase.fill(QChar{0});
-    passphrase.clear();
-    passphrase_utf8.fill('\0');
-    passphrase_utf8.clear();
+        std::move(setup.password);
+    config.wallet_recovery_mnemonic =
+        std::move(setup.mnemonic);
 
     const auto started =
         runtime.start(
@@ -355,6 +604,14 @@ int main(int argc, char* argv[])
         params
     };
     window.show();
+
+    if (started.recovered_wallet) {
+        QMessageBox::information(
+            &window,
+            "Wallet recovered",
+            "The wallet was recovered from the 24 words and rescanned successfully."
+        );
+    }
 
     const int result = app.exec();
 
