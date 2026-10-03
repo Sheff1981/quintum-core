@@ -604,7 +604,14 @@ void Wallet::load_index_state() noexcept
 
         std::vector<WalletTransactionRecord>
             records;
+        std::vector<WalletTransactionRecord>
+            confirmed_records;
+
         records.reserve(
+            static_cast<std::size_t>(
+                *history_count)
+        );
+        confirmed_records.reserve(
             static_cast<std::size_t>(
                 *history_count)
         );
@@ -613,15 +620,41 @@ void Wallet::load_index_state() noexcept
              i < *history_count;
              ++i) {
             WalletTransactionRecord record;
-            record.status =
-                WalletTransactionStatus::
-                    confirmed;
 
             if (!read_bytes(
                     body,
                     offset,
-                    record.txid)) {
+                    record.txid) ||
+                offset >= body.size()) {
                 return;
+            }
+
+            const Byte status =
+                body[offset++];
+
+            if (status >
+                static_cast<Byte>(
+                    WalletTransactionStatus::
+                        inactive)) {
+                return;
+            }
+
+            record.status =
+                static_cast<
+                    WalletTransactionStatus>(
+                        status
+                    );
+
+            // The node's mempool is intentionally memory-only.
+            // After restart a previously unconfirmed transaction
+            // remains in history, but is inactive until observed
+            // again in the current mempool.
+            if (record.status ==
+                WalletTransactionStatus::
+                    unconfirmed) {
+                record.status =
+                    WalletTransactionStatus::
+                        inactive;
             }
 
             const auto received =
@@ -685,28 +718,32 @@ void Wallet::load_index_state() noexcept
             record.coinbase =
                 coinbase != 0U;
 
-            const auto block_height =
-                read_little_endian<
-                    std::uint32_t>(
+            if (record.status ==
+                WalletTransactionStatus::
+                    confirmed) {
+                const auto block_height =
+                    read_little_endian<
+                        std::uint32_t>(
+                            body,
+                            offset
+                        );
+
+                Hash256 block_hash{};
+
+                if (!block_height ||
+                    *block_height > *height ||
+                    !read_bytes(
                         body,
-                        offset
-                    );
+                        offset,
+                        block_hash)) {
+                    return;
+                }
 
-            Hash256 block_hash{};
-
-            if (!block_height ||
-                *block_height > *height ||
-                !read_bytes(
-                    body,
-                    offset,
-                    block_hash)) {
-                return;
+                record.block_height =
+                    *block_height;
+                record.block_hash =
+                    block_hash;
             }
-
-            record.block_height =
-                *block_height;
-            record.block_hash =
-                block_hash;
 
             const bool duplicate =
                 std::any_of(
@@ -724,6 +761,14 @@ void Wallet::load_index_state() noexcept
                 return;
             }
 
+            if (record.status ==
+                WalletTransactionStatus::
+                    confirmed) {
+                confirmed_records.push_back(
+                    record
+                );
+            }
+
             records.push_back(
                 std::move(record)
             );
@@ -738,8 +783,9 @@ void Wallet::load_index_state() noexcept
         confirmed_coins_ =
             std::move(coins);
         confirmed_history_ =
+            std::move(confirmed_records);
+        history_ =
             std::move(records);
-        history_ = confirmed_history_;
         index_valid_ = true;
     } catch (...) {
         reset_index_state();
@@ -752,7 +798,7 @@ WalletStoreError Wallet::save_index_state() const
         keys_.empty() ||
         confirmed_coins_.size() >
             kMaxIndexedCoins ||
-        confirmed_history_.size() >
+        history_.size() >
             kMaxHistoryRecords) {
         return WalletStoreError::corrupt;
     }
@@ -856,22 +902,31 @@ WalletStoreError Wallet::save_index_state() const
         append_compact_size(
             body,
             static_cast<std::uint64_t>(
-                confirmed_history_.size())
+                history_.size())
         );
 
         for (const auto& record :
-             confirmed_history_) {
-            if (record.status !=
-                    WalletTransactionStatus::
-                        confirmed ||
-                !record.block_height ||
-                !record.block_hash) {
+             history_) {
+            if (!consensus::money_range(
+                    record.received) ||
+                !consensus::money_range(
+                    record.spent) ||
+                (record.fee &&
+                 !consensus::money_range(
+                     *record.fee)) ||
+                (record.received == 0U &&
+                 record.spent == 0U)) {
                 return WalletStoreError::corrupt;
             }
 
             append_hash(
                 body,
                 record.txid
+            );
+
+            body.push_back(
+                static_cast<Byte>(
+                    record.status)
             );
 
             append_little_endian(
@@ -901,15 +956,29 @@ WalletStoreError Wallet::save_index_state() const
                     : 0U
             );
 
-            append_little_endian(
-                body,
-                *record.block_height
-            );
+            if (record.status ==
+                WalletTransactionStatus::
+                    confirmed) {
+                if (!record.block_height ||
+                    !record.block_hash ||
+                    *record.block_height >
+                        indexed_height_) {
+                    return WalletStoreError::corrupt;
+                }
 
-            append_hash(
-                body,
-                *record.block_hash
-            );
+                append_little_endian(
+                    body,
+                    *record.block_height
+                );
+
+                append_hash(
+                    body,
+                    *record.block_hash
+                );
+            } else if (record.block_height ||
+                       record.block_hash) {
+                return WalletStoreError::corrupt;
+            }
         }
 
         const auto checksum =
