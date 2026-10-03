@@ -1168,10 +1168,45 @@ NetworkRuntime::mine_wallet_block(
             decoded.public_key
         );
 
-    return mine_mempool_block(
-        payout_script,
-        max_attempts
-    );
+    NodeMineResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        out =
+            node_.mine_mempool_block_at(
+                payout_script,
+                unix_time_now(),
+                max_attempts,
+                wallet_mining_nonce_
+            );
+
+        if (out.ok()) {
+            wallet_mining_nonce_ = 0U;
+            (void)sync_wallet_locked();
+        } else if (
+            out.error ==
+                NodeMineError::
+                    proof_of_work_exhausted) {
+            if (out.mining.nonce ==
+                std::numeric_limits<
+                    std::uint64_t>::max()) {
+                wallet_mining_nonce_ = 0U;
+            } else {
+                wallet_mining_nonce_ =
+                    out.mining.nonce + 1U;
+            }
+        }
+    }
+
+    if (out.ok()) {
+        queue_announcement(
+            kInventoryBlock,
+            block_hash(out.block.header)
+        );
+    }
+
+    return out;
 }
 
 NodeMineResult
