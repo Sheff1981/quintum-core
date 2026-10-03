@@ -1207,7 +1207,6 @@ void NetworkRuntime::accept_inbound(
             std::move(*accepted.session),
         .address = std::nullopt,
         .last_activity = now,
-
         .reported_height = 0U,
     };
 
@@ -1298,9 +1297,11 @@ void NetworkRuntime::maintain_outbound(
                 std::move(*connected.session),
             .address = it->address,
             .last_activity = now,
-    
-        .reported_height = 0U,
-    };
+            .reported_height = 0U,
+        };
+
+        peer.reported_height =
+            peer.session.remote_version().start_height;
 
         if (!prepare_live_peer(
                 peer,
@@ -1367,7 +1368,6 @@ void NetworkRuntime::maintain_outbound(
             std::move(*connected.session),
         .address = connected.address,
         .last_activity = now,
-
         .reported_height = 0U,
     };
 
