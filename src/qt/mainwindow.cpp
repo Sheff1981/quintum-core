@@ -611,11 +611,11 @@ QWidget* MainWindow::build_settings_page()
         "Show 24 recovery words"
     );
     auto* backup = new QPushButton(
-        "Backup wallet.dat"
+        "Backup complete wallet"
     );
 
     auto* backup_note = new QLabel(
-        "wallet.dat backup protects spend keys. Address-book and transaction labels in wallet_meta.dat are not included yet."
+        "Creates one .qtmbackup file containing wallet.dat and encrypted wallet metadata. Blockchain data is not included because it can be synchronized again."
     );
     backup_note->setWordWrap(true);
 
@@ -633,7 +633,7 @@ QWidget* MainWindow::build_settings_page()
         &QPushButton::clicked,
         this,
         [this] {
-            backup_wallet();
+            backup_wallet_bundle();
         }
     );
 
@@ -1431,25 +1431,52 @@ void MainWindow::show_recovery_phrase()
     words.clear();
 }
 
-void MainWindow::backup_wallet()
+void MainWindow::backup_wallet_bundle()
 {
     const QString destination =
         QFileDialog::getSaveFileName(
             this,
-            "Backup wallet.dat",
-            "quintum-wallet-backup.dat",
-            "QUINTUM wallet backup (*.dat);;All files (*)"
+            "Backup complete QUINTUM wallet",
+            "quintum-wallet-backup.qtmbackup",
+            "QUINTUM backup (*.qtmbackup);;All files (*)"
         );
 
     if (destination.isEmpty()) {
         return;
     }
 
-    const auto result =
-        runtime_.backup_wallet(
-            filesystem_path(destination),
+    const auto path =
+        filesystem_path(destination);
+
+    auto result =
+        runtime_.backup_wallet_bundle(
+            path,
             false
         );
+
+    if (result ==
+        wallet::WalletStoreError::
+            target_exists) {
+        const auto replace =
+            QMessageBox::question(
+                this,
+                "Replace existing backup",
+                "That backup file already exists. Replace it with a new complete backup?",
+                QMessageBox::Yes |
+                    QMessageBox::Cancel,
+                QMessageBox::Cancel
+            );
+
+        if (replace != QMessageBox::Yes) {
+            return;
+        }
+
+        result =
+            runtime_.backup_wallet_bundle(
+                path,
+                true
+            );
+    }
 
     using wallet::WalletStoreError;
 
@@ -1457,18 +1484,18 @@ void MainWindow::backup_wallet()
         QMessageBox::information(
             this,
             "Wallet backed up",
-            "wallet.dat was copied successfully. Keep the backup offline and protected."
+            "Complete QUINTUM backup created successfully. Keep the .qtmbackup file offline and protected."
         );
         return;
     }
 
     QString error =
-        "The wallet backup could not be written.";
+        "The complete wallet backup could not be written safely.";
 
     if (result ==
-        WalletStoreError::target_exists) {
+        WalletStoreError::wrong_network) {
         error =
-            "That backup file already exists. Choose a different file name.";
+            "The backup network does not match this wallet.";
     }
 
     QMessageBox::warning(
