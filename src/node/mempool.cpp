@@ -8,6 +8,17 @@
 
 namespace quintum {
 
+Mempool::Mempool(
+    MempoolPolicy policy) noexcept
+    : policy_(policy)
+{
+    if (!consensus::money_range(
+            policy_.min_relay_fee_rate_per_kb)) {
+        policy_.min_relay_fee_rate_per_kb =
+            policy::kDefaultMinRelayFeeRatePerKb;
+    }
+}
+
 std::optional<std::uint32_t> Mempool::next_height(
     const Chainstate& chain) const noexcept
 {
@@ -133,6 +144,37 @@ MempoolAcceptResult Mempool::accept(
 
     out.fee = applied.fee;
 
+    const auto required_fee =
+        policy::fee_for_size(
+            *serialized_size,
+            policy_.min_relay_fee_rate_per_kb
+        );
+
+    if (!required_fee) {
+        out.error =
+            MempoolError::transaction_rejected;
+        out.transaction_error =
+            UtxoApplyError::money_out_of_range;
+        return out;
+    }
+
+    out.required_fee = *required_fee;
+
+    const auto effective_rate =
+        policy::fee_rate_for_size(
+            applied.fee,
+            *serialized_size
+        );
+
+    out.fee_rate_per_kb =
+        effective_rate.value_or(0U);
+
+    if (applied.fee < *required_fee) {
+        out.error =
+            MempoolError::fee_below_minimum;
+        return out;
+    }
+
     entries_.push_back(
         MempoolEntry{
             .transaction = transaction,
@@ -169,6 +211,17 @@ void Mempool::reconcile(
             );
 
         if (!applied.ok()) {
+            continue;
+        }
+
+        const auto required_fee =
+            policy::fee_for_size(
+                entry.serialized_size,
+                policy_.min_relay_fee_rate_per_kb
+            );
+
+        if (!required_fee ||
+            applied.fee < *required_fee) {
             continue;
         }
 
@@ -254,6 +307,11 @@ std::size_t Mempool::size() const noexcept
 std::size_t Mempool::total_bytes() const noexcept
 {
     return total_bytes_;
+}
+
+Amount Mempool::min_relay_fee_rate_per_kb() const noexcept
+{
+    return policy_.min_relay_fee_rate_per_kb;
 }
 
 const std::vector<MempoolEntry>&
