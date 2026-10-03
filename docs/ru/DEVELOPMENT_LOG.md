@@ -3275,3 +3275,74 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 29 — Public testnet readiness:** реальные seed/bootstrap nodes, multi-node soak/adversarial testing, внешняя Windows-проверка и testnet release candidate.
+
+
+---
+
+## 2026-10-03 — Этап 29. Public testnet readiness — code-side gate
+
+### Реализовано
+
+1. **Stage 28 перенесён в `main`**
+   - `main` fast-forward до `d82a3b49686c021076073b725013b5f2e0d0bda8`;
+   - дальнейшая работа изолирована в `stage-29-public-testnet`.
+
+2. **Обычный desktop launch теперь Testnet**
+   - `QUINTUM.exe` без аргументов выбирает Testnet;
+   - Regtest остаётся доступен только явно через `--regtest`;
+   - каталоги сетей не смешиваются;
+   - заголовок окна показывает `[testnet]` / `[regtest]`;
+   - Mainnet автоматически не включён.
+
+3. **Seed hostname resolution**
+   - seed endpoint принимает IPv4 или DNS hostname;
+   - hostname резолвится через системный `getaddrinfo(AF_INET)`;
+   - импортируются все уникальные IPv4;
+   - addrman по-прежнему отбрасывает недопустимые/private адреса на public network;
+   - реальные встроенные seed endpoints пока не добавлены: сначала нужен фактически работающий публичный узел.
+
+4. **Исправлен restart edge-case peer database**
+   - Stage 29 QA обнаружил, что после успешного соединения `next_attempt = now + 60` сохранялся в `peers.dat`;
+   - быстрый restart/update мог оставить приложение без outbound peer до 60 секунд;
+   - исправлено без уничтожения peer diversity: внутри одного процесса успешный peer сохраняет 60-секундный cooldown, но при загрузке нового процесса успешные записи сразу становятся eligible;
+   - failed peers сохраняют exponential backoff.
+
+5. **Новый 27-й integration suite**
+   - старт на настоящих Testnet chain params/network magic/Genesis;
+   - bootstrap peer -> сохранение `peers.dat`;
+   - restart без повторного ввода адреса -> automatic reconnect;
+   - три независимых node datadir;
+   - общий height 3;
+   - partition: ветка A до height 5, ветка B до height 7;
+   - reconnect -> reorg A на более тяжёлую B;
+   - C синхронизируется через A;
+   - restart C только через `peers.dat`;
+   - новый блок B распространяется B -> A -> C;
+   - все три persistent chainstate после restart открываются на одном height/tip.
+
+### QA
+
+Кодовый commit перед этой записью:
+`3495c4901af23319d4e337ccdbd5cc92dcf454c1`.
+
+- Linux core: **27/27 passed**;
+- Windows core: **27/27 passed**;
+- GUI Linux/Windows: **success**;
+- Windows portable deployment + installer/update/uninstall/data-preservation: **success**.
+
+### Compatibility
+
+Не изменены:
+- Genesis;
+- network magic;
+- P2P/RPC ports;
+- transaction/block consensus;
+- UTXO;
+- PoW/difficulty;
+- subsidy/halving/emission;
+- blockchain storage format;
+- wallet private-key derivation/address format.
+
+### Что осталось до закрытия Stage 29
+
+Кодовая часть bootstrap/testnet готова к внешней проверке, но настоящий public testnet ещё не объявляется. Следующий обязательный шаг — поднять реальный публичный Testnet seed на TCP 38444, закрепить его реальный IP/DNS в seed list и провести multi-host Windows/Linux soak. Без реально доступного seed адрес не подставляется искусственно.

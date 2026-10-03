@@ -114,11 +114,11 @@ A corrupt or wrong-network peer database is rejected. It is not silently treated
 
 ### Seed bootstrap
 
-The discovery layer supports pinned numeric hardcoded seed endpoints and can import them into the address manager on first start.
+Seed endpoints may be pinned as literal IPv4 addresses or DNS hostnames. Hostnames are resolved through the platform socket resolver to IPv4 candidates; duplicates and non-routable addresses are still filtered by the normal address-manager rules before they can become outbound candidates.
 
-The built-in Mainnet/Testnet/Regtest seed lists are currently intentionally empty because there is not yet a real public QUINTUM seed node. The implementation does not invent a developer-controlled server merely to make discovery appear complete.
+The built-in Mainnet/Testnet/Regtest seed lists remain intentionally empty until a real stable public QUINTUM seed node exists. The implementation does not ship a fabricated or unrelated endpoint merely to make discovery appear complete.
 
-DNS seed resolution is a later network-deployment step.
+A successful peer keeps a short in-process reuse cooldown so discovery can move on to other candidates. When `peers.dat` is loaded by a new process, known-good peers become immediately eligible again; failed peers retain their persisted exponential backoff. This prevents an application update/restart from producing an artificial zero-peer interval while preserving peer diversity during one runtime.
 
 ## Security boundary
 
@@ -128,10 +128,10 @@ Block and transaction bytes received from peers enter the same validated Chainst
 
 ## Deployment items not implemented yet
 
-The network runtime is functional, but public deployment infrastructure is intentionally still absent:
+The network runtime is functional, and DNS hostname resolution for configured seed endpoints is implemented. Public deployment infrastructure is intentionally still absent:
 
 - live public seed nodes;
-- DNS seeds;
+- published DNS seed names/records backed by those real nodes;
 - UPnP/NAT-PMP automatic inbound port mapping;
 - production-grade peer reputation/eviction policy.
 

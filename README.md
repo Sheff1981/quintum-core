@@ -40,21 +40,21 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M15 — Release hardening + Windows distribution (Stage 28):** QUINTUM now produces a self-contained Windows desktop package and a tested per-user installer while keeping wallet/blockchain data outside the installation directory.
+**M16 — Public testnet readiness (Stage 29, deployment gate):** the code-side Testnet path is now exercised as the normal desktop network, with hostname-capable seed bootstrap and multi-node adversarial regression coverage.
 
-Wallet privacy/storage hardening:
-- `wallet_meta.dat` v2 uses authenticated XChaCha20-Poly1305 encryption with the active wallet encryption key, a fresh nonce and authenticated network/wallet identity;
-- legacy plaintext metadata v1 remains readable and is migrated automatically for encrypted wallets;
-- explicit legacy `Encrypt Wallet` now migrates metadata in the same operation with rollback on failure;
-- Windows wallet/metadata temporary files receive a protected current-user-only DACL before sensitive bytes are written; POSIX remains mode `0600`;
-- the Stage 28 regression suite verifies encrypted metadata roundtrip/tamper detection, migration, complete backup/restore guards and Windows ACLs.
+Implemented in Stage 29:
+- a normal `QUINTUM.exe` launch selects **Testnet**; Regtest remains explicit and isolated;
+- Testnet/Regtest window titles are clearly labelled to prevent accidental network confusion;
+- seed endpoints may be literal IPv4 addresses or DNS hostnames; all resolved IPv4 addresses pass through the normal addrman validation path;
+- successful peers keep a short in-process reuse cooldown, but a clean application restart makes known-good persisted peers immediately eligible again;
+- the Stage 29 regression suite boots real Testnet parameters and verifies persisted peer reconnect without re-entering an address;
+- a three-node partition test mines competing branches, reconnects them, verifies heavier-chain reorg, syncs a third node through an intermediate peer, restarts from `peers.dat`, relays a new block over two hops and reopens all three chainstates on the same tip.
 
-Backup/distribution:
-- one checksummed, network-bound `.qtmbackup` contains `wallet.dat` plus wallet metadata; blockchain and rebuildable `wallet_state.dat` are intentionally excluded;
-- desktop startup supports **Restore backup** and Settings creates **Backup complete wallet**;
-- Windows CI uses Qt `windeployqt`, builds `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe` with Inno Setup, performs portable smoke, silent install, live-process update, uninstall and user-data preservation checks;
-- release artifacts include the installer, portable deployment tree and `SHA256SUMS.txt`.
+QA at code commit `3495c4901af23319d4e337ccdbd5cc92dcf454c1`:
+- Linux core: **27/27 passed**;
+- Windows core: **27/27 passed**;
+- Linux/Windows GUI + Windows installer/deployment workflow: **success**.
 
-The installer is currently **unsigned pre-alpha**. Code-signing requires a release signing certificate and is deliberately not simulated.
+No consensus constants, Genesis blocks, network magic, ports, address formats, PoW, difficulty, subsidy, blockchain format or wallet key derivation were changed.
 
-Next: **Stage 29 — public testnet readiness:** seed/bootstrap infrastructure, multi-node soak/adversarial tests, external Windows installs and release-candidate networking before any mainnet freeze.
+The remaining Stage 29 deployment gate is intentionally external: provision at least one stable publicly reachable Testnet seed on TCP 38444, pin its real IP/DNS endpoint, then run geographically separate Windows/Linux soak testing. The built-in public seed list remains empty until such an endpoint actually exists.
