@@ -101,6 +101,7 @@ add_library(quintum_core STATIC
     src/wallet/address.cpp
     src/wallet/secure.cpp
     src/wallet/fee_policy.cpp
+    src/wallet/index.cpp
     src/wallet/wallet.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
