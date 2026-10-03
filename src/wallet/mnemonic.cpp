@@ -1,6 +1,6 @@
 #include "wallet/mnemonic.hpp"
 
-#include "crypto/secp256k1.hpp"
+#include "crypto/random.hpp"
 #include "crypto/sha256.hpp"
 #include "wallet/bip39_english.hpp"
 
