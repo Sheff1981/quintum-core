@@ -5,6 +5,7 @@
 #include "wallet/address.hpp"
 #include "wallet/wallet.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -95,6 +96,30 @@ void test_wallet_metadata_persists_and_validates_network()
 
         assert(wallet.set_address_label(
                    address,
+                   "Alice") ==
+               WalletMetadataError::none);
+
+        std::string uppercase =
+            address;
+
+        std::transform(
+            uppercase.begin(),
+            uppercase.end(),
+            uppercase.begin(),
+            [](char ch) {
+                if (ch >= 'a' &&
+                    ch <= 'z') {
+                    return static_cast<char>(
+                        ch - 'a' + 'A'
+                    );
+                }
+
+                return ch;
+            }
+        );
+
+        assert(wallet.set_address_label(
+                   uppercase,
                    "Alice") ==
                WalletMetadataError::none);
 
