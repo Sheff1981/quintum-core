@@ -8,6 +8,7 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
+#include <QColor>
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -30,6 +31,7 @@
 #include <QStackedWidget>
 #include <QStringList>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -42,6 +44,7 @@
 #include <filesystem>
 #include <limits>
 #include <string>
+#include <utility>
 
 namespace quintum::qtui {
 namespace {
