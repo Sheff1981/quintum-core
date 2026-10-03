@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 adds persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 adds a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -91,6 +91,45 @@ where `network` is Mainnet/Testnet/Regtest and `branch` is 0 for receive keys or
 The path is versioned by the v2 wallet format and covered by a pinned derivation test vector.
 
 A seed-native v2 wallet can reconstruct its deterministic receive/change keypool from the seed. A migrated v1 wallet, or a v2 wallet containing imported random private keys, must still be backed up as `wallet.dat`; the API deliberately refuses to advertise seed-only recovery as complete in that case.
+
+### 24-word recovery phrase
+
+Stage 23 gives seed-native wallets a **24-word English recovery phrase**.
+
+Compatibility is intentionally strict: QUINTUM's existing 256-bit `RecoverySeed` remains the exact input to the existing BIP32 derivation. The phrase is a reversible human representation of those same 32 bytes using the standard 2048-word BIP39 English list and the BIP39 256-bit entropy checksum rule:
+
+- 256 entropy bits;
+- 8 SHA-256 checksum bits;
+- 264 bits split into 24 groups of 11 bits;
+- one English word per 11-bit index.
+
+QUINTUM does **not** run the phrase through BIP39 PBKDF2 to create a different 512-bit wallet seed. Doing that now would change already-defined QUINTUM BIP32 keys and addresses. A generic wallet that interprets these words through the full BIP39 mnemonic-to-seed PBKDF2 step therefore will not derive QUINTUM's keys unless it explicitly supports the QUINTUM recovery scheme.
+
+The decoder requires exactly 24 known words and verifies the checksum before any wallet file is created. Unknown words, wrong word counts and invalid checksums are rejected.
+
+There is currently no optional BIP39-style mnemonic passphrase/"25th word". The password protecting encrypted `wallet.dat` is separate from the 24-word recovery phrase.
+
+### Gap-aware recovery
+
+`Wallet::recover_from_mnemonic()` restores both QUINTUM deterministic branches:
+
+- branch 0 — receive;
+- branch 1 — internal/change.
+
+The default recovery gap limit is **100**, matching the existing keypool policy. Recovery starts with at least 101 receive keys and 100 internal keys. If an active-chain output is found near or beyond the current lookahead, derivation extends until there are 100 unused indices beyond the highest discovered index. Both active-chain outputs and current mempool outputs are considered when marking recovered keys used.
+
+The recovery scan is correctness-first and may rescan the active blockchain multiple times as the lookahead expands. This is acceptable for the current pre-mainnet foundation; a later performance pass can add a dedicated descriptor/filter index without changing recovery semantics.
+
+Recovery is also commit-safe:
+
+1. validate and decode the 24 words;
+2. discover deterministic keys from the authoritative active chain;
+3. build/synchronize the derivable wallet index;
+4. only after all of that succeeds, atomically commit encrypted `wallet.dat`.
+
+An existing `wallet.dat` is never overwritten by mnemonic recovery. If discovery, index persistence or synchronization fails, the in-memory recovery state is wiped and no new `wallet.dat` is committed.
+
+`Wallet::recovery_mnemonic()` and the explicit `NetworkRuntime::wallet_recovery_mnemonic()` bridge return a phrase only when the wallet is fully seed-recoverable. If legacy/random imported private keys are present, seed-only recovery remains disabled and `wallet.dat` backup is required. The phrase is not included in ordinary runtime status, transaction history, P2P messages or wallet-state cache.
 
 ## Keypool and backup safety
 
@@ -221,8 +260,8 @@ The passphrase itself is not accepted as a command-line argument, avoiding norma
 
 The current pre-mainnet wallet still does not claim these are finished:
 
-- user-facing mnemonic encoding/import and recovery UX;
-- deterministic gap-limit/rescan policy for mnemonic restoration;
+- GUI presentation/confirmation workflow for the implemented 24-word recovery phrase;
+- recovery-rescan performance optimization for very large chains;
 - confirmation-target fee estimation and automatic fee selection;
 - transaction labels/address book metadata;
 - hardware-wallet support;
