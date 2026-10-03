@@ -682,6 +682,32 @@ NetworkRuntime::backup_wallet(
     );
 }
 
+wallet::WalletStoreError
+NetworkRuntime::backup_wallet_bundle(
+    const std::filesystem::path& destination,
+    bool overwrite)
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.backup_bundle(
+        destination,
+        overwrite
+    );
+}
+
+wallet::WalletStoreError
+NetworkRuntime::restore_wallet_bundle(
+    const std::filesystem::path& source)
+{
+    std::scoped_lock lock(state_mutex_);
+
+    if (running_.load()) {
+        return wallet::WalletStoreError::
+            target_exists;
+    }
+
+    return wallet_.restore_bundle(source);
+}
+
 wallet::WalletFeeQuote
 NetworkRuntime::quote_send_fee(
     std::string_view destination,
