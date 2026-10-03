@@ -1,0 +1,26 @@
+[Unit]
+Description=QUINTUM public testnet seed node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quintum
+Group=quintum
+StateDirectory=quintum
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/quintum/quintumd --testnet --datadir /var/lib/quintum --listen-port 38444 --wallet-passphrase-file /etc/quintum/wallet.pass
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/quintum
+
+[Install]
+WantedBy=multi-user.target
