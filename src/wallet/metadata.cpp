@@ -1,4 +1,5 @@
 #include "wallet/wallet.hpp"
+#include "wallet/file_security.hpp"
 
 #include "core/serialize.hpp"
 #include "crypto/sha256.hpp"
@@ -256,10 +257,7 @@ WalletMetadataError write_atomic(
         return WalletMetadataError::io_error;
     }
 
-#ifndef _WIN32
-    if (::chmod(
-            temporary.c_str(),
-            S_IRUSR | S_IWUSR) != 0) {
+    if (!restrict_file_permissions(temporary)) {
         (void)std::fclose(file);
         std::filesystem::remove(
             temporary,
@@ -267,7 +265,6 @@ WalletMetadataError write_atomic(
         );
         return WalletMetadataError::io_error;
     }
-#endif
 
     const std::size_t written =
         bytes.empty()
