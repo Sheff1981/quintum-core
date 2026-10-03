@@ -23,3 +23,67 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Smoke headless Testnet runtime
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' 'ci-disposable-testnet-seed-password' > "$tmp/wallet.pass"
+          chmod 0600 "$tmp/wallet.pass"
+          ./build/quintumd --testnet --datadir "$tmp/data" --listen-port 0 \
+            --wallet-passphrase-file "$tmp/wallet.pass" --run-seconds 1 \
+            > "$tmp/testnet.log" 2>&1
+          cat "$tmp/testnet.log"
+          grep -q "Network: testnet" "$tmp/testnet.log"
+          grep -q "Final peers:" "$tmp/testnet.log"
+
+      - name: Smoke explicit peer bootstrap
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          printf '%s\n' 'ci-seed-a-password' > "$tmp/a.pass"
+          printf '%s\n' 'ci-seed-b-password' > "$tmp/b.pass"
+          chmod 0600 "$tmp/a.pass" "$tmp/b.pass"
+
+          ./build/quintumd --regtest --datadir "$tmp/a" --listen-port 49444 \
+            --wallet-passphrase-file "$tmp/a.pass" --run-seconds 6 \
+            > "$tmp/a.log" 2>&1 &
+          server_pid=$!
+
+          sleep 1
+
+          ./build/quintumd --regtest --datadir "$tmp/b" --listen-port 49445 \
+            --wallet-passphrase-file "$tmp/b.pass" \
+            --addnode 127.0.0.1:49444 --run-seconds 3 \
+            > "$tmp/b.log" 2>&1
+
+          wait "$server_pid"
+          cat "$tmp/a.log"
+          cat "$tmp/b.log"
+          grep -Eq "Final peers: [1-9][0-9]* \(outbound [1-9][0-9]*\)" "$tmp/b.log"
+
+      - name: Package Linux Testnet seed node
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist/linux-seed
+          install -m 0755 build/quintumd dist/linux-seed/quintumd
+          install -m 0644 packaging/linux/quintum-testnet-seed.service dist/linux-seed/
+          install -m 0644 packaging/linux/README.md dist/linux-seed/README.md
+          tar -C dist -czf dist/quintum-testnet-seed-linux-x64.tar.gz linux-seed
+          sha256sum dist/quintum-testnet-seed-linux-x64.tar.gz \
+            > dist/SHA256SUMS-linux-seed.txt
+
+      - name: Upload Linux Testnet seed package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-testnet-seed-linux-x64
+          path: |
+            dist/quintum-testnet-seed-linux-x64.tar.gz
+            dist/SHA256SUMS-linux-seed.txt
+          if-no-files-found: error
