@@ -1,4 +1,5 @@
 #include "wallet/wallet.hpp"
+#include "wallet/file_security.hpp"
 
 #include "consensus/monetary.hpp"
 #include "core/serialize.hpp"
@@ -62,19 +63,6 @@ bool flush_file(std::FILE* file) noexcept
     return _commit(_fileno(file)) == 0;
 #else
     return ::fsync(fileno(file)) == 0;
-#endif
-}
-
-bool restrict_permissions(
-    const std::filesystem::path& path) noexcept
-{
-#ifdef _WIN32
-    (void)path;
-    return true;
-#else
-    return ::chmod(
-               path.c_str(),
-               S_IRUSR | S_IWUSR) == 0;
 #endif
 }
 
@@ -179,8 +167,7 @@ WalletStoreError write_atomic(
         return WalletStoreError::io_error;
     }
 
-#ifndef _WIN32
-    if (!restrict_permissions(temporary)) {
+    if (!restrict_file_permissions(temporary)) {
         (void)std::fclose(file);
         std::filesystem::remove(
             temporary,
@@ -188,7 +175,6 @@ WalletStoreError write_atomic(
         );
         return WalletStoreError::io_error;
     }
-#endif
 
     const std::size_t written =
         bytes.empty()
