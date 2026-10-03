@@ -1256,6 +1256,79 @@ void test_legacy_wallet_encryption_migration()
 }
 
 
+void test_network_runtime_encrypted_wallet_lifecycle()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto directory =
+        unique_dir("runtime-encrypted");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    std::string expected_address;
+
+    {
+        NetworkRuntime runtime{
+            params,
+            directory
+        };
+
+        NetworkRuntimeConfig config;
+        config.bind_address = "127.0.0.1";
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.accept_poll_ms = 10U;
+        config.wallet_passphrase =
+            "runtime-encrypted-passphrase";
+
+        const auto started =
+            runtime.start(config);
+
+        assert(started.ok());
+        assert(started.wallet.created);
+
+        expected_address =
+            runtime.status().receive_address;
+
+        assert(!expected_address.empty());
+        runtime.stop();
+    }
+
+    {
+        NetworkRuntime runtime{
+            params,
+            directory
+        };
+
+        NetworkRuntimeConfig config;
+        config.bind_address = "127.0.0.1";
+        config.listen_port = 0U;
+        config.target_outbound = 0U;
+        config.accept_poll_ms = 10U;
+        config.wallet_passphrase =
+            "runtime-encrypted-passphrase";
+
+        const auto started =
+            runtime.start(config);
+
+        assert(started.ok());
+        assert(!started.wallet.created);
+        assert(runtime.status().receive_address ==
+               expected_address);
+
+        runtime.stop();
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
+
 } // namespace
 
 int main()
@@ -1267,5 +1340,6 @@ int main()
     test_network_runtime_wallet_bridge();
     test_encrypted_wallet_and_hd_recovery();
     test_legacy_wallet_encryption_migration();
+    test_network_runtime_encrypted_wallet_lifecycle();
     return 0;
 }
