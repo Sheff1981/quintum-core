@@ -1931,6 +1931,22 @@ bool NetworkRuntime::process_inventory(
     {
         std::scoped_lock lock(state_mutex_);
 
+        const auto request_budget_exhausted =
+            [&peer]() noexcept {
+                const std::size_t transactions =
+                    peer.requested_transactions.size();
+                const std::size_t blocks =
+                    peer.requested_blocks.size();
+
+                return
+                    transactions >=
+                        kMaxOutstandingRelayRequestsPerPeer ||
+                    blocks >=
+                        kMaxOutstandingRelayRequestsPerPeer ||
+                    transactions + blocks >=
+                        kMaxOutstandingRelayRequestsPerPeer;
+            };
+
         for (const auto& item : *inventory) {
             if (item.type ==
                 kInventoryTransaction) {
@@ -1941,6 +1957,10 @@ bool NetworkRuntime::process_inventory(
                             requested_transactions,
                         item.hash)) {
                     continue;
+                }
+
+                if (request_budget_exhausted()) {
+                    return false;
                 }
 
                 peer.requested_transactions.
@@ -1957,6 +1977,10 @@ bool NetworkRuntime::process_inventory(
                         peer.requested_blocks,
                         item.hash)) {
                     continue;
+                }
+
+                if (request_budget_exhausted()) {
+                    return false;
                 }
 
                 peer.requested_blocks.
