@@ -812,31 +812,51 @@ WalletSyncResult Wallet::sync(
         return out;
     }
 
-    const std::uint32_t spend_height =
-        *height + 1U;
+    const auto tip =
+        chain.active_hash(*height);
 
-    std::map<
-        OutPoint,
-        WalletCoin,
-        OutPointLess> confirmed;
+    if (!tip) {
+        out.error =
+            WalletSyncError::
+                active_chain_inconsistent;
+        return out;
+    }
+
+    bool rebuild =
+        !index_valid_ ||
+        indexed_height_ > *height;
+
+    if (!rebuild) {
+        const auto indexed_active =
+            chain.active_hash(
+                indexed_height_
+            );
+
+        rebuild =
+            !indexed_active ||
+            *indexed_active !=
+                indexed_tip_;
+    }
+
+    std::uint64_t scan_start{0U};
+
+    if (rebuild) {
+        reset_index_state();
+        confirmed_coins_.clear();
+        confirmed_history_.clear();
+        index_valid_ = true;
+        out.index_rebuilt = true;
+        scan_start = 0U;
+    } else {
+        scan_start =
+            static_cast<std::uint64_t>(
+                indexed_height_) + 1U;
+    }
 
     std::vector<crypto::PublicKey>
         discovered_keys;
 
-    const auto remember_key =
-        [&](const crypto::PublicKey& public_key) {
-            if (std::find(
-                    discovered_keys.begin(),
-                    discovered_keys.end(),
-                    public_key) ==
-                discovered_keys.end()) {
-                discovered_keys.push_back(
-                    public_key
-                );
-            }
-        };
-
-    for (std::uint64_t current = 0U;
+    for (std::uint64_t current = scan_start;
          current <=
              static_cast<std::uint64_t>(
                  *height);
@@ -844,9 +864,11 @@ WalletSyncResult Wallet::sync(
         const auto active_hash =
             chain.active_hash(
                 static_cast<std::uint32_t>(
-                    current));
+                    current)
+            );
 
         if (!active_hash) {
+            reset_index_state();
             out.error =
                 WalletSyncError::
                     active_chain_inconsistent;
@@ -856,84 +878,39 @@ WalletSyncResult Wallet::sync(
         const Block* block =
             chain.block(*active_hash);
 
-        if (block == nullptr) {
+        if (block == nullptr ||
+            !apply_confirmed_block_to_index(
+                *block,
+                *active_hash,
+                static_cast<std::uint32_t>(
+                    current),
+                discovered_keys
+            )) {
+            reset_index_state();
             out.error =
                 WalletSyncError::
                     active_chain_inconsistent;
             return out;
         }
 
-        for (const auto& tx :
-             block->transactions) {
-            for (const auto& input :
-                 tx.inputs) {
-                confirmed.erase(
-                    input.previous_output
-                );
-            }
-
-            const Hash256 txid =
-                transaction_id(tx);
-
-            for (std::size_t index = 0U;
-                 index < tx.outputs.size();
-                 ++index) {
-                if (index >
-                    static_cast<std::size_t>(
-                        std::numeric_limits<
-                            std::uint32_t>::max())) {
-                    out.error =
-                        WalletSyncError::
-                            active_chain_inconsistent;
-                    return out;
-                }
-
-                const auto public_key =
-                    consensus::
-                        parse_p2pk_locking_script(
-                            tx.outputs[index]
-                                .locking_script
-                        );
-
-                if (!public_key ||
-                    !owns_public_key(
-                        *public_key)) {
-                    continue;
-                }
-
-                remember_key(*public_key);
-
-                remember_key(*public_key);
-
-                const OutPoint outpoint{
-                    .txid = txid,
-                    .index =
-                        static_cast<
-                            std::uint32_t>(
-                                index),
-                };
-
-                confirmed.emplace(
-                    outpoint,
-                    WalletCoin{
-                        .outpoint = outpoint,
-                        .coin = Coin{
-                            .output =
-                                tx.outputs[index],
-                            .height =
-                                static_cast<
-                                    std::uint32_t>(
-                                        current),
-                            .coinbase =
-                                tx.is_coinbase(),
-                        },
-                        .public_key =
-                            *public_key,
-                    }
-                );
-            }
-        }
+        indexed_height_ =
+            static_cast<std::uint32_t>(
+                current);
+        indexed_tip_ = *active_hash;
+        ++out.blocks_scanned;
     }
+
+    if (rebuild &&
+        out.blocks_scanned == 0U) {
+        reset_index_state();
+        out.error =
+            WalletSyncError::
+                active_chain_inconsistent;
+        return out;
+    }
+
+    const std::uint32_t spend_height =
+        *height + 1U;
 
     std::map<
         OutPoint,
@@ -943,7 +920,7 @@ WalletSyncResult Wallet::sync(
     WalletBalance next_balance;
 
     for (const auto& [outpoint, coin] :
-         confirmed) {
+         confirmed_coins_) {
         (void)outpoint;
 
         if (mature_at_height(
@@ -982,8 +959,31 @@ WalletSyncResult Wallet::sync(
         WalletCoin,
         OutPointLess> pending;
 
-    for (const auto& tx :
-         mempool.transactions()) {
+    history_ = confirmed_history_;
+
+    for (auto& record : history_) {
+        if (!record.block_height ||
+            *record.block_height > *height) {
+            reset_index_state();
+            out.error =
+                WalletSyncError::
+                    active_chain_inconsistent;
+            return out;
+        }
+
+        record.confirmations =
+            *height -
+            *record.block_height +
+            1U;
+    }
+
+    for (const auto& entry :
+         mempool.entries()) {
+        const auto& tx =
+            entry.transaction;
+
+        Amount spent{0U};
+
         for (const auto& input :
              tx.inputs) {
             const auto available_it =
@@ -997,8 +997,11 @@ WalletSyncResult Wallet::sync(
                     available_it->
                         second.coin.output.value;
 
-                if (value >
-                    next_balance.available) {
+                if (!add_amount(
+                        spent,
+                        value) ||
+                    value >
+                        next_balance.available) {
                     out.error =
                         WalletSyncError::
                             amount_overflow;
@@ -1009,6 +1012,7 @@ WalletSyncResult Wallet::sync(
                 available.erase(
                     available_it
                 );
+                continue;
             }
 
             const auto pending_it =
@@ -1022,8 +1026,11 @@ WalletSyncResult Wallet::sync(
                     pending_it->
                         second.coin.output.value;
 
-                if (value >
-                    next_balance.pending) {
+                if (!add_amount(
+                        spent,
+                        value) ||
+                    value >
+                        next_balance.pending) {
                     out.error =
                         WalletSyncError::
                             amount_overflow;
@@ -1038,7 +1045,9 @@ WalletSyncResult Wallet::sync(
         }
 
         const Hash256 txid =
-            transaction_id(tx);
+            entry.txid;
+
+        Amount received{0U};
 
         for (std::size_t index = 0U;
              index < tx.outputs.size();
@@ -1064,6 +1073,25 @@ WalletSyncResult Wallet::sync(
                 !owns_public_key(
                     *public_key)) {
                 continue;
+            }
+
+            if (!add_amount(
+                    received,
+                    tx.outputs[index].value)) {
+                out.error =
+                    WalletSyncError::
+                        amount_overflow;
+                return out;
+            }
+
+            if (std::find(
+                    discovered_keys.begin(),
+                    discovered_keys.end(),
+                    *public_key) ==
+                discovered_keys.end()) {
+                discovered_keys.push_back(
+                    *public_key
+                );
             }
 
             const OutPoint outpoint{
@@ -1095,10 +1123,56 @@ WalletSyncResult Wallet::sync(
                 return out;
             }
 
-            pending.emplace(
-                outpoint,
-                std::move(owned)
-            );
+            const auto [it, inserted] =
+                pending.emplace(
+                    outpoint,
+                    std::move(owned)
+                );
+
+            (void)it;
+
+            if (!inserted) {
+                out.error =
+                    WalletSyncError::
+                        active_chain_inconsistent;
+                return out;
+            }
+        }
+
+        if (spent > 0U ||
+            received > 0U) {
+            WalletTransactionRecord record;
+            record.txid = txid;
+            record.status =
+                WalletTransactionStatus::
+                    unconfirmed;
+            record.received = received;
+            record.spent = spent;
+            record.coinbase = false;
+            record.confirmations = 0U;
+
+            if (spent > 0U) {
+                record.fee = entry.fee;
+            }
+
+            const auto existing =
+                std::find_if(
+                    history_.begin(),
+                    history_.end(),
+                    [&](const auto& item) {
+                        return item.txid ==
+                               txid;
+                    }
+                );
+
+            if (existing == history_.end()) {
+                history_.push_back(
+                    std::move(record)
+                );
+            } else {
+                *existing =
+                    std::move(record);
+            }
         }
     }
 
@@ -1152,8 +1226,19 @@ WalletSyncResult Wallet::sync(
         );
     }
 
-    confirmed_coins_ =
-        std::move(confirmed);
+    if (out.blocks_scanned > 0U ||
+        out.index_rebuilt) {
+        const auto state_error =
+            save_index_state();
+
+        if (state_error !=
+            WalletStoreError::none) {
+            out.error =
+                WalletSyncError::store_failed;
+            return out;
+        }
+    }
+
     available_coins_ =
         std::move(available);
     pending_coins_ =
@@ -1486,6 +1571,16 @@ WalletCreateResult Wallet::create_transaction(
 WalletBalance Wallet::balance() const noexcept
 {
     return balance_;
+}
+
+std::vector<WalletTransactionRecord>
+Wallet::history() const
+{
+    if (!started_) {
+        return {};
+    }
+
+    return history_;
 }
 
 std::vector<std::string>
