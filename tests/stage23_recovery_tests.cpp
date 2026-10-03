@@ -403,6 +403,79 @@ void test_mnemonic_recovery_discovers_gap_and_persists()
     );
 }
 
+void test_recovery_sync_failure_does_not_commit_wallet()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_directory =
+        unique_dir("atomic-chain");
+    const auto wallet_directory =
+        unique_dir("atomic-wallet");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    NodeRuntime node{
+        params,
+        chain_directory
+    };
+
+    assert(node.start_at(
+               params.genesis.timestamp +
+               65'000U).ok());
+
+    RecoverySeed seed{};
+    seed.fill(0x55U);
+
+    const auto encoded =
+        encode_recovery_mnemonic(seed);
+
+    assert(encoded.ok());
+
+    std::error_code ec;
+    std::filesystem::create_directories(
+        wallet_directory /
+            "wallet_state.dat",
+        ec
+    );
+    assert(!ec);
+
+    Wallet wallet{
+        params,
+        wallet_directory
+    };
+
+    const auto recovery =
+        wallet.recover_from_mnemonic(
+            encoded.words,
+            "stage23-password",
+            node.chain(),
+            node.mempool(),
+            100U
+        );
+
+    assert(!recovery.ok());
+    assert(recovery.error ==
+           WalletRecoveryError::sync_failed);
+    assert(!wallet.started());
+    assert(!std::filesystem::exists(
+        wallet_directory /
+            "wallet.dat"
+    ));
+
+    crypto::secure_erase(seed);
+
+    std::filesystem::remove_all(
+        chain_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        wallet_directory,
+        ec
+    );
+}
+
 void test_invalid_mnemonic_never_creates_wallet()
 {
     using namespace quintum;
@@ -474,6 +547,7 @@ int main()
     test_mnemonic_roundtrip_preserves_quintum_keys();
     test_mnemonic_validation_rejects_bad_input();
     test_mnemonic_recovery_discovers_gap_and_persists();
+    test_recovery_sync_failure_does_not_commit_wallet();
     test_invalid_mnemonic_never_creates_wallet();
     return 0;
 }
