@@ -44,6 +44,7 @@ struct NetworkRuntimeConfig {
 enum class NetworkRuntimeStartError {
     none,
     already_running,
+    network_disabled,
     data_directory_failed,
     data_directory_locked,
     node_failed,
