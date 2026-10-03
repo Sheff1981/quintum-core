@@ -271,7 +271,7 @@ void test_retry_backoff_and_seed_bootstrap()
 
     manager.mark_success(successful, 1'010U);
     const auto immediate =
-        manager.select(1'010U, excluded);
+        manager.select(1'010U);
 
     assert(immediate.has_value());
     assert(*immediate == successful);
