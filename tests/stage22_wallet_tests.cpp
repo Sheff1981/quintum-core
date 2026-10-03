@@ -853,6 +853,120 @@ void test_wallet_index_rebuilds_after_reorg()
     );
 }
 
+void test_imported_key_invalidates_persisted_index_across_restart()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_directory =
+        unique_dir("import-crash-chain");
+    const auto wallet_directory =
+        unique_dir("import-crash-wallet");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 50'000U;
+
+    NodeRuntime node{
+        params,
+        chain_directory
+    };
+
+    assert(node.start_at(base_time).ok());
+
+    const Bytes imported_payout =
+        consensus::make_p2pk_locking_script(
+            public_key_from_scalar(71U)
+        );
+
+    const auto historical =
+        node.mine_block_at(
+            imported_payout,
+            base_time + 1U,
+            4'096U
+        );
+
+    assert(historical.ok());
+
+    const Hash256 historical_txid =
+        transaction_id(
+            historical.block.transactions.front()
+        );
+
+    {
+        Wallet wallet{
+            params,
+            wallet_directory
+        };
+
+        assert(wallet.start().ok());
+
+        const auto baseline =
+            wallet.sync(
+                node.chain(),
+                node.mempool()
+            );
+
+        assert(baseline.ok());
+        assert(baseline.index_rebuilt);
+        assert(wallet.history().empty());
+
+        const auto imported =
+            wallet.import_private_key(
+                key_from_scalar(71U)
+            );
+
+        assert(imported.ok());
+
+        // Simulate an application exit immediately after import:
+        // there is deliberately no wallet.sync() here.
+    }
+
+    {
+        Wallet restarted{
+            params,
+            wallet_directory
+        };
+
+        assert(restarted.start().ok());
+
+        const auto sync =
+            restarted.sync(
+                node.chain(),
+                node.mempool()
+            );
+
+        assert(sync.ok());
+        assert(sync.index_rebuilt);
+        assert(sync.blocks_scanned == 2U);
+
+        const auto history =
+            restarted.history();
+
+        const auto* record =
+            find_history(
+                history,
+                historical_txid
+            );
+
+        assert(record != nullptr);
+        assert(record->received ==
+               consensus::kInitialSubsidy);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        chain_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        wallet_directory,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
@@ -861,5 +975,6 @@ int main()
     test_persistent_history_and_incremental_index();
     test_network_runtime_exposes_wallet_history_and_fee_rate();
     test_wallet_index_rebuilds_after_reorg();
+    test_imported_key_invalidates_persisted_index_across_restart();
     return 0;
 }
