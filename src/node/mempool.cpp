@@ -256,6 +256,12 @@ std::size_t Mempool::total_bytes() const noexcept
     return total_bytes_;
 }
 
+const std::vector<MempoolEntry>&
+Mempool::entries() const noexcept
+{
+    return entries_;
+}
+
 void Mempool::clear() noexcept
 {
     entries_.clear();
