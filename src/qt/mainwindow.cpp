@@ -1298,7 +1298,7 @@ void MainWindow::mine_once()
 
 void MainWindow::show_recovery_phrase()
 {
-    const auto mnemonic =
+    auto mnemonic =
         runtime_.wallet_recovery_mnemonic();
 
     if (!mnemonic) {
@@ -1364,8 +1364,7 @@ void MainWindow::show_recovery_phrase()
 
     text->clear();
 
-    auto& words =
-        const_cast<std::string&>(*mnemonic);
+    auto& words = *mnemonic;
 
     crypto::secure_erase(
         std::span<Byte>{
@@ -1375,7 +1374,6 @@ void MainWindow::show_recovery_phrase()
         }
     );
     words.clear();
-    words.shrink_to_fit();
 }
 
 void MainWindow::backup_wallet()
