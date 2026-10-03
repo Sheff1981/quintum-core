@@ -2,7 +2,7 @@
 
 Status: **pre-alpha**
 
-Stage 26 introduced the first Qt 6 Widgets desktop shell. Stage 27 makes it operational. The GUI remains a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy, recovery derivation, mining validation or P2P rules itself.
+Stage 26 introduced the first Qt 6 Widgets desktop shell. Stage 27 made it operational. Stage 28 hardens wallet privacy/backup and produces the first tested Windows distribution. The GUI remains a thin client over `NetworkRuntime`; it does not implement consensus, wallet signing, fee policy, recovery derivation, mining validation or P2P rules itself.
 
 ## Build
 
@@ -36,7 +36,7 @@ Without `--datadir`, Qt's application-data directory is used with a separate sub
 
 A newly created desktop wallet requires a password and uses the existing encrypted `wallet.dat` implementation. Existing legacy unencrypted development wallets may still be opened with an empty password.
 
-When no `wallet.dat` exists, the startup UI offers **Create new wallet** or **Recover from 24 words**. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. After a successful recovery, orphaned metadata from a previously removed wallet is atomically replaced by an empty metadata store bound to the recovered wallet. Invalid word count, unknown words and checksum/order errors are reported separately.
+When no `wallet.dat` exists, the startup UI offers **Create new wallet**, **Recover from 24 words**, or **Restore backup** from a complete `.qtmbackup`. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. After a successful recovery, orphaned metadata from a previously removed wallet is atomically replaced by an empty metadata store bound to the recovered wallet. Invalid word count, unknown words and checksum/order errors are reported separately.
 
 The GUI never receives or stores private keys directly. Receive-address generation, signing, transaction creation, balances, history, recovery derivation, mining and metadata all go through existing core/runtime APIs. Password and mnemonic handoff strings are best-effort erased after use.
 
@@ -73,23 +73,40 @@ The current desktop miner is intentionally simple and single-process; it is a co
 Shows network, P2P/listen ports and recommended fee rate. It also exposes:
 
 - **Show 24 recovery words** with an explicit secret warning and mandatory wallet-password re-verification;
-- **Backup wallet.dat** for spend-key backup.
+- **Backup complete wallet** creates one `.qtmbackup` containing `wallet.dat` and wallet metadata.
 
-The current single-file backup does **not** include `wallet_meta.dat`; the UI states this explicitly. Before seed words are revealed, the password is re-derived with the wallet's real Argon2id parameters and compared against the active encryption key without early exit. Wrong passwords never request the mnemonic from the wallet. Stage 28 will replace the backup limitation with a complete backup bundle.
+The backup bundle is checksummed and network-bound. It intentionally excludes blockchain data and the rebuildable `wallet_state.dat`; both can be reconstructed by synchronization/rescan. For normal encrypted wallets, the bundle contains encrypted wallet secrets plus encrypted metadata. Before seed words are revealed, the password is re-derived with the wallet's real Argon2id parameters and compared against the active encryption key without early exit. Wrong passwords never request the mnemonic from the wallet. Stage 28 will replace the backup limitation with a complete backup bundle.
 
 ## CI smoke mode
 
 `--smoke-test` is for CI/development only. It creates a disposable encrypted Regtest wallet in a temporary directory, starts a real node runtime and MainWindow, then exits automatically. CI runs this mode headlessly on Linux and Windows.
 
-## Not finished yet
+## Windows distribution
 
-Stage 27 completes the functional desktop loop, but this is still pre-alpha. Before Windows distribution/release:
+Stage 28 CI creates a portable deployment with Qt runtime DLLs/plugins using `windeployqt`, then compiles a per-user Inno Setup installer.
 
-- encrypt privacy-sensitive `wallet_meta.dat` at rest;
-- create one complete backup/restore bundle covering keys plus user metadata;
-- finish explicit Windows wallet/metadata ACL hardening;
-- strengthen clean-shutdown/restart and desktop soak tests;
-- deploy Qt runtime files with the Windows package;
-- build the Windows installer with safe upgrades and preserved user data;
-- define release signing/update policy;
-- later replace the reference desktop miner with optimized mining infrastructure only if needed.
+The installer:
+- installs under the current user's LocalAppData Programs directory and does not require administrator privileges;
+- creates a Start Menu shortcut and offers an optional desktop shortcut;
+- uses a stable application id for upgrades;
+- closes a running `QUINTUM.exe` during update through the Windows Restart Manager path;
+- never installs blockchain/wallet data under `{app}`;
+- never deletes the user's AppData wallet/blockchain directory on update or uninstall.
+
+CI performs a real silent first install, launches the installed executable, starts a persistent wallet process, performs an update, verifies the old process was closed, uninstalls, and verifies a user-data sentinel survived both update and uninstall.
+
+The Windows artifact contains:
+- `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`;
+- the portable `windows/` deployment directory;
+- `SHA256SUMS.txt`.
+
+The pre-alpha installer is currently unsigned. Production signing is deferred until a real code-signing certificate is provisioned.
+
+## Remaining pre-mainnet work
+
+- public seed/bootstrap infrastructure and geographically separate nodes;
+- long-duration network/reorg/disconnect soak tests;
+- confirmation-target fee estimator;
+- external Windows installation testing across supported machines;
+- release signing/update policy and signing certificate;
+- public testnet release candidate before any mainnet parameter freeze.

@@ -40,14 +40,21 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M14 — Operational Qt desktop wallet (Stage 27):** the desktop application now covers the first complete day-to-day wallet loop without moving security-sensitive logic into Qt.
+**M15 — Release hardening + Windows distribution (Stage 28):** QUINTUM now produces a self-contained Windows desktop package and a tested per-user installer while keeping wallet/blockchain data outside the installation directory.
 
-On first launch the user can either create a new encrypted wallet or recover one from the existing QUINTUM **24-word recovery phrase**. Recovery is performed by `NetworkRuntime` against the real chain before normal wallet startup, preserves the existing BIP32 derivation, rescans with the Stage 23 gap policy, and refuses to overwrite an existing `wallet.dat`.
+Wallet privacy/storage hardening:
+- `wallet_meta.dat` v2 uses authenticated XChaCha20-Poly1305 encryption with the active wallet encryption key, a fresh nonce and authenticated network/wallet identity;
+- legacy plaintext metadata v1 remains readable and is migrated automatically for encrypted wallets;
+- explicit legacy `Encrypt Wallet` now migrates metadata in the same operation with rollback on failure;
+- Windows wallet/metadata temporary files receive a protected current-user-only DACL before sensitive bytes are written; POSIX remains mode `0600`;
+- the Stage 28 regression suite verifies encrypted metadata roundtrip/tamper detection, migration, complete backup/restore guards and Windows ACLs.
 
-The GUI now includes **Overview, Send, Receive, Transactions, Address Book, Mining and Settings**. Overview shows local height, peer best height and synchronization progress. Address-book edits persist through `wallet_meta.dat`. Mining performs real PoW through the node runtime, pays coinbase to a wallet-owned key, reports measured hash attempts/rate, submits valid blocks locally and relays them to peers.
+Backup/distribution:
+- one checksummed, network-bound `.qtmbackup` contains `wallet.dat` plus wallet metadata; blockchain and rebuildable `wallet_state.dat` are intentionally excluded;
+- desktop startup supports **Restore backup** and Settings creates **Backup complete wallet**;
+- Windows CI uses Qt `windeployqt`, builds `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe` with Inno Setup, performs portable smoke, silent install, live-process update, uninstall and user-data preservation checks;
+- release artifacts include the installer, portable deployment tree and `SHA256SUMS.txt`.
 
-Recovery words can be revealed only after an explicit warning **and successful re-entry of the encrypted-wallet password**. Password verification reuses the wallet's Argon2id parameters and a full fixed-length key comparison. Temporary desktop password/mnemonic buffers are best-effort erased after use. Successful mnemonic recovery also replaces orphaned metadata with a new wallet-bound empty metadata store, so stale labels from a removed wallet cannot break the next restart. Send/recovery/mining errors are mapped to user-facing messages instead of generic failures.
+The installer is currently **unsigned pre-alpha**. Code-signing requires a release signing certificate and is deliberately not simulated.
 
-Stage 27 adds a 25th regression suite covering runtime mnemonic recovery, password verification, non-overwrite safety, orphaned-metadata recovery/restart, real two-node peer-height synchronization and wallet-directed mining. The final code passed **25/25 core suites on Linux and Windows**, plus Qt build and live runtime smoke on both platforms.
-
-Next: **Stage 28 — wallet release hardening:** encrypt privacy-sensitive metadata, create a complete backup bundle, finish Windows file ACL handling, and harden shutdown/restart behavior before Windows packaging/installer.
+Next: **Stage 29 — public testnet readiness:** seed/bootstrap infrastructure, multi-node soak/adversarial tests, external Windows installs and release-candidate networking before any mainnet freeze.

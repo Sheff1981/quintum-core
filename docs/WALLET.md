@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 added durable user metadata plus guarded preview/confirm. Stage 26 introduced the Qt desktop shell. Stage 27 adds operational recovery, password-gated seed reveal, address-book/mining/settings integration and recovery-metadata hardening.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 added durable user metadata plus guarded preview/confirm. Stage 26 introduced the Qt desktop shell. Stage 27 added operational recovery, password-gated seed reveal, address-book/mining/settings integration and recovery-metadata hardening. Stage 28 encrypts wallet metadata, adds complete backup/restore bundles and enforces Windows private-file ACLs.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -74,7 +74,7 @@ Wallet replacement remains crash-safe:
 2. flush and force it to durable storage;
 3. atomically replace the old wallet.
 
-On POSIX systems the wallet and backup files use mode `0600`.
+On POSIX systems wallet/metadata/backup temporary files use mode `0600`. On Windows, Stage 28 applies a protected DACL that grants file access only to the current user's SID before sensitive bytes are written, then atomically replaces the destination.
 
 A v1 wallet is never silently rewritten merely because a password was supplied. Migration is explicit through `Wallet::encrypt_wallet()` or the development CLI `--encrypt-wallet --wallet-passphrase-file PATH`.
 
@@ -259,13 +259,13 @@ Stage 25 adds a separate `wallet_meta.dat` for user-created metadata that is not
 - maximum label length: 128 bytes;
 - empty label removes the stored label.
 
-The metadata file contains **no private keys, recovery seed or wallet encryption password**. It is nevertheless privacy-sensitive because labels can reveal counterparties or the user's own transaction notes. The current format is checksummed and crash-safe but **not encrypted**. POSIX writes use mode `0600`; Windows-specific ACL hardening remains a later security item.
+The metadata file contains **no private keys, recovery seed or wallet encryption password**, but labels are privacy-sensitive. Stage 28 introduces metadata **v2**, authenticated-encrypted with XChaCha20-Poly1305 using the active encrypted-wallet key and a fresh 24-byte nonce. Network/message-start and wallet identity are authenticated as associated data. Legacy checksummed plaintext metadata v1 remains readable; encrypted wallets migrate it to v2. Explicit legacy wallet encryption migrates metadata in the same operation and rolls the wallet/metadata files back if metadata migration cannot be committed.
 
 Persistence uses the same safety pattern as the other wallet stores: temporary file, flush/fsync, atomic replacement and checksum verification. The file is bound to the QUINTUM network and to a stable hash of a public key actually owned by the wallet. Key-record reordering, new receive addresses, change-key use, keypool refill and imported additional keys therefore do not change the binding. Copying metadata from another wallet is rejected as `wrong_wallet`.
 
 Unlike `wallet_state.dat`, labels are not rebuildable from the blockchain. Corrupt, wrong-network or wrong-wallet metadata is therefore **not silently ignored**: wallet startup returns a metadata failure so the user has a chance to restore or repair the file rather than unknowingly losing labels.
 
-The current single-file `wallet.dat` backup API still protects spend authority, not labels. Preserving the full data directory (and later the desktop backup bundle) is required to preserve `wallet_meta.dat`. Losing `wallet_meta.dat` cannot lose coins or private keys, only user-created labels.
+The legacy single-file `wallet.dat` backup API remains for compatibility. Stage 28 adds a complete `.qtmbackup`: magic/version, network identity, wallet.dat bytes, wallet metadata bytes and a double-SHA-256 checksum. Restore refuses to overwrite an existing wallet, rejects corrupt/wrong-network bundles and discards rebuildable `wallet_state.dat` so state is reconstructed from the authoritative chain. Losing metadata still cannot lose coins/private keys, but the complete bundle preserves labels as well.
 
 ### Guarded preview / confirm
 
@@ -344,7 +344,8 @@ The current pre-mainnet wallet still does not claim these are finished:
 - historical/confirmation-target fee estimation beyond the current mempool-median policy;
 - hardware-wallet support;
 - P2PKH/P2WPKH-style locking;
-- encrypted-at-rest protection and bundled backup for privacy-sensitive wallet metadata;
-- long-duration/adversarial desktop and recovery soak testing.
+- long-duration/adversarial desktop and recovery soak testing;
+- hardware-wallet support;
+- production release signing and external installer testing.
 
 Those should be completed and adversarially tested before Mainnet is frozen.

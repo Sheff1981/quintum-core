@@ -3153,3 +3153,125 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 28 — wallet release hardening + Windows distribution:** encrypted/privacy-hardened metadata, полный backup bundle, Windows ACL, Qt runtime deployment, safe-upgrade installer и release artifacts.
+
+
+---
+
+## 2026-10-03 — Этап 28. Release hardening + Windows installer
+
+### Цель
+
+Довести wallet privacy/backup и Windows distribution до состояния, когда QUINTUM можно упаковать в один обычный installer, безопасно обновить и удалить программу без потери wallet/blockchain data.
+
+### Реализовано
+
+1. **Encrypted wallet metadata v2**
+   - magic/version QWMETA02/v2;
+   - XChaCha20-Poly1305 через существующий wallet crypto path;
+   - fresh 24-byte nonce;
+   - network + wallet identity входят в authenticated associated data;
+   - labels/address book/transaction notes больше не лежат plaintext;
+   - ciphertext/tag tamper -> explicit metadata corrupt;
+   - v1 plaintext остаётся readable для compatibility;
+   - encrypted wallet автоматически мигрирует v1 -> v2;
+   - legacy Encrypt Wallet мигрирует wallet.dat + metadata в одной операции с rollback.
+
+2. **Windows file ACL**
+   - новый cross-platform `restrict_file_permissions()`;
+   - POSIX: 0600;
+   - Windows: protected DACL, allow ACE только текущему TokenUser SID;
+   - ACL ставится temporary file до записи secret/privacy bytes;
+   - wallet.dat и wallet_meta.dat проверяются Windows regression-тестом;
+   - advapi32 добавлен в Windows link.
+
+3. **Complete .qtmbackup**
+   - один файл содержит wallet.dat + wallet_meta.dat;
+   - magic/version + network message-start + lengths + double-SHA-256 checksum;
+   - wrong network/corrupt/tampered bundle отвергается;
+   - restore не overwrites существующий wallet.dat;
+   - wallet_state.dat не backup-ится и сбрасывается при restore, потому что rebuildable;
+   - desktop: Restore backup при первом запуске;
+   - Settings: Backup complete wallet.
+
+4. **Windows Qt deployment**
+   - `windeployqt` создаёт portable deploy tree;
+   - CI проверяет Qt6Core.dll и platforms/qwindows.dll;
+   - portable QUINTUM.exe запускается через real `--smoke-test`.
+
+5. **Installer**
+   - Inno Setup per-user installer;
+   - output: `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`;
+   - no admin/UAC required для обычной установки;
+   - stable AppId для update;
+   - Start Menu shortcut;
+   - optional Desktop shortcut;
+   - post-install launch;
+   - Restart Manager / CloseApplications для работающего QUINTUM.exe;
+   - installer пишет только program directory;
+   - AppData wallet/blockchain не включены в uninstall deletion.
+
+6. **Installer QA**
+   - clean silent install;
+   - запуск установленного QUINTUM.exe;
+   - persistent `--installer-hold-test` process;
+   - second install как update обязан закрыть running QUINTUM.exe;
+   - sentinel user data обязан пережить update;
+   - silent uninstall;
+   - sentinel user data обязан пережить uninstall;
+   - release artifact upload.
+
+7. **Release integrity**
+   - SHA256 installer;
+   - SHA256 portable QUINTUM.exe;
+   - `SHA256SUMS.txt` публикуется в Windows artifact.
+
+### QA
+
+Добавлен 26-й suite `stage28_release_hardening`.
+
+Проверяется:
+- metadata v2 не содержит plaintext labels/address;
+- encrypted metadata reopen roundtrip;
+- authenticated tamper detection;
+- legacy plaintext metadata -> immediate encrypted migration;
+- full backup bundle roundtrip;
+- backup non-overwrite;
+- wrong-network bundle rejection;
+- corrupted bundle rejection;
+- restore non-overwrite;
+- Windows protected current-user DACL;
+- все предыдущие 25 suites.
+
+Кодовый SHA перед документацией:
+- Linux core — **26/26 passed**;
+- Windows core — **26/26 passed**;
+- Linux Qt build/live smoke — success;
+- Windows Qt build/live smoke — success;
+- Windows portable deployment smoke — success;
+- installer build — success;
+- install/update/running-process-close/uninstall/data-preservation — success;
+- checksum generation/artifact upload — success.
+
+### Compatibility
+
+Не изменены:
+- Genesis;
+- transaction/block consensus;
+- UTXO rules;
+- PoW;
+- difficulty;
+- subsidy/halving/emission;
+- network magic;
+- P2P ports;
+- blockchain storage format;
+- encrypted wallet.dat v2 derivation/address semantics.
+
+Изменён только privacy metadata storage v1 -> backward-compatible encrypted v2.
+
+### Ограничение release
+
+Текущий pre-alpha installer **не подписан цифровой подписью**. Поддельный сертификат/ключ в проект не добавляется. Production signing появится только с реальным code-signing certificate.
+
+### Следующий этап
+
+**Этап 29 — Public testnet readiness:** реальные seed/bootstrap nodes, multi-node soak/adversarial testing, внешняя Windows-проверка и testnet release candidate.

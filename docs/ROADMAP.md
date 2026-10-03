@@ -30,13 +30,13 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 **Operational desktop implemented in Stage 27:** first-launch Create/Recover flow with 24 words, password-gated seed reveal, peer-target synchronization status, persistent address-book editing, real wallet-directed PoW mining with measured hash rate, Settings/recovery/backup controls, and user-facing error mapping. Runtime recovery refuses to overwrite an existing wallet, safely rebinds orphaned metadata after recovery, and the new regression suite verifies recovery/restart, password checking, real two-node peer-height synchronization and wallet-owned mining.
 
-**Before Windows distribution:** Stage 28 hardens wallet privacy/backups and Windows filesystem permissions; then M6 packages and installs the GUI safely.
+**Release hardening implemented in Stage 28:** authenticated-encrypted wallet metadata v2 with legacy migration, complete network-bound `.qtmbackup` backup/restore, current-user-only Windows wallet/metadata ACLs, Qt runtime deployment and release checksums.
 
 ## M6 — Windows distribution
-Signed/reproducible release pipeline where possible, installer, safe upgrades, preserved wallet/blockchain data.
+**Installer pipeline implemented in Stage 28:** per-user Inno Setup installer, portable Qt deployment, Start Menu/optional desktop shortcut, live-process update closure, safe reinstall/update, preserved AppData wallet/blockchain data on update/uninstall, and CI-published Windows artifacts. Production code-signing remains pending a real signing certificate.
 
 ## M7 — Public testnet
-Multiple geographically separate nodes, adversarial tests, reorgs, disconnect/reconnect, long-duration soak tests.
+**Next — Stage 29:** seed/bootstrap infrastructure, multiple geographically separate nodes, external Windows installs, adversarial tests, reorgs, disconnect/reconnect and long-duration soak tests.
 
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.
