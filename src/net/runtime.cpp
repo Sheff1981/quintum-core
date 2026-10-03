@@ -714,6 +714,20 @@ NetworkRuntime::preview_send(
         return out;
     }
 
+    const auto decoded =
+        wallet::decode_address(
+            params_.network,
+            destination
+        );
+
+    const std::string canonical_destination =
+        decoded.ok()
+            ? wallet::encode_address(
+                  params_.network,
+                  decoded.public_key
+              )
+            : std::string{destination};
+
     const auto address_book =
         wallet_.address_book();
 
@@ -723,7 +737,7 @@ NetworkRuntime::preview_send(
             address_book.end(),
             [&](const wallet::WalletAddressBookEntry& entry) {
                 return entry.address ==
-                       destination;
+                       canonical_destination;
             }
         );
 
