@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/types.hpp"
+#include "primitives/transaction.hpp"
 
 #include <cstddef>
 #include <optional>
