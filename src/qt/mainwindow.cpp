@@ -14,6 +14,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -1298,6 +1299,60 @@ void MainWindow::mine_once()
 
 void MainWindow::show_recovery_phrase()
 {
+    bool accepted{false};
+
+    QString password =
+        QInputDialog::getText(
+            this,
+            "Verify wallet password",
+            "Enter the wallet password before revealing the 24 recovery words:",
+            QLineEdit::Password,
+            {},
+            &accepted
+        );
+
+    if (!accepted) {
+        return;
+    }
+
+    QByteArray password_utf8 =
+        password.toUtf8();
+
+    const bool verified =
+        runtime_.verify_wallet_passphrase(
+            std::string_view{
+                password_utf8.constData(),
+                static_cast<std::size_t>(
+                    password_utf8.size()
+                )
+            }
+        );
+
+    password.fill(QChar{0});
+    password.clear();
+
+    if (!password_utf8.isEmpty()) {
+        crypto::secure_erase(
+            std::span<Byte>{
+                reinterpret_cast<Byte*>(
+                    password_utf8.data()),
+                static_cast<std::size_t>(
+                    password_utf8.size()
+                )
+            }
+        );
+        password_utf8.clear();
+    }
+
+    if (!verified) {
+        QMessageBox::warning(
+            this,
+            "Password incorrect",
+            "The recovery words were not revealed."
+        );
+        return;
+    }
+
     auto mnemonic =
         runtime_.wallet_recovery_mnemonic();
 
