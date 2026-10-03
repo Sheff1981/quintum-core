@@ -160,6 +160,10 @@ private:
     std::uint16_t local_port_{0U};
 };
 
+[[nodiscard]] std::vector<std::uint32_t> resolve_ipv4_host(
+    std::string_view host
+);
+
 [[nodiscard]] PeerHandshakeResult connect_and_handshake(
     const consensus::ChainParams& params,
     std::string_view host,
