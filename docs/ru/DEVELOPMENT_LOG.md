@@ -3275,3 +3275,197 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 29 — Public testnet readiness:** реальные seed/bootstrap nodes, multi-node soak/adversarial testing, внешняя Windows-проверка и testnet release candidate.
+
+
+---
+
+## 2026-10-03 — Этап 29. Первая публичная Testnet-нода и реальная end-to-end проверка
+
+### Цель
+
+Выйти за пределы локальных/integration-тестов и доказать на реальном публичном интернете полный пользовательский путь: обычная Windows-установка -> автоматический поиск узла -> P2P handshake -> реальный PoW -> relay блока -> удалённая consensus-проверка -> сохранение blockchain на второй машине -> восстановление состояния после перезапуска.
+
+### Публичная Testnet-инфраструктура
+
+Развёрнута первая постоянная QUINTUM Testnet-нода:
+
+- VPS: Ubuntu 24.04 LTS;
+- публичный endpoint: `212.193.15.139:38444`;
+- отдельный системный пользователь `quintum`;
+- blockchain/datadir: `/var/lib/quintum`;
+- бинарник: `/usr/local/bin/quintumd`;
+- systemd service `quintumd.service`;
+- автозапуск после reboot;
+- `Restart=on-failure`;
+- host firewall разрешает TCP 38444;
+- fail2ban активен для защиты административного SSH-доступа;
+- сервис слушает `0.0.0.0:38444`.
+
+Внешняя проверка с мобильной сети:
+
+`nc -vz 212.193.15.139 38444` -> connection succeeded.
+
+То есть порт проверен не только локально с VPS, а реально доступен из интернета.
+
+### Hardcoded seed
+
+В Testnet hardcoded seeds добавлен первый реальный публичный endpoint:
+
+`212.193.15.139:38444`
+
+Mainnet и Regtest seed lists не изменены.
+
+Добавлен regression-тест, который фиксирует:
+
+- Testnet содержит ровно ожидаемый публичный seed;
+- IP/port совпадают;
+- Mainnet/Regtest не получают этот endpoint.
+
+### Windows default network
+
+Обнаружена и исправлена реальная deployment-ошибка: Windows GUI после установки по умолчанию стартовал в Regtest, поэтому public Testnet seed не использовался.
+
+Исправление:
+
+- обычный desktop startup теперь по умолчанию = Testnet;
+- `--regtest` остаётся явным режимом локального QA;
+- `--mainnet` остаётся явным pre-mainnet режимом;
+- data directories по сетям остаются раздельными.
+
+После исправления новая Windows сборка успешно прошла GUI/installer CI.
+
+### Реальная Windows-проверка
+
+Свежий installer установлен на реальном Windows-ноутбуке.
+
+Без ручного IP, без PowerShell peer injection и без редактирования конфигов GUI автоматически показал:
+
+- `Network: testnet`;
+- `Peers: 1`;
+- `Node: running`;
+- `Synchronization: Connected`.
+
+Это подтверждает реальный пользовательский bootstrap:
+
+`скачал installer -> установил -> запустил -> wallet сам нашёл публичную QUINTUM-ноду`.
+
+### Реальный PoW
+
+Через desktop Mining запущен настоящий QUINTUM Proof of Work.
+
+Наблюдаемая скорость reference miner: около **37 kH/s**.
+
+Найдено два валидных Testnet-блока:
+
+- `Blocks found: 2`;
+- local block height вырос до `2`;
+- wallet получил две coinbase-награды по 50 QTM;
+- Overview показал `Immature: 100.00000000 QTM`;
+- available/confirmed остались 0, что правильно до достижения 100-block coinbase maturity.
+
+Блоки считались найденными только после обычной локальной consensus-проверки и durable commit.
+
+### Реальный block relay через интернет
+
+Windows-нода была соединена с публичным VPS как с единственным peer.
+
+После майнинга двух блоков VPS был проверен отдельно.
+
+Сервис `quintumd` остановлен, затем тот же Testnet datadir открыт отдельным процессом. Узел сообщил:
+
+- `Network: testnet`;
+- `Data directory: /var/lib/quintum/testnet`;
+- `Height: 2`;
+- persisted active `Tip`;
+- затем clean shutdown: `Stopped at height 2`.
+
+Это доказывает, что два блока:
+
+1. реально созданы Windows-майнером;
+2. прошли локальный consensus;
+3. объявлены по P2P;
+4. переданы через публичный интернет;
+5. получены VPS;
+6. повторно проверены обычным remote consensus path;
+7. записаны в persistent blockchain storage;
+8. восстановлены с диска после остановки/повторного открытия ноды.
+
+### Подтверждённый end-to-end путь
+
+На 2026-10-03 реально проверена следующая цепочка:
+
+`Windows installer`
+-> `encrypted wallet startup`
+-> `Testnet default`
+-> `hardcoded seed bootstrap`
+-> `public TCP connection`
+-> `version/verack`
+-> `Peers: 1`
+-> `real PoW`
+-> `valid coinbase 50 QTM`
+-> `local chain height +1`
+-> `inv/getdata/block relay`
+-> `remote validation`
+-> `remote height +1`
+-> `durable remote storage`
+-> `restart/reopen recovery at same height`.
+
+Для двух блоков результат совпал на обеих реальных машинах: **height 2**.
+
+### Security / consensus
+
+Для этой проверки не добавлялись и не использовались:
+
+- premine;
+- developer mint;
+- master key;
+- административное изменение баланса;
+- consensus bypass;
+- ручная подмена blockchain height;
+- ручное копирование блока между машинами.
+
+Монеты появились только как обычная валидная PoW coinbase-награда по consensus.
+
+### Что теперь считается реально подтверждённым
+
+- Windows installer запускается;
+- wallet создаётся и открывается;
+- GUI работает на реальном Windows;
+- Testnet выбирается автоматически;
+- public seed доступен из интернета;
+- peer discovery работает без ручного IP;
+- P2P handshake работает;
+- live peer отображается в GUI;
+- PoW реально считает nonce/hash;
+- найденный block проходит consensus;
+- subsidy/immature accounting работают;
+- block relay Windows -> VPS работает;
+- удалённая нода принимает блок;
+- blockchain сохраняется на VPS;
+- сохранённая высота восстанавливается после повторного открытия datadir;
+- постоянный seed service работает через systemd.
+
+### Что остаётся до Mainnet
+
+Эта проверка подтверждает **public Testnet**, а не готовность Mainnet.
+
+До Mainnet обязательно остаются:
+
+- длительный multi-node soak;
+- реальный fork/reorg test на независимых публичных узлах;
+- transaction relay/send/confirmation live test между отдельными wallets;
+- дополнительные независимые seed nodes;
+- DNS seeds;
+- NAT traversal/UPnP/NAT-PMP либо документированный fallback;
+- production peer abuse/reputation hardening;
+- финальная Mainnet difficulty/genesis/parameters freeze;
+- code signing Windows installer;
+- release/update procedure и backup/recovery rehearsal.
+
+Mainnet consensus-параметры не менялись в ходе Stage 29.
+
+### Итог
+
+**Первая публичная QUINTUM Testnet-сеть реально поднята.**
+
+Проверено не на макете и не только тестами: Windows-нода самостоятельно нашла публичный VPS, соединилась, реально намайнила два PoW-блока, а удалённая VPS-нода получила, проверила, сохранила их и после повторного открытия восстановилась на той же высоте 2.
