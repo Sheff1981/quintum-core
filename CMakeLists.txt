@@ -409,3 +409,18 @@ quintum_strict_warnings(quintum_stage25_desktop_wallet_tests)
 quintum_test_assertions(quintum_stage25_desktop_wallet_tests)
 
 add_test(NAME stage25_desktop_wallet COMMAND quintum_stage25_desktop_wallet_tests)
+
+add_executable(quintum_stage27_desktop_operations_tests
+    tests/stage27_desktop_operations_tests.cpp
+)
+target_link_libraries(
+    quintum_stage27_desktop_operations_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_stage27_desktop_operations_tests)
+quintum_test_assertions(quintum_stage27_desktop_operations_tests)
+
+add_test(
+    NAME stage27_desktop_operations
+    COMMAND quintum_stage27_desktop_operations_tests
+)
