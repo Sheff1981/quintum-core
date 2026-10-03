@@ -110,3 +110,16 @@ The pre-alpha installer is currently unsigned. Production signing is deferred un
 - external Windows installation testing across supported machines;
 - release signing/update policy and signing certificate;
 - public testnet release candidate before any mainnet parameter freeze.
+
+
+## Stage 30 — Bitcoin Core interaction parity
+
+The desktop shell now follows the proven Bitcoin Core window structure more closely without copying Bitcoin branding or network identity:
+
+- top-level **File / Settings / Window / Help** menus;
+- horizontal wallet navigation for **Overview / Send / Receive / Transactions**, with QUINTUM's **Mining** action retained;
+- Bitcoin-style Window shortcuts for **Information**, **Console**, **Network Traffic** and **Peers**;
+- a tabbed **Debug window** backed by current QUINTUM runtime state; unsupported RPC/byte-counter functions are explicitly identified rather than simulated;
+- first-run **Welcome to QUINTUM Core** data-directory chooser with default/custom locations persisted per network.
+
+This is presentation and operator UX only. Consensus, Genesis, network magic, ports, address encoding, wallet formats and chain data remain unchanged.
