@@ -21,7 +21,7 @@ CI pins Qt **6.8.0** for reproducibility and builds the GUI separately on Linux 
 
 ## Networks and data directories
 
-The GUI defaults to **Regtest** while QUINTUM is pre-mainnet.
+The GUI defaults to **Testnet** while QUINTUM is pre-mainnet so normal desktop installs automatically join the public test network. Regtest remains available explicitly with `--regtest` for local QA.
 
 Supported switches:
 
