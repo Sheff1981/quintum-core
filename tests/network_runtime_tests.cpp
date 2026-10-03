@@ -1,6 +1,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/runtime.hpp"
+#include "net/sync.hpp"
 #include "node/node.hpp"
 
 #include <cassert>
@@ -10,6 +11,7 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace {
 
@@ -433,10 +435,162 @@ void test_continuous_runtime_sync_relay_reconnect()
     );
 }
 
+
+quintum::Hash256 synthetic_inventory_hash(
+    std::uint32_t value)
+{
+    quintum::Hash256 hash{};
+    hash[28] = static_cast<quintum::Byte>(
+        (value >> 24U) & 0xffU);
+    hash[29] = static_cast<quintum::Byte>(
+        (value >> 16U) & 0xffU);
+    hash[30] = static_cast<quintum::Byte>(
+        (value >> 8U) & 0xffU);
+    hash[31] = static_cast<quintum::Byte>(
+        value & 0xffU);
+    return hash;
+}
+
+void test_relay_request_tracking_is_bounded()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto root =
+        unique_dir("relay-request-budget");
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.enable_wallet = false;
+    config.accept_poll_ms = 20U;
+    config.io_timeout_ms = 2'000U;
+    config.ping_interval_seconds = 60U;
+
+    NetworkRuntime runtime{params, root};
+    assert(runtime.start(config).ok());
+
+    const auto port =
+        runtime.status().listen_port;
+    assert(port != 0U);
+
+    VersionMessage local{
+        .protocol_version = kProtocolVersion,
+        .services = 1U,
+        .timestamp = params.genesis.timestamp,
+        .nonce = 0x51a7c0de12345678ULL,
+        .start_height = 0U,
+    };
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            port,
+            local,
+            2'000U
+        );
+    assert(connected.ok());
+
+    assert(wait_until(
+        std::chrono::seconds(3),
+        [&] {
+            return runtime.status().peers == 1U;
+        }
+    ));
+
+    std::uint32_t sequence{1U};
+
+    // Fill the complete per-peer request budget while draining the matching
+    // getdata replies. The peer intentionally never supplies those objects.
+    for (std::size_t batch = 0U;
+         batch <
+             kMaxOutstandingRelayRequestsPerPeer /
+                 kMaxRelayInventoryItems;
+         ++batch) {
+        std::vector<InventoryItem> inventory;
+        inventory.reserve(
+            kMaxRelayInventoryItems
+        );
+
+        for (std::size_t i = 0U;
+             i < kMaxRelayInventoryItems;
+             ++i) {
+            inventory.push_back(
+                InventoryItem{
+                    .type =
+                        kInventoryTransaction,
+                    .hash =
+                        synthetic_inventory_hash(
+                            sequence++
+                        ),
+                }
+            );
+        }
+
+        const auto payload =
+            serialize_inventory(inventory);
+
+        assert(connected.session->send_command(
+                   "inv",
+                   payload) ==
+               PeerError::none);
+
+        WireMessage request;
+        assert(connected.session->receive_command(
+                   request) ==
+               PeerError::none);
+        assert(request.command == "getdata");
+
+        const auto requested =
+            parse_inventory(
+                request.payload
+            );
+        assert(requested.has_value());
+        assert(requested->size() ==
+               kMaxRelayInventoryItems);
+    }
+
+    // One more unique request would make tracking unbounded. The runtime must
+    // reject the peer instead of retaining another hash indefinitely.
+    const std::array<InventoryItem, 1> overflow{
+        InventoryItem{
+            .type = kInventoryTransaction,
+            .hash =
+                synthetic_inventory_hash(
+                    sequence
+                ),
+        }
+    };
+
+    assert(connected.session->send_command(
+               "inv",
+               serialize_inventory(overflow)) ==
+           PeerError::none);
+
+    assert(wait_until(
+        std::chrono::seconds(3),
+        [&] {
+            return runtime.status().peers == 0U;
+        }
+    ));
+
+    connected.session->close();
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(root, ec);
+}
+
 } // namespace
 
 int main()
 {
     test_continuous_runtime_sync_relay_reconnect();
+    test_relay_request_tracking_is_bounded();
     return 0;
 }
