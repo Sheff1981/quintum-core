@@ -46,8 +46,8 @@ On first launch the user can either create a new encrypted wallet or recover one
 
 The GUI now includes **Overview, Send, Receive, Transactions, Address Book, Mining and Settings**. Overview shows local height, peer best height and synchronization progress. Address-book edits persist through `wallet_meta.dat`. Mining performs real PoW through the node runtime, pays coinbase to a wallet-owned key, reports measured hash attempts/rate, submits valid blocks locally and relays them to peers.
 
-Recovery words can be revealed only through an explicit warning flow and temporary desktop copies are best-effort erased after use. Send/recovery/mining errors are mapped to user-facing messages instead of generic failures.
+Recovery words can be revealed only after an explicit warning **and successful re-entry of the encrypted-wallet password**. Password verification reuses the wallet's Argon2id parameters and a full fixed-length key comparison. Temporary desktop password/mnemonic buffers are best-effort erased after use. Successful mnemonic recovery also replaces orphaned metadata with a new wallet-bound empty metadata store, so stale labels from a removed wallet cannot break the next restart. Send/recovery/mining errors are mapped to user-facing messages instead of generic failures.
 
-Stage 27 adds a 25th regression suite covering runtime mnemonic recovery, non-overwrite safety, real two-node peer-height synchronization and wallet-directed mining.
+Stage 27 adds a 25th regression suite covering runtime mnemonic recovery, password verification, non-overwrite safety, orphaned-metadata recovery/restart, real two-node peer-height synchronization and wallet-directed mining. The final code passed **25/25 core suites on Linux and Windows**, plus Qt build and live runtime smoke on both platforms.
 
 Next: **Stage 28 — wallet release hardening:** encrypt privacy-sensitive metadata, create a complete backup bundle, finish Windows file ACL handling, and harden shutdown/restart behavior before Windows packaging/installer.

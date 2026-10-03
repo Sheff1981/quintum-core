@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 adds durable user metadata plus a guarded preview/confirm model and unified desktop-facing snapshot API.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 added durable user metadata plus guarded preview/confirm. Stage 26 introduced the Qt desktop shell. Stage 27 adds operational recovery, password-gated seed reveal, address-book/mining/settings integration and recovery-metadata hardening.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -129,7 +129,11 @@ Recovery is also commit-safe:
 
 An existing `wallet.dat` is never overwritten by mnemonic recovery. If discovery, index persistence or synchronization fails, the in-memory recovery state is wiped and no new `wallet.dat` is committed.
 
+After the recovered keys are safely committed, Stage 27 writes an empty wallet-bound `wallet_meta.dat`. This intentionally replaces orphaned metadata that cannot be proven to belong to the recovered seed and prevents a stale metadata file from producing a `wrong_wallet` failure on the next restart. If that metadata rebind cannot be persisted, recovery reports a store failure and the newly created wallet file is removed best-effort.
+
 `Wallet::recovery_mnemonic()` and the explicit `NetworkRuntime::wallet_recovery_mnemonic()` bridge return a phrase only when the wallet is fully seed-recoverable. If legacy/random imported private keys are present, seed-only recovery remains disabled and `wallet.dat` backup is required. The phrase is not included in ordinary runtime status, transaction history, P2P messages or wallet-state cache.
+
+Stage 27 desktop seed display is password-gated. `Wallet::verify_passphrase()` derives a candidate key with the wallet's stored Argon2id parameters and compares all 32 bytes against the active encryption key without early exit. The GUI asks for the password first and requests the mnemonic only after verification succeeds. Password and phrase buffers controlled by the desktop/runtime are best-effort overwritten after use.
 
 ## Keypool and backup safety
 
@@ -336,11 +340,11 @@ The passphrase itself is not accepted as a command-line argument, avoiding norma
 
 The current pre-mainnet wallet still does not claim these are finished:
 
-- GUI presentation/confirmation workflow for the implemented 24-word recovery phrase;
 - recovery-rescan performance optimization for very large chains;
 - historical/confirmation-target fee estimation beyond the current mempool-median policy;
 - hardware-wallet support;
 - P2PKH/P2WPKH-style locking;
-- GUI/RPC wallet control.
+- encrypted-at-rest protection and bundled backup for privacy-sensitive wallet metadata;
+- long-duration/adversarial desktop and recovery soak testing.
 
 Those should be completed and adversarially tested before Mainnet is frozen.

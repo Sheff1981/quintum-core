@@ -3056,107 +3056,100 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 
 ### Цель
 
-Закрыть базовый пользовательский цикл desktop-wallet до Windows packaging: recovery 24 words, реальный sync-status, address book, PoW mining/status, Settings и нормальные сообщения ошибок. Consensus не переносить в GUI.
+Закрыть базовый пользовательский цикл desktop-wallet до Windows packaging: recovery 24 words, sync-status, address book, реальный PoW mining/status, Settings, backup и человеческие ошибки. Consensus не переносится в GUI.
 
 ### Реализовано
 
-1. **Create / Recover при первом запуске**
-   - если `wallet.dat` отсутствует, пользователь выбирает Create или Recover;
-   - новый wallet требует password + повтор password;
-   - Recover принимает 24 слова + новый password;
-   - `NetworkRuntimeConfig` получил recovery mnemonic/gap input;
-   - recovery выполняется внутри `NetworkRuntime::start()` поверх реального NodeRuntime/Chainstate/Mempool;
-   - используется существующий Stage 23 gap-aware BIP32 recovery;
+1. **Create / Recover**
+   - при отсутствии `wallet.dat`: Create new wallet или Recover from 24 words;
+   - новый wallet требует password + confirmation;
+   - mnemonic recovery выполняется внутри `NetworkRuntime::start()` через Stage 23 gap-aware BIP32 recovery;
    - существующий `wallet.dat` никогда не перезаписывается;
-   - wrong word count / unknown word / checksum-order errors отображаются отдельно.
+   - wrong word count / unknown word / invalid checksum выводятся отдельно.
 
-2. **Recovery secret handling**
-   - mnemonic не попадает в обычный runtime status;
-   - config mnemonic и password best-effort стираются после handoff;
-   - desktop setup copies best-effort стираются после move;
-   - показанные recovery words best-effort стираются из desktop string после закрытия окна;
-   - private keys в Qt не передаются.
+2. **Recovery metadata hardening**
+   - successful recovery создаёт пустой `wallet_meta.dat`, привязанный к recovered wallet;
+   - orphaned metadata старого удалённого wallet больше не ломает следующий startup как `wrong_wallet`;
+   - metadata persistence failure не оставляет recovery считаться успешно завершённым.
 
-3. **Synchronization status**
-   - runtime отслеживает `peer_best_height`;
-   - высота берётся из version handshake и обновляется при принятых blocks/sync;
-   - status содержит `synchronizing` и `sync_progress`;
-   - GUI показывает local height, peer target и progress;
-   - без peer target UI показывает Waiting for peers + 0%, а не ложные 100%.
+3. **Seed reveal security**
+   - Show 24 recovery words требует повторный encrypted-wallet password;
+   - password проверяется через реальные Argon2id параметры wallet;
+   - derived 32-byte key сравнивается полностью, без early-exit;
+   - wrong password не вызывает `wallet_recovery_mnemonic()`;
+   - desktop/runtime password и mnemonic staging buffers best-effort стираются после использования.
 
-4. **Address Book**
-   - отдельная desktop page;
-   - add/update/delete;
-   - используется существующий `wallet_meta.dat`;
+4. **Synchronization status**
+   - runtime отслеживает peer-advertised/observed best height;
+   - GUI показывает local height, peer height, Synchronizing / Up to date / Waiting for peers;
+   - offline node не показывает ложные 100%;
+   - real two-node regression проверяет P2P sync и peer-height status.
+
+5. **Address Book**
+   - отдельная Qt page;
+   - add/update/delete persistent labels;
    - canonical address/network validation остаётся в Wallet.
 
-5. **Real desktop mining**
-   - добавлен `NetworkRuntime::mine_wallet_block()`;
+6. **Real Mining**
+   - `NetworkRuntime::mine_wallet_block()`;
    - payout script строится из wallet-owned address;
-   - GUI запускает bounded real PoW batches;
-   - hash rate вычисляется по фактическому `MiningResult::attempts`;
-   - найденный block проходит обычный NodeRuntime/Chainstate/storage path;
-   - wallet resync выполняется после accepted block;
-   - valid block объявляется peers через существующий P2P relay;
-   - GUI показывает status / H/s / attempts / blocks found.
+   - bounded real PoW batches;
+   - H/s считается по фактическим `MiningResult::attempts`;
+   - найденный block проходит обычный NodeRuntime/Chainstate/storage;
+   - wallet resync + P2P block announcement после accepted block.
 
-6. **Settings**
+7. **Settings**
    - network;
-   - default P2P port;
-   - active listen port;
+   - default/listening P2P port;
    - recommended fee rate;
-   - Show 24 recovery words;
-   - Backup wallet.dat;
-   - UI явно предупреждает, что текущий single-file backup пока не включает `wallet_meta.dat`.
+   - password-gated Show 24 recovery words;
+   - Backup `wallet.dat`;
+   - UI явно сообщает, что single-file backup пока не включает `wallet_meta.dat`.
 
-7. **Human-readable errors**
-   - send quote errors;
-   - stale/modified Preview;
-   - node rejection;
-   - wallet sync failure;
+8. **Human-readable errors**
+   - send quote/preview;
+   - insufficient funds / wrong-network address;
+   - wallet/sign/store;
    - recovery validation;
-   - metadata/address-book errors;
-   - mining/template/storage errors.
+   - metadata/address-book;
+   - mining/template/storage.
 
-### Новый regression suite
+### QA
 
-Добавлен 25-й suite `stage27_desktop_operations`:
+Добавлен 25-й suite `stage27_desktop_operations`, который проверяет:
 
-- runtime mnemonic recovery;
-- recovered mnemonic identity;
-- recovery никогда не overwrites существующий `wallet.dat`;
-- исходный wallet после неудачной overwrite-попытки всё ещё открывается;
-- real two-node P2P synchronization;
-- peer best height отражает реальную remote chain;
-- sync status становится up-to-date после block sync;
-- real wallet-directed PoW mining;
-- mined block увеличивает height;
-- coinbase попадает в immature wallet balance.
+- mnemonic recovery через полный NetworkRuntime;
+- correct/wrong wallet password verification;
+- recovery не overwrites существующий `wallet.dat`;
+- recovery поверх orphaned `wallet_meta.dat` и успешный следующий restart;
+- real two-node P2P synchronization + peer best height;
+- real wallet-owned PoW mining;
+- height increase и immature coinbase balance;
+- все предыдущие 24 suites.
+
+Финальный код Stage 27 до docs commit:
+
+- Linux core — **25/25 passed**;
+- Windows core — **25/25 passed**;
+- Linux Qt build + live GUI/runtime smoke — success;
+- Windows Qt build + live GUI/runtime smoke — success.
 
 ### Compatibility
 
-Этап 27 не меняет:
+Не менялись:
 
 - Genesis;
 - transaction/block consensus;
 - UTXO rules;
 - PoW algorithm;
-- difficulty rules;
-- monetary policy / subsidy / halving;
+- difficulty;
+- subsidy/halving/monetary policy;
 - network magic;
 - ports;
 - blockchain storage format;
-- `wallet.dat` format;
-- `wallet_meta.dat` format.
-
-### QA до документационного commit
-
-На кодовом SHA Stage 27:
-
-- Linux core: **25/25 tests passed**;
-- Linux Qt build + live GUI/runtime smoke: success;
-- Windows core/Qt проходят тем же CI matrix (финальный exact-SHA результат фиксируется после документационного commit).
+- encrypted `wallet.dat` format;
+- address format.
 
 ### Следующий этап
 
-**Этап 28 — wallet release hardening:** encrypted `wallet_meta.dat`, полный backup/restore bundle, Windows ACL hardening и shutdown/restart soak перед созданием пользовательского Windows installer.
+**Этап 28 — wallet release hardening + Windows distribution:** encrypted/privacy-hardened metadata, полный backup bundle, Windows ACL, Qt runtime deployment, safe-upgrade installer и release artifacts.

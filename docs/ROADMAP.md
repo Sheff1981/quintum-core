@@ -28,7 +28,7 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 ## M5 — Desktop
 **Qt shell implemented in Stage 26:** optional Qt 6 Widgets target `QUINTUM` with Overview, Send, Receive and Transactions pages, password-protected wallet startup, live balance/block/peer/mempool refresh, guarded Preview -> Confirm sending, and Linux/Windows GUI build + live runtime smoke CI.
 
-**Operational desktop implemented in Stage 27:** first-launch Create/Recover flow with 24 words, peer-target synchronization status, persistent address-book editing, real wallet-directed PoW mining with measured hash rate, Settings/recovery/backup controls, and user-facing error mapping. Runtime recovery refuses to overwrite an existing wallet and the new two-node regression test verifies peer-height status against actual P2P synchronization.
+**Operational desktop implemented in Stage 27:** first-launch Create/Recover flow with 24 words, password-gated seed reveal, peer-target synchronization status, persistent address-book editing, real wallet-directed PoW mining with measured hash rate, Settings/recovery/backup controls, and user-facing error mapping. Runtime recovery refuses to overwrite an existing wallet, safely rebinds orphaned metadata after recovery, and the new regression suite verifies recovery/restart, password checking, real two-node peer-height synchronization and wallet-owned mining.
 
 **Before Windows distribution:** Stage 28 hardens wallet privacy/backups and Windows filesystem permissions; then M6 packages and installs the GUI safely.
 

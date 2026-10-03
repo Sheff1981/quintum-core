@@ -36,7 +36,7 @@ Without `--datadir`, Qt's application-data directory is used with a separate sub
 
 A newly created desktop wallet requires a password and uses the existing encrypted `wallet.dat` implementation. Existing legacy unencrypted development wallets may still be opened with an empty password.
 
-When no `wallet.dat` exists, the startup UI offers **Create new wallet** or **Recover from 24 words**. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. Invalid word count, unknown words and checksum/order errors are reported separately.
+When no `wallet.dat` exists, the startup UI offers **Create new wallet** or **Recover from 24 words**. Recovery is executed by `NetworkRuntime::start()` before normal startup, uses the existing gap-aware deterministic recovery path, and refuses to overwrite an existing wallet file. After a successful recovery, orphaned metadata from a previously removed wallet is atomically replaced by an empty metadata store bound to the recovered wallet. Invalid word count, unknown words and checksum/order errors are reported separately.
 
 The GUI never receives or stores private keys directly. Receive-address generation, signing, transaction creation, balances, history, recovery derivation, mining and metadata all go through existing core/runtime APIs. Password and mnemonic handoff strings are best-effort erased after use.
 
@@ -72,10 +72,10 @@ The current desktop miner is intentionally simple and single-process; it is a co
 
 Shows network, P2P/listen ports and recommended fee rate. It also exposes:
 
-- **Show 24 recovery words** with an explicit secret warning;
+- **Show 24 recovery words** with an explicit secret warning and mandatory wallet-password re-verification;
 - **Backup wallet.dat** for spend-key backup.
 
-The current single-file backup does **not** include `wallet_meta.dat`; the UI states this explicitly. Stage 28 will replace this limitation with a complete backup bundle.
+The current single-file backup does **not** include `wallet_meta.dat`; the UI states this explicitly. Before seed words are revealed, the password is re-derived with the wallet's real Argon2id parameters and compared against the active encryption key without early exit. Wrong passwords never request the mnemonic from the wallet. Stage 28 will replace the backup limitation with a complete backup bundle.
 
 ## CI smoke mode
 
