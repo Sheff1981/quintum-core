@@ -50,6 +50,8 @@ private:
 
     void show_recovery_phrase();
     void backup_wallet_bundle();
+    void show_debug_window(int tab_index);
+    void show_about();
 
     void apply_snapshot(
         const net::WalletDesktopSnapshot& snapshot
