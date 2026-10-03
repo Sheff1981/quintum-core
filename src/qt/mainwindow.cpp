@@ -144,7 +144,18 @@ MainWindow::MainWindow(
       runtime_(runtime),
       params_(params)
 {
-    setWindowTitle("QUINTUM Core");
+    switch (params_.network) {
+    case consensus::Network::testnet:
+        setWindowTitle("QUINTUM Core [testnet]");
+        break;
+    case consensus::Network::regtest:
+        setWindowTitle("QUINTUM Core [regtest]");
+        break;
+    case consensus::Network::mainnet:
+        setWindowTitle("QUINTUM Core");
+        break;
+    }
+
     resize(1120, 720);
 
     auto* root = new QWidget;
