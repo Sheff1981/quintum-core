@@ -578,6 +578,14 @@ AddrStoreError AddrManager::load()
             continue;
         }
 
+        // A successful connection cooldown is process-local. After a clean
+        // restart the node should be able to use a known-good peer
+        // immediately, while failed peers keep their persisted backoff.
+        if (info.failures == 0U &&
+            info.last_success != 0U) {
+            info.next_attempt = 0U;
+        }
+
         const bool duplicate =
             std::any_of(
                 loaded.begin(),
@@ -788,13 +796,10 @@ void AddrManager::mark_success(
         entry->last_attempt = now;
         entry->last_success = now;
         entry->failures = 0U;
-
-        // A successful address must remain immediately eligible after a
-        // clean process restart. Active connections are excluded by the
-        // runtime itself; persisting a future retry deadline here caused
-        // recently successful peers to disappear for 60 seconds after
-        // an application update/restart.
-        entry->next_attempt = now;
+        entry->next_attempt =
+            now > std::numeric_limits<std::uint64_t>::max() - 60U
+                ? std::numeric_limits<std::uint64_t>::max()
+                : now + 60U;
     }
 }
 

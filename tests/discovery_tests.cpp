@@ -270,24 +270,28 @@ void test_retry_backoff_and_seed_bootstrap()
             : manager.entries()[0].address;
 
     manager.mark_success(successful, 1'010U);
-    const auto immediate =
-        manager.select(1'010U);
 
-    assert(immediate.has_value());
-    assert(*immediate == successful);
+    // Within one process, a just-used successful peer keeps a short
+    // cooldown so discovery can move on to another address.
+    assert(!manager.select(1'010U).has_value());
 
-    const std::array<PeerAddress, 1> excluded{
-        *first
+    assert(manager.save() ==
+           AddrStoreError::none);
+
+    // On a fresh process, known-good peers are immediately eligible again.
+    AddrManager restarted{
+        quintum::consensus::regtest_params(),
+        dir,
+        true
     };
 
-    const auto selected =
-        manager.select(
-            1'010U,
-            excluded
-        );
+    assert(restarted.load() ==
+           AddrStoreError::none);
 
-    assert(selected.has_value());
-    assert(selected->port != first->port);
+    const auto immediate =
+        restarted.select(1'010U);
+    assert(immediate.has_value());
+    assert(*immediate == successful);
 
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
