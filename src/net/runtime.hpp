@@ -32,6 +32,7 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
     std::vector<PeerAddress> bootstrap_peers{};
+    bool enable_wallet{true};
     std::string wallet_passphrase{};
     std::string wallet_recovery_mnemonic{};
     std::uint32_t wallet_recovery_gap_limit{
@@ -73,6 +74,7 @@ struct NetworkRuntimeStartResult {
 
 struct NetworkRuntimeStatus {
     bool running{false};
+    bool wallet_enabled{true};
     std::uint16_t listen_port{0U};
     std::size_t peers{0U};
     std::size_t outbound_peers{0U};

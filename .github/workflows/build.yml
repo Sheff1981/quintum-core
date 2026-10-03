@@ -30,14 +30,14 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          printf '%s\n' 'ci-disposable-testnet-seed-password' > "$tmp/wallet.pass"
-          chmod 0600 "$tmp/wallet.pass"
-          ./build/quintumd --testnet --datadir "$tmp/data" --listen-port 0 \
-            --wallet-passphrase-file "$tmp/wallet.pass" --run-seconds 1 \
+          ./build/quintumd --testnet --network-only \
+            --datadir "$tmp/data" --listen-port 0 --run-seconds 1 \
             > "$tmp/testnet.log" 2>&1
           cat "$tmp/testnet.log"
           grep -q "Network: testnet" "$tmp/testnet.log"
+          grep -q "Wallet: disabled (network-only mode)" "$tmp/testnet.log"
           grep -q "Final peers:" "$tmp/testnet.log"
+          test ! -e "$tmp/data/testnet/wallet.dat"
 
       - name: Smoke explicit peer bootstrap
         if: runner.os == 'Linux'
@@ -45,12 +45,8 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          printf '%s\n' 'ci-seed-a-password' > "$tmp/a.pass"
-          printf '%s\n' 'ci-seed-b-password' > "$tmp/b.pass"
-          chmod 0600 "$tmp/a.pass" "$tmp/b.pass"
-
-          ./build/quintumd --regtest --datadir "$tmp/a" --listen-port 49444 \
-            --wallet-passphrase-file "$tmp/a.pass" --run-seconds 6 \
+          ./build/quintumd --regtest --network-only \
+            --datadir "$tmp/a" --listen-port 49444 --run-seconds 6 \
             > "$tmp/a.log" 2>&1 &
           server_pid=$!
 
@@ -70,8 +66,8 @@ jobs:
             exit 1
           fi
 
-          ./build/quintumd --regtest --datadir "$tmp/b" --listen-port 49445 \
-            --wallet-passphrase-file "$tmp/b.pass" \
+          ./build/quintumd --regtest --network-only \
+            --datadir "$tmp/b" --listen-port 49445 \
             --addnode 127.0.0.1:49444 --run-seconds 3 \
             > "$tmp/b.log" 2>&1
 
@@ -79,6 +75,8 @@ jobs:
           cat "$tmp/a.log"
           cat "$tmp/b.log"
           grep -Eq "Final peers: [1-9][0-9]* \(outbound [1-9][0-9]*\)" "$tmp/b.log"
+          test ! -e "$tmp/a/regtest/wallet.dat"
+          test ! -e "$tmp/b/regtest/wallet.dat"
 
       - name: Package Linux Testnet seed node
         if: runner.os == 'Linux'

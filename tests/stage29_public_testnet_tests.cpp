@@ -377,11 +377,13 @@ void test_real_testnet_params_bootstrap_and_peer_store()
 
     NetworkRuntime seed{params, seed_dir};
     auto seed_config =
-        isolated_config("stage29-testnet-seed");
+        isolated_config({});
+    seed_config.enable_wallet = false;
     assert(seed.start(
                std::move(seed_config)).ok());
 
     const auto seed_status = seed.status();
+    assert(!seed_status.wallet_enabled);
     assert(seed_status.height ==
            std::optional<std::uint32_t>{0U});
     assert(seed_status.tip ==
@@ -443,6 +445,16 @@ void test_real_testnet_params_bootstrap_and_peer_store()
     }
 
     seed.stop();
+
+    assert(!std::filesystem::exists(
+        seed_dir / "wallet.dat"
+    ));
+    assert(!std::filesystem::exists(
+        seed_dir / "wallet_meta.dat"
+    ));
+    assert(!std::filesystem::exists(
+        seed_dir / "wallet_state.dat"
+    ));
 
     remove_tree(peer_dir);
     remove_tree(seed_dir);

@@ -60,3 +60,8 @@ The headless daemon also supports two deployment-QA controls:
 - `--run-seconds N` runs the normal P2P runtime for a bounded interval and prints the final peer count.
 
 These switches exist so a newly provisioned seed can be verified from a second network before its real endpoint is committed to the hardcoded Testnet seed list. They do not change consensus or bypass handshake/block validation.
+
+
+### Walletless seed operation
+
+Public bootstrap infrastructure now runs with `--network-only`. In this mode the node starts the full chainstate, mempool, P2P listener, peer discovery, headers/block synchronization and relay path, but it does not start a wallet or create `wallet.dat`, `wallet_meta.dat` or `wallet_state.dat`. This avoids putting unnecessary private keys on a public seed host.

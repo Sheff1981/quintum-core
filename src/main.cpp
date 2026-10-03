@@ -205,6 +205,7 @@ void print_usage()
         << " [--listen-port N]"
         << " [--addnode HOST[:PORT]]"
         << " [--run-seconds N]"
+        << " [--network-only]"
         << " [--new-address]"
         << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
         << " [--backup-wallet PATH]"
@@ -233,6 +234,7 @@ int main(int argc, char* argv[])
     std::optional<std::uint16_t> listen_port;
     std::vector<std::string> addnodes{};
     std::optional<std::uint64_t> run_seconds{};
+    bool network_only{false};
     std::optional<crypto::PublicKey> miner_public_key;
     bool new_address_requested{false};
     std::optional<std::string> send_to;
@@ -315,6 +317,11 @@ int main(int argc, char* argv[])
             }
 
             run_seconds = value;
+            continue;
+        }
+
+        if (arg == "--network-only") {
+            network_only = true;
             continue;
         }
 
@@ -462,6 +469,20 @@ int main(int argc, char* argv[])
         return 2;
     }
 
+    if (network_only &&
+        (wallet_passphrase_file ||
+         new_address_requested ||
+         send_to ||
+         wallet_backup ||
+         encrypt_wallet_requested ||
+         (mine_blocks > 0U &&
+          !miner_public_key))) {
+        std::cerr
+            << "--network-only cannot use wallet operations; "
+            << "mining requires --miner-pubkey\n";
+        return 2;
+    }
+
     std::string wallet_passphrase;
 
     if (wallet_passphrase_file) {
@@ -493,6 +514,8 @@ int main(int argc, char* argv[])
 
     net::NetworkRuntimeConfig network_config;
     network_config.listen_port = listen_port;
+    network_config.enable_wallet =
+        !network_only;
     network_config.wallet_passphrase =
         wallet_passphrase;
 
@@ -652,26 +675,33 @@ int main(int argc, char* argv[])
             << '\n';
     }
 
-    if (!initial_status.receive_address.empty()) {
+    if (initial_status.wallet_enabled) {
+        if (!initial_status.receive_address.empty()) {
+            std::cout
+                << "Receive address: "
+                << initial_status.receive_address
+                << '\n';
+        }
+
         std::cout
-            << "Receive address: "
-            << initial_status.receive_address
-            << '\n';
+            << "Wallet confirmed: "
+            << initial_status.wallet_balance.confirmed
+            << " atomic\n"
+            << "Wallet available: "
+            << initial_status.wallet_balance.available
+            << " atomic\n"
+            << "Wallet pending: "
+            << initial_status.wallet_balance.pending
+            << " atomic\n"
+            << "Wallet immature: "
+            << initial_status.wallet_balance.immature
+            << " atomic\n";
+    } else {
+        std::cout
+            << "Wallet: disabled (network-only mode)\n";
     }
 
     std::cout
-        << "Wallet confirmed: "
-        << initial_status.wallet_balance.confirmed
-        << " atomic\n"
-        << "Wallet available: "
-        << initial_status.wallet_balance.available
-        << " atomic\n"
-        << "Wallet pending: "
-        << initial_status.wallet_balance.pending
-        << " atomic\n"
-        << "Wallet immature: "
-        << initial_status.wallet_balance.immature
-        << " atomic\n"
         << "Min relay fee rate: "
         << initial_status.min_relay_fee_rate_per_kb
         << " atomic/1000 bytes\n"

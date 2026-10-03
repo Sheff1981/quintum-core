@@ -3361,3 +3361,18 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 - реальный IPv4/DNS по-прежнему не hardcode-ится до успешного cross-network QUINTUM handshake.
 
 Consensus, Genesis, magic, порты, PoW, эмиссия, форматы blockchain/wallet не изменены.
+
+
+### Продолжение Stage 29 — walletless public seed
+
+Убрана лишняя криптографическая поверхность публичного seed-хоста:
+
+- `NetworkRuntimeConfig::enable_wallet=false` запускает полноценную blockchain/P2P-ноду без wallet startup;
+- network-only узел продолжает валидировать и ретранслировать блоки/транзакции, headers, addr и reorg;
+- wallet sync становится no-op только для network-only режима; обычный desktop/runtime не изменён;
+- `quintumd --network-only` запрещает wallet-команды и не требует passphrase;
+- systemd seed service переведён на walletless режим;
+- Stage 29 Testnet integration теперь доказывает, что seed принимает реального peer и при этом не создаёт `wallet.dat`, `wallet_meta.dat` или `wallet_state.dat`;
+- CI headless/Testnet и двухпроцессный bootstrap smoke также проверяют отсутствие wallet-файлов.
+
+Consensus, Genesis, network magic, порты, PoW, difficulty, эмиссия, blockchain storage и обычный wallet format не менялись.
