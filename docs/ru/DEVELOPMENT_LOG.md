@@ -2763,3 +2763,80 @@ Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary poli
 ### Следующий этап
 
 **Этап 24 — wallet send policy:** automatic fee selection, relay/min-fee policy foundation и desktop-facing send API перед Qt GUI.
+
+
+---
+
+## 2026-10-03 — Этап 24. Automatic fee + minimum relay policy
+
+### Цель
+
+Сделать пользовательскую отправку с автоматическим выбором комиссии и ввести локальную minimum-relay policy ноды, не превращая комиссию в consensus-правило.
+
+### Что добавлено
+
+1. **Shared fee policy**
+   - одна overflow-safe формула `ceil(size * rate / 1000)` для wallet и node;
+   - default wallet rate: 1 000 atomic / 1 000 bytes;
+   - default minimum relay rate: 1 000 atomic / 1 000 bytes;
+   - обратный расчёт effective fee-rate для mempool entries.
+
+2. **Minimum relay policy**
+   - mempool рассчитывает required fee по фактическому serialized size;
+   - tx ниже floor получает отдельный `fee_below_minimum`;
+   - caller получает actual fee, required fee и effective rate;
+   - reconcile также не сохраняет entries ниже локальной policy.
+
+3. **Policy != consensus**
+   - minimum relay не добавлен в Chainstate/block validity;
+   - regression test доказывает: tx с fee ниже relay floor отвергается mempool, но та же otherwise-valid tx принимается внутри валидного блока;
+   - Genesis, PoW, monetary policy и transaction/block consensus не изменены.
+
+4. **Automatic wallet fee**
+   - Auto rate = max(wallet default, node relay floor, median current mempool rate);
+   - точный current P2PK size estimator;
+   - deterministic UTXO selection;
+   - расчёт вариантов с change и без change;
+   - `WalletFeeQuote` до отправки;
+   - реальный serialized size повторно проверяется после подписи.
+
+5. **Desktop/runtime API**
+   - `NetworkRuntimeStatus::min_relay_fee_rate_per_kb`;
+   - existing recommended fee rate;
+   - `quote_send_fee()`;
+   - `send_to_address_auto_fee()`;
+   - Auto path проходит обычный node mempool и P2P relay без обходов.
+
+6. **Development CLI**
+   - без `--fee` используется Auto;
+   - `--fee` остаётся manual/expert override;
+   - выводятся min relay rate, recommended rate, actual fee, rate и transaction size.
+
+### Как выбирается комиссия
+
+Комиссия зависит от размера транзакции в байтах, а не от суммы перевода. Чем больше inputs/UTXO нужно собрать, тем больше bytes и fee. При пустом mempool используется policy floor; при более дорогом текущем mempool median rate может поднять Auto rate.
+
+Типичная текущая P2PK tx 1 input + 2 outputs имеет 202 bytes. При ставке 1 000 atomic/1 000 bytes её minimum fee = 202 atomic = 0.00000202 QUINTUM.
+
+### QA
+
+23-й suite `stage24_fee_policy` проверяет:
+
+- underpriced mempool rejection + required fee;
+- exact minimum acceptance;
+- custom relay floor;
+- relay floor остаётся non-consensus policy;
+- Auto fee quote и exact signed size;
+- Auto transaction creation + mempool acceptance;
+- runtime fee quote/status/auto-send bridge;
+- все предыдущие regression suites.
+
+Код Stage 24 до документационного commit прошёл GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **23/23 test suites passed**.
+
+### Следующий этап
+
+**Этап 25 — desktop wallet API foundation:** transaction/address metadata, send confirmation model и remaining GUI-facing interfaces перед Qt 6 UI.
