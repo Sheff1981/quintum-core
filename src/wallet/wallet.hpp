@@ -296,6 +296,10 @@ public:
 
     [[nodiscard]] bool encrypted() const noexcept;
 
+    [[nodiscard]] bool verify_passphrase(
+        std::string_view passphrase
+    ) const;
+
     [[nodiscard]] std::optional<RecoverySeed>
     recovery_seed() const noexcept;
 
