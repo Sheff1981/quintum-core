@@ -964,11 +964,6 @@ WalletSyncResult Wallet::sync(
     history_ = confirmed_history_;
 
     for (auto record : previous_history) {
-        if (record.status ==
-            WalletTransactionStatus::confirmed) {
-            continue;
-        }
-
         const bool now_confirmed =
             std::any_of(
                 confirmed_history_.begin(),
