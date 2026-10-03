@@ -1921,6 +1921,10 @@ void MainWindow::backup_wallet_bundle()
         WalletStoreError::wrong_network) {
         error =
             "The backup network does not match this wallet.";
+    } else if (result ==
+               WalletStoreError::unsafe_destination) {
+        error =
+            "Choose a backup file outside the live wallet.dat, wallet_state.dat and wallet_meta.dat files. QUINTUM will never overwrite active wallet data with a backup bundle.";
     }
 
     QMessageBox::warning(
