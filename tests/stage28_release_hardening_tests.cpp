@@ -436,6 +436,8 @@ void test_full_backup_bundle_roundtrip_and_guards()
         unique_dir("bundle-target");
     const auto existing_dir =
         unique_dir("bundle-existing");
+    const auto blocked_restore_dir =
+        unique_dir("bundle-blocked-state");
     const auto bundle_path =
         unique_dir("bundle-file") /
         "wallet.qtmbackup";
@@ -466,6 +468,31 @@ void test_full_backup_bundle_roundtrip_and_guards()
         assert(source.backup_bundle(
                    bundle_path) ==
                WalletStoreError::target_exists);
+
+        // A backup bundle must never be allowed to replace live wallet
+        // material, even when overwrite=true after a GUI confirmation.
+        const auto wallet_before =
+            read_bytes(source_dir / "wallet.dat");
+        const auto metadata_before =
+            read_bytes(source_dir / "wallet_meta.dat");
+
+        assert(source.backup_bundle(
+                   source_dir / "wallet.dat",
+                   true) ==
+               WalletStoreError::unsafe_destination);
+        assert(source.backup_bundle(
+                   source_dir / "wallet_meta.dat",
+                   true) ==
+               WalletStoreError::unsafe_destination);
+        assert(source.backup(
+                   source_dir / "wallet_meta.dat",
+                   true) ==
+               WalletStoreError::unsafe_destination);
+
+        assert(read_bytes(source_dir / "wallet.dat") ==
+               wallet_before);
+        assert(read_bytes(source_dir / "wallet_meta.dat") ==
+               metadata_before);
     }
 
     {
@@ -487,6 +514,35 @@ void test_full_backup_bundle_roundtrip_and_guards()
         assert(entries.front().address == address);
         assert(entries.front().label ==
                "Bundle contact");
+    }
+
+    {
+        // Stale wallet_state.dat is derived cache data. If it cannot be
+        // removed, restore must fail before creating wallet.dat rather than
+        // report a misleading success and fail on first synchronization.
+        const auto blocked_state =
+            blocked_restore_dir / "wallet_state.dat";
+        std::filesystem::create_directories(
+            blocked_state
+        );
+        {
+            std::ofstream blocker(
+                blocked_state / "keep",
+                std::ios::binary |
+                    std::ios::trunc
+            );
+            assert(blocker);
+            blocker << "not-removable-as-file";
+            assert(blocker);
+        }
+
+        Wallet blocked{params, blocked_restore_dir};
+        assert(blocked.restore_bundle(
+                   bundle_path) ==
+               WalletStoreError::io_error);
+        assert(!std::filesystem::exists(
+            blocked_restore_dir / "wallet.dat"
+        ));
     }
 
     {
@@ -553,6 +609,8 @@ void test_full_backup_bundle_roundtrip_and_guards()
     std::filesystem::remove_all(target_dir, ec);
     ec.clear();
     std::filesystem::remove_all(existing_dir, ec);
+    ec.clear();
+    std::filesystem::remove_all(blocked_restore_dir, ec);
     ec.clear();
     std::filesystem::remove_all(
         bundle_path.parent_path(),
