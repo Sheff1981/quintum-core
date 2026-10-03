@@ -2,6 +2,7 @@
 
 #include "chain/chainstate.hpp"
 #include "primitives/transaction.hpp"
+#include "policy/fees.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -12,6 +13,12 @@ namespace quintum {
 
 inline constexpr std::size_t kMaxMempoolTransactions = 50'000U;
 inline constexpr std::size_t kMaxMempoolBytes = 64U * 1024U * 1024U;
+
+struct MempoolPolicy {
+    Amount min_relay_fee_rate_per_kb{
+        policy::kDefaultMinRelayFeeRatePerKb
+    };
+};
 
 enum class MempoolError {
     none,
@@ -24,6 +31,7 @@ enum class MempoolError {
     mempool_full,
     inconsistent_existing_pool,
     transaction_rejected,
+    fee_below_minimum,
 };
 
 struct MempoolAcceptResult {
@@ -31,6 +39,8 @@ struct MempoolAcceptResult {
     UtxoApplyError transaction_error{UtxoApplyError::none};
     Hash256 txid{};
     Amount fee{0U};
+    Amount required_fee{0U};
+    Amount fee_rate_per_kb{0U};
 
     [[nodiscard]] bool ok() const noexcept
     {
@@ -47,6 +57,10 @@ struct MempoolEntry {
 
 class Mempool {
 public:
+    explicit Mempool(
+        MempoolPolicy policy = {}
+    ) noexcept;
+
     [[nodiscard]] MempoolAcceptResult accept(
         const Chainstate& chain,
         const Transaction& transaction
@@ -74,6 +88,7 @@ public:
 
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] std::size_t total_bytes() const noexcept;
+    [[nodiscard]] Amount min_relay_fee_rate_per_kb() const noexcept;
 
     [[nodiscard]] const std::vector<MempoolEntry>&
     entries() const noexcept;
@@ -85,6 +100,7 @@ private:
         const Chainstate& chain
     ) const noexcept;
 
+    MempoolPolicy policy_{};
     std::vector<MempoolEntry> entries_{};
     std::size_t total_bytes_{0U};
 };
