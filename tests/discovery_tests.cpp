@@ -3,6 +3,7 @@
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -231,9 +232,18 @@ void test_retry_backoff_and_seed_bootstrap()
     PeerDiscovery discovery{manager};
 
     const std::array<SeedEndpoint, 2> seeds{
-        SeedEndpoint{"127.0.0.1", 49001U},
+        SeedEndpoint{"localhost", 49001U},
         SeedEndpoint{"127.0.0.1", 49002U},
     };
+
+    const auto localhost =
+        resolve_ipv4_host("localhost");
+    assert(!localhost.empty());
+    assert(std::find(
+               localhost.begin(),
+               localhost.end(),
+               *parse_ipv4("127.0.0.1")) !=
+           localhost.end());
 
     assert(discovery.bootstrap_seeds(
                seeds,
