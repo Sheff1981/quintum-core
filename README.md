@@ -24,7 +24,7 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - SHA-256 family cryptographic hashing
 - Durable restart-safe blockchain storage
 - Authenticated encrypted wallet storage with Argon2id + XChaCha20-Poly1305
-- BIP32 deterministic recovery foundation with atomic replacement and backup support
+- BIP32 deterministic recovery with 24-word English recovery phrases and atomic restoration
 - Qt 6 desktop wallet planned after the node and network are stable
 
 ## Repository map
@@ -40,12 +40,10 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M9 — Wallet state/indexing (Stage 22):** the wallet now keeps a durable `wallet_state.dat` cache containing wallet-owned confirmed UTXOs and transaction history. Normal synchronization advances from the previously indexed active-chain tip instead of rescanning from Genesis every time.
+**M10 — Recovery UX foundation (Stage 23):** seed-native encrypted wallets now expose a 24-word English recovery phrase that reversibly represents the existing 256-bit QUINTUM RecoverySeed. The existing BIP32 path and derived addresses are unchanged.
 
-The cache contains no private keys. It is checksummed and bound to the network, active-chain tip and complete wallet public-key set. Corruption, reorgs, wallet-key changes or importing a historical key automatically force a correctness-first rebuild from the authoritative blockchain.
+Recovery validates the word list and checksum, discovers both receive and internal/change branches with a default gap limit of 100, rebuilds wallet history/index state from the authoritative active blockchain and commits encrypted `wallet.dat` only after successful recovery synchronization.
 
-History tracks confirmed, unconfirmed and inactive wallet transactions with received/spent amounts, confirmations and exact fees when they are provable. Because the mempool remains memory-only, previously unconfirmed transactions become inactive after restart until seen again.
+The phrase is available only through an explicit recovery API; it is never placed in normal runtime status or P2P data. Wallets containing legacy/imported random private keys continue to require a `wallet.dat` backup and do not claim complete seed-only recovery.
 
-Stage 22 also adds a local fee-policy foundation: size-based fee arithmetic and a current-mempool fee-rate recommendation exposed through `NetworkRuntimeStatus`. It is wallet policy only and does not alter consensus, monetary policy or block validity.
-
-Next wallet work: user-facing recovery/mnemonic workflow, confirmation-target fee selection and remaining desktop-facing wallet APIs before Qt GUI/release hardening.
+Next wallet work: automatic fee selection/relay policy and the remaining desktop-facing APIs before Qt GUI integration.
