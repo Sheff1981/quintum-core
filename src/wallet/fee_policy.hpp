@@ -1,18 +1,13 @@
 #pragma once
 
 #include "node/mempool.hpp"
-
-#include <cstddef>
-#include <optional>
+#include "policy/fees.hpp"
 
 namespace quintum::wallet {
 
 inline constexpr Amount kDefaultFeeRatePerKb{1'000U};
 
-[[nodiscard]] std::optional<Amount> fee_for_size(
-    std::size_t serialized_size,
-    Amount rate_per_kb
-) noexcept;
+using quintum::policy::fee_for_size;
 
 [[nodiscard]] Amount recommended_fee_rate(
     const Mempool& mempool
