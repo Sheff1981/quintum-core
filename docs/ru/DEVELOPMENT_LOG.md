@@ -2515,3 +2515,85 @@ Genesis, monetary policy, PoW, difficulty, network magic, P2P/RPC ports и су�
 ### Следующий этап
 
 **Этап 21 — Wallet hardening:** encryption + deterministic/HD recovery foundation прежде GUI/installer и mainnet.
+
+
+---
+
+## 2026-10-03 — Этап 21. Wallet hardening: encrypted wallet.dat v2 + BIP32 recovery foundation
+
+### Цель
+
+Защитить private keys на диске и перейти от конечного random-keypool к детерминированной основе восстановления, не ломая существующие Stage 20 `wallet.dat` и не меняя consensus.
+
+### Что добавлено
+
+1. **Encrypted `wallet.dat` v2**
+   - Argon2id password KDF;
+   - 64 MiB memory, 3 passes;
+   - XChaCha20-Poly1305 authenticated encryption;
+   - random 16-byte salt;
+   - fresh random 24-byte nonce при каждом rewrite;
+   - open header используется как AEAD associated data;
+   - recovery seed, private keys и key metadata находятся внутри ciphertext.
+
+2. **Backward compatibility**
+   - Stage 20 v1 wallet продолжает читаться;
+   - старый wallet не переписывается молча;
+   - explicit v1 -> v2 migration сохраняет существующие private keys и адреса;
+   - atomic replacement сохраняет старый wallet при неудаче записи.
+
+3. **BIP32 deterministic derivation**
+   - HMAC-SHA512;
+   - libsecp256k1 CKD private-key tweak;
+   - QUINTUM path: `m/5329997'/network'/branch/index`;
+   - receive и internal/change ветки разделены;
+   - Mainnet/Testnet/Regtest разделены hardened network child;
+   - закреплён независимый derivation test vector.
+
+4. **Recovery safety**
+   - новый password-created v2 wallet создаёт 256-bit recovery seed из OS CSPRNG;
+   - seed-native keypool воспроизводится детерминированно;
+   - migrated v1 keys и imported random keys не выдаются как полностью seed-recoverable;
+   - для таких wallet обязателен backup `wallet.dat`.
+
+5. **Runtime integration**
+   - `NetworkRuntime` умеет открыть encrypted wallet;
+   - passphrase удаляется из runtime config после открытия;
+   - development CLI принимает пароль только через `--wallet-passphrase-file PATH`, а не как обычный process argument;
+   - `--encrypt-wallet` выполняет явную миграцию legacy wallet.
+
+6. **Pinned crypto dependencies**
+   - Monocypher 4.0.3 закреплён SHA256 release archive;
+   - Argon2id, XChaCha20-Poly1305 и SHA512/HMAC берутся из этой библиотеки;
+   - transaction ECDSA остаётся на существующем pinned libsecp256k1.
+
+### QA
+
+Проверено:
+
+- encrypted wallet creation/restart;
+- startup без passphrase для v2 отклоняется;
+- wrong passphrase отклоняется;
+- modified ciphertext/tag authentication failure;
+- одинаковые receive addresses после seed recovery;
+- BIP32 pinned derivation vector;
+- legacy v1 -> encrypted v2 migration без смены адресов;
+- seed-only recovery не заявляется для legacy/imported key material;
+- encrypted wallet через настоящий NetworkRuntime;
+- существующие blockchain/P2P/mining/wallet regression suites.
+
+### Статус
+
+**ГОТОВО.**
+
+Финальный GitHub Actions CI для кода этапа:
+
+- Linux — success;
+- Windows — success;
+- **20/20 test suites passed на обеих ОС**.
+
+Genesis, block/transaction consensus, PoW, difficulty, monetary policy, network magic, P2P/RPC ports и blockchain storage format не изменялись.
+
+### Следующий этап
+
+**Этап 22 — persistent wallet transaction history + incremental wallet index + fee policy foundation.**
