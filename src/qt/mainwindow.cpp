@@ -1,6 +1,7 @@
 #include "qt/mainwindow.hpp"
 
 #include "consensus/monetary.hpp"
+#include "crypto/random.hpp"
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -1362,6 +1363,19 @@ void MainWindow::show_recovery_phrase()
     dialog.exec();
 
     text->clear();
+
+    auto& words =
+        const_cast<std::string&>(*mnemonic);
+
+    crypto::secure_erase(
+        std::span<Byte>{
+            reinterpret_cast<Byte*>(
+                words.data()),
+            words.size()
+        }
+    );
+    words.clear();
+    words.shrink_to_fit();
 }
 
 void MainWindow::backup_wallet()
