@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <limits>
 #include <optional>
 #include <string>
@@ -446,18 +445,6 @@ void test_persistent_history_and_incremental_index()
                     node.chain(),
                     empty_after_restart
                 );
-
-            if (!persisted_sync.ok()) {
-                std::cerr
-                    << "persisted_sync error="
-                    << static_cast<int>(
-                           persisted_sync.error)
-                    << " rebuilt="
-                    << persisted_sync.index_rebuilt
-                    << " scanned="
-                    << persisted_sync.blocks_scanned
-                    << '\n';
-            }
 
             assert(persisted_sync.ok());
 
