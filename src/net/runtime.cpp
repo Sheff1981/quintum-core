@@ -1532,48 +1532,74 @@ void NetworkRuntime::maintain_outbound(
 bool NetworkRuntime::prepare_live_peer(
     LivePeer& peer,
     std::uint64_t now,
-    bool initial_sync)
+    bool outbound)
 {
     if (!peer.session.valid()) {
         return false;
     }
 
-    if (!initial_sync) {
+    std::uint32_t local_height{0U};
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        if (const auto height =
+                node_.chain().height()) {
+            local_height = *height;
+        }
+    }
+
+    // Exactly one side drives connection setup. The node that is behind
+    // drives headers/block synchronization regardless of TCP direction.
+    // If both tips are at the same height, the outbound side drives the
+    // non-consensus addr/mempool exchange. This avoids both peers sending
+    // synchronous request/response commands at the same time.
+    const bool local_is_behind =
+        peer.reported_height > local_height;
+    const bool active_setup =
+        local_is_behind ||
+        (peer.reported_height == local_height &&
+         outbound);
+
+    if (!active_setup) {
+        peer.last_activity = now;
         return true;
     }
 
     std::optional<Hash256> synchronized_tip;
 
-    {
-        std::scoped_lock lock(state_mutex_);
+    if (local_is_behind) {
+        {
+            std::scoped_lock lock(state_mutex_);
 
-        const auto synced =
-            sync_from_peer(
-                peer.session,
-                node_,
-                now
+            const auto synced =
+                sync_from_peer(
+                    peer.session,
+                    node_,
+                    now
+                );
+
+            if (!synced.ok()) {
+                return false;
+            }
+
+            if (synced.blocks_accepted > 0U ||
+                synced.reorganized) {
+                synchronized_tip =
+                    node_.chain().tip_hash();
+            }
+
+            if (!sync_wallet_locked()) {
+                return false;
+            }
+        }
+
+        if (synchronized_tip) {
+            queue_announcement(
+                kInventoryBlock,
+                *synchronized_tip
             );
-
-        if (!synced.ok()) {
-            return false;
         }
-
-        if (synced.blocks_accepted > 0U ||
-            synced.reorganized) {
-            synchronized_tip =
-                node_.chain().tip_hash();
-        }
-
-        if (!sync_wallet_locked()) {
-            return false;
-        }
-    }
-
-    if (synchronized_tip) {
-        queue_announcement(
-            kInventoryBlock,
-            *synchronized_tip
-        );
     }
 
     const auto learned =
