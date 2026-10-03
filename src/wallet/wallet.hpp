@@ -95,12 +95,36 @@ struct WalletBalance {
     bool operator==(const WalletBalance&) const = default;
 };
 
+enum class WalletTransactionStatus {
+    unconfirmed,
+    confirmed,
+};
+
+struct WalletTransactionRecord {
+    Hash256 txid{};
+    WalletTransactionStatus status{
+        WalletTransactionStatus::unconfirmed
+    };
+    Amount received{0U};
+    Amount spent{0U};
+    std::optional<Amount> fee{};
+    bool coinbase{false};
+    std::optional<std::uint32_t> block_height{};
+    std::optional<Hash256> block_hash{};
+    std::uint32_t confirmations{0U};
+
+    bool operator==(
+        const WalletTransactionRecord&) const = default;
+};
+
 struct WalletSyncResult {
     WalletSyncError error{WalletSyncError::none};
     WalletBalance balance{};
     std::size_t confirmed_outputs{0U};
     std::size_t available_outputs{0U};
     std::size_t pending_outputs{0U};
+    std::size_t blocks_scanned{0U};
+    bool index_rebuilt{false};
 
     [[nodiscard]] bool ok() const noexcept
     {
@@ -213,6 +237,8 @@ public:
     );
 
     [[nodiscard]] WalletBalance balance() const noexcept;
+    [[nodiscard]] std::vector<WalletTransactionRecord>
+    history() const;
     [[nodiscard]] std::vector<std::string> addresses() const;
 
     [[nodiscard]] bool owns_public_key(
@@ -297,6 +323,18 @@ private:
     [[nodiscard]] WalletStoreError load(
         std::string_view passphrase
     );
+
+    void load_index_state() noexcept;
+    [[nodiscard]] WalletStoreError save_index_state() const;
+    void reset_index_state() noexcept;
+    [[nodiscard]] Hash256 wallet_index_id() const;
+
+    [[nodiscard]] bool apply_confirmed_block_to_index(
+        const Block& block,
+        const Hash256& block_hash,
+        std::uint32_t height,
+        std::vector<crypto::PublicKey>& discovered_keys
+    );
     [[nodiscard]] WalletStoreError save_keys(
         const std::vector<KeyRecord>& keys
     ) const;
@@ -327,6 +365,7 @@ private:
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
     std::filesystem::path path_{};
+    std::filesystem::path state_path_{};
     bool started_{false};
     bool encrypted_{false};
     std::optional<RecoverySeed> recovery_seed_{};
@@ -339,6 +378,14 @@ private:
         kWalletArgon2Passes
     };
     std::vector<KeyRecord> keys_{};
+
+    bool index_valid_{false};
+    std::uint32_t indexed_height_{0U};
+    Hash256 indexed_tip_{};
+    std::vector<WalletTransactionRecord>
+        confirmed_history_{};
+    std::vector<WalletTransactionRecord>
+        history_{};
 
     WalletBalance balance_{};
     std::map<OutPoint, WalletCoin, OutPointLess>
