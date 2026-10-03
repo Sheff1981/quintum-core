@@ -531,11 +531,132 @@ void test_continuous_runtime_sync_relay_reconnect()
     );
 }
 
+
+void test_higher_outbound_peer_updates_lower_inbound()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const auto higher_dir =
+        unique_dir("higher-outbound");
+    const auto lower_dir =
+        unique_dir("lower-inbound");
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 20'000U;
+
+    const auto payout =
+        payout_script(11U);
+
+    (void)prepare_chain_data(
+        params,
+        higher_dir,
+        lower_dir,
+        base_time,
+        payout
+    );
+
+    NetworkRuntimeConfig lower_config;
+    lower_config.bind_address =
+        "127.0.0.1";
+    lower_config.listen_port = 0U;
+    lower_config.allow_local_peers = true;
+    lower_config.target_outbound = 0U;
+    lower_config.accept_poll_ms = 20U;
+    lower_config.io_timeout_ms = 5'000U;
+    lower_config.ping_interval_seconds = 1U;
+    lower_config.ping_timeout_seconds = 4U;
+
+    NetworkRuntime lower{
+        params,
+        lower_dir
+    };
+
+    const auto lower_start =
+        lower.start(lower_config);
+
+    assert(lower_start.ok());
+    assert(lower.status().height ==
+           std::optional<std::uint32_t>{100U});
+
+    NetworkRuntimeConfig higher_config =
+        lower_config;
+
+    higher_config.target_outbound = 1U;
+    higher_config.reconnect_delay_seconds = 1U;
+    higher_config.outbound_retry_seconds = 1U;
+
+    higher_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 =
+                *parse_ipv4("127.0.0.1"),
+            .port =
+                lower.status().listen_port,
+            .services = 1U,
+            .last_seen = base_time,
+        }
+    );
+
+    NetworkRuntime higher{
+        params,
+        higher_dir
+    };
+
+    const auto higher_start =
+        higher.start(higher_config);
+
+    assert(higher_start.ok());
+    assert(higher.status().height ==
+           std::optional<std::uint32_t>{105U});
+
+    assert(wait_until(
+        std::chrono::seconds(20),
+        [&] {
+            const auto low =
+                lower.status();
+            const auto high =
+                higher.status();
+
+            return low.height ==
+                       std::optional<std::uint32_t>{105U} &&
+                   low.tip == high.tip &&
+                   low.peers == 1U &&
+                   high.outbound_peers == 1U;
+        }
+    ));
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            return higher.status().
+                       peer_best_height ==
+                   std::optional<std::uint32_t>{105U};
+        }
+    ));
+
+    higher.stop();
+    lower.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        higher_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        lower_dir,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
 {
     test_default_listener_port_fallback();
     test_continuous_runtime_sync_relay_reconnect();
+    test_higher_outbound_peer_updates_lower_inbound();
     return 0;
 }
