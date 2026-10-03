@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 adds a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 adds shared relay-fee policy, automatic wallet fee selection and desktop-facing fee quote/send APIs.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -194,34 +194,56 @@ For wallet-created transactions all inputs belong to the wallet, so the exact fe
 
 Deleting or rebuilding `wallet_state.dat` cannot lose private keys or confirmed funds. Confirmed history is reconstructed from the blockchain. Inactive history is a wallet convenience record and is not a substitute for backing up `wallet.dat`.
 
-## Fee policy foundation
+## Fee policy and automatic selection
 
-Stage 22 introduces a **wallet policy**, not a consensus rule:
+Stage 24 promotes the Stage 22 fee foundation into a shared **node/wallet policy**. It is still not a consensus rule.
 
-- default rate: **1,000 atomic units per 1,000 serialized bytes**;
-- size fee uses ceiling arithmetic and overflow/range checks;
-- when the mempool contains fee-paying transactions, the wallet exposes a recommended rate based on the median observed fee rate, never below the default;
-- `NetworkRuntimeStatus` exposes the current recommended fee rate for future GUI/RPC use.
+QUINTUM currently defines:
 
-This is intentionally not yet a confirmation-target estimator and does not change mempool consensus validity, block validity, monetary policy, or a network-wide minimum relay fee.
+- one coin = **100,000,000 atomic units**;
+- default wallet fee rate = **1,000 atomic units per 1,000 serialized bytes**;
+- default local minimum relay rate = **1,000 atomic units per 1,000 serialized bytes**;
+- all byte-based fee calculations use ceiling arithmetic plus overflow/money-range checks.
 
+The node mempool calculates the minimum acceptable fee from the transaction's actual serialized size. Transactions below the local relay floor are rejected with a dedicated policy error and the required fee is returned to the caller.
+
+This minimum is deliberately **mempool/relay policy only**. Block/transaction consensus validation does not contain a minimum-fee rule. An otherwise-valid transaction that pays less than the local relay minimum can still be valid if it is included in a valid block.
+
+### Auto fee
+
+The wallet's Auto rate is:
+
+`max(wallet default rate, node minimum relay rate, median current-mempool fee rate)`.
+
+If the mempool is empty, Auto uses the policy floor. If observed fee-paying mempool transactions are more expensive, the current median raises the recommendation.
+
+For a candidate payment the wallet:
+
+1. synchronizes wallet state;
+2. validates the destination and amount;
+3. orders mature spendable UTXOs deterministically;
+4. adds inputs until the payment plus the required size fee can be funded;
+5. estimates the exact signed P2PK size using the fixed 65-byte unlock script and 34-byte lock script;
+6. evaluates both one-output (no change) and two-output (with change) layouts;
+7. returns a `WalletFeeQuote` containing rate, byte size, fee, selected value, input/output counts and change;
+8. creates/signs the real transaction using that quote;
+9. verifies the real serialized size and required fee before returning it.
+
+For the common current P2PK shape with one input and two outputs, the signed serialized size is 202 bytes. At 1,000 atomic/1,000 bytes, the exact minimum fee is therefore 202 atomic units, or 0.00000202 coin.
+
+A no-change transaction may intentionally pay slightly more than the pure size minimum when the remainder is too small to fund an additional change output at the selected rate. This avoids creating an output whose extra serialized cost cannot be funded by the remainder.
+
+`NetworkRuntimeStatus` exposes both `min_relay_fee_rate_per_kb` and `recommended_fee_rate_per_kb`. `NetworkRuntime::quote_send_fee()` lets a desktop UI show the fee before confirmation, while `send_to_address_auto_fee()` creates, submits, syncs and relays the Auto transaction.
+
+This is not yet a historical confirmation-target estimator. The current mempool median is a deterministic local load signal, not a prediction that a given fee will confirm within N blocks.
 ## Transaction creation
 
-The Stage 20 wallet send path:
+Two send modes now coexist:
 
-1. decodes and network-checks the destination address;
-2. refreshes wallet ownership against active chain + mempool;
-3. rejects zero/out-of-range amounts;
-4. adds the explicit requested fee;
-5. selects mature available wallet UTXOs deterministically, oldest first;
-6. creates the recipient output;
-7. sends change to an internal wallet key;
-8. signs every selected input through the existing QUINTUM P2PK sighash/signing path;
-9. rebuilds a staged UTXO view including the current mempool;
-10. applies the completed transaction to that staged view;
-11. verifies that the actual fee exactly equals the requested fee.
+- **Auto (default user path):** quote and calculate fee from transaction size plus current policy/load;
+- **Manual:** preserve the existing explicit atomic fee API for testing and expert override.
 
-Only after this does `NetworkRuntime::send_to_address()` submit the transaction to the normal mempool and announce its txid through the existing P2P relay path.
+Both paths still select mature UTXOs deterministically, use an internal change key, sign every input through the existing QUINTUM P2PK authorization path, validate against a staged chain+mempool UTXO view and finally submit through the same node mempool/P2P relay path. Auto does not bypass any transaction or relay validation.
 
 ## Continuous-node integration
 
@@ -248,7 +270,7 @@ The development CLI can now:
 
 - display the current receive address and wallet balances;
 - create a new receive address;
-- send to a QUINTUM address with an explicit fee;
+- send to a QUINTUM address with automatic fee by default, or an explicit `--fee` override;
 - back up `wallet.dat`;
 - unlock/create encrypted v2 wallets using `--wallet-passphrase-file PATH`;
 - explicitly migrate a legacy v1 wallet with `--encrypt-wallet`;
@@ -262,7 +284,7 @@ The current pre-mainnet wallet still does not claim these are finished:
 
 - GUI presentation/confirmation workflow for the implemented 24-word recovery phrase;
 - recovery-rescan performance optimization for very large chains;
-- confirmation-target fee estimation and automatic fee selection;
+- historical/confirmation-target fee estimation beyond the current mempool-median policy;
 - transaction labels/address book metadata;
 - hardware-wallet support;
 - P2PKH/P2WPKH-style locking;
