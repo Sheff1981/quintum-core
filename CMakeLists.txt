@@ -46,9 +46,11 @@ FetchContent_MakeAvailable(monocypher_source)
 
 add_library(monocypher STATIC
     ${monocypher_source_SOURCE_DIR}/src/monocypher.c
+    ${monocypher_source_SOURCE_DIR}/src/optional/monocypher-ed25519.c
 )
 target_include_directories(monocypher PUBLIC
     ${monocypher_source_SOURCE_DIR}/src
+    ${monocypher_source_SOURCE_DIR}/src/optional
 )
 
 function(quintum_strict_warnings target)
