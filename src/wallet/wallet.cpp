@@ -337,7 +337,8 @@ Wallet::Wallet(
     : params_(params),
       directory_(std::move(directory)),
       path_(directory_ / "wallet.dat"),
-      state_path_(directory_ / "wallet_state.dat")
+      state_path_(directory_ / "wallet_state.dat"),
+      metadata_path_(directory_ / "wallet_meta.dat")
 {
 }
 
@@ -374,6 +375,30 @@ WalletStartResult Wallet::start(
 
     if (out.store_error ==
         WalletStoreError::none) {
+        out.metadata_error =
+            load_metadata();
+
+        if (out.metadata_error !=
+            WalletMetadataError::none) {
+            clear_keys();
+            crypto::secure_erase(
+                encryption_key_);
+            crypto::secure_erase(
+                encryption_salt_);
+
+            if (recovery_seed_) {
+                crypto::secure_erase(
+                    *recovery_seed_);
+                recovery_seed_.reset();
+            }
+
+            encrypted_ = false;
+            out.error =
+                WalletStartError::
+                    metadata_failed;
+            return out;
+        }
+
         started_ = true;
         load_index_state();
 
@@ -501,6 +526,8 @@ WalletStartResult Wallet::start(
     }
 
     keys_ = std::move(initial);
+    address_labels_.clear();
+    transaction_labels_.clear();
     started_ = true;
     reset_index_state();
     out.created = true;
@@ -702,6 +729,8 @@ WalletStoreError Wallet::recover_from_seed(
     }
 
     keys_ = std::move(initial);
+    address_labels_.clear();
+    transaction_labels_.clear();
     started_ = true;
     reset_index_state();
     return WalletStoreError::none;
@@ -1211,6 +1240,9 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
             WalletStoreError::io_error;
         return out;
     }
+
+    address_labels_.clear();
+    transaction_labels_.clear();
 
     out.store_error =
         save_keys(keys_);
