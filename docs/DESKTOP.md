@@ -75,7 +75,7 @@ Shows network, P2P/listen ports and recommended fee rate. It also exposes:
 - **Show 24 recovery words** with an explicit secret warning and mandatory wallet-password re-verification;
 - **Backup complete wallet** creates one `.qtmbackup` containing `wallet.dat` and wallet metadata.
 
-The backup bundle is checksummed and network-bound. It intentionally excludes blockchain data and the rebuildable `wallet_state.dat`; both can be reconstructed by synchronization/rescan. For normal encrypted wallets, the bundle contains encrypted wallet secrets plus encrypted metadata. Before seed words are revealed, the password is re-derived with the wallet's real Argon2id parameters and compared against the active encryption key without early exit. Wrong passwords never request the mnemonic from the wallet. Stage 28 will replace the backup limitation with a complete backup bundle.
+The backup bundle is checksummed and network-bound. It intentionally excludes blockchain data and the rebuildable `wallet_state.dat`; both can be reconstructed by synchronization/rescan. For normal encrypted wallets, the bundle contains encrypted wallet secrets plus encrypted metadata. Before seed words are revealed, the password is re-derived with the wallet's real Argon2id parameters and compared against the active encryption key without early exit. Wrong passwords never request the mnemonic from the wallet.
 
 ## CI smoke mode
 
