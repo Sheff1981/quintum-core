@@ -357,3 +357,15 @@ quintum_strict_warnings(quintum_stage24_fee_policy_tests)
 quintum_test_assertions(quintum_stage24_fee_policy_tests)
 
 add_test(NAME stage24_fee_policy COMMAND quintum_stage24_fee_policy_tests)
+
+add_executable(quintum_stage25_desktop_wallet_tests
+    tests/stage25_desktop_wallet_tests.cpp
+)
+target_link_libraries(
+    quintum_stage25_desktop_wallet_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_stage25_desktop_wallet_tests)
+quintum_test_assertions(quintum_stage25_desktop_wallet_tests)
+
+add_test(NAME stage25_desktop_wallet COMMAND quintum_stage25_desktop_wallet_tests)
