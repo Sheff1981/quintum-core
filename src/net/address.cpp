@@ -929,12 +929,15 @@ hardcoded_seeds(
     static constexpr std::array<SeedEndpoint, 0>
         no_seeds{};
 
-    // Public QUINTUM seed infrastructure does not exist yet.
-    // Do not invent or silently depend on a developer-controlled host.
-    // This hook is deliberately ready for pinned independent seed nodes.
+    static constexpr std::array<SeedEndpoint, 1>
+        testnet_seeds{
+            SeedEndpoint{"212.193.15.139", 38444U},
+        };
+
     switch (network) {
-    case consensus::Network::mainnet:
     case consensus::Network::testnet:
+        return testnet_seeds;
+    case consensus::Network::mainnet:
     case consensus::Network::regtest:
     default:
         return no_seeds;
