@@ -264,6 +264,18 @@ void test_retry_backoff_and_seed_bootstrap()
     assert(failed.failures == 1U);
     assert(failed.next_attempt == 1'060U);
 
+    const auto successful =
+        manager.entries()[0].address == *first
+            ? manager.entries()[1].address
+            : manager.entries()[0].address;
+
+    manager.mark_success(successful, 1'010U);
+    const auto immediate =
+        manager.select(1'010U, excluded);
+
+    assert(immediate.has_value());
+    assert(*immediate == successful);
+
     const std::array<PeerAddress, 1> excluded{
         *first
     };
