@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -966,6 +967,295 @@ void test_network_runtime_wallet_bridge()
     );
 }
 
+void test_encrypted_wallet_and_hd_recovery()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto source_directory =
+        unique_dir("encrypted-source");
+    const auto recovered_directory =
+        unique_dir("encrypted-recovered");
+    const auto corrupt_directory =
+        unique_dir("encrypted-corrupt");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    std::vector<std::string> source_addresses;
+    RecoverySeed seed{};
+
+    {
+        Wallet wallet{
+            params,
+            source_directory
+        };
+
+        const auto started =
+            wallet.start(
+                "stage21-test-passphrase"
+            );
+
+        assert(started.ok());
+        assert(started.created);
+        assert(wallet.encrypted());
+
+        const auto exported_seed =
+            wallet.recovery_seed();
+
+        assert(exported_seed.has_value());
+        seed = *exported_seed;
+
+        const auto second =
+            wallet.new_receive_address();
+
+        assert(second.ok());
+
+        source_addresses =
+            wallet.addresses();
+
+        assert(source_addresses.size() == 2U);
+    }
+
+    {
+        Wallet without_password{
+            params,
+            source_directory
+        };
+
+        const auto started =
+            without_password.start();
+
+        assert(!started.ok());
+        assert(started.store_error ==
+               WalletStoreError::
+                   passphrase_required);
+    }
+
+    {
+        Wallet wrong_password{
+            params,
+            source_directory
+        };
+
+        const auto started =
+            wrong_password.start(
+                "definitely-wrong"
+            );
+
+        assert(!started.ok());
+        assert(started.store_error ==
+               WalletStoreError::
+                   invalid_passphrase);
+    }
+
+    {
+        Wallet reopened{
+            params,
+            source_directory
+        };
+
+        const auto started =
+            reopened.start(
+                "stage21-test-passphrase"
+            );
+
+        assert(started.ok());
+        assert(!started.created);
+        assert(reopened.encrypted());
+        assert(reopened.addresses() ==
+               source_addresses);
+        assert(reopened.recovery_seed() ==
+               std::optional<RecoverySeed>{
+                   seed
+               });
+    }
+
+    {
+        Wallet recovered{
+            params,
+            recovered_directory
+        };
+
+        assert(recovered.recover_from_seed(
+                   seed,
+                   "recovered-passphrase") ==
+               WalletStoreError::none);
+        assert(recovered.started());
+        assert(recovered.encrypted());
+
+        const auto initial =
+            recovered.addresses();
+
+        assert(initial.size() == 1U);
+        assert(initial.front() ==
+               source_addresses.front());
+
+        const auto second =
+            recovered.new_receive_address();
+
+        assert(second.ok());
+        assert(second.address ==
+               source_addresses[1]);
+    }
+
+    std::filesystem::create_directories(
+        corrupt_directory
+    );
+
+    const auto corrupt_path =
+        corrupt_directory /
+        "wallet.dat";
+
+    std::filesystem::copy_file(
+        source_directory / "wallet.dat",
+        corrupt_path,
+        std::filesystem::copy_options::overwrite_existing
+    );
+
+    {
+        std::ifstream input(
+            corrupt_path,
+            std::ios::binary
+        );
+
+        std::vector<char> bytes{
+            std::istreambuf_iterator<char>{input},
+            std::istreambuf_iterator<char>{}
+        };
+
+        assert(bytes.size() >
+               WalletTag{}.size() + 1U);
+
+        const std::size_t position =
+            bytes.size() -
+            WalletTag{}.size() - 1U;
+
+        bytes[position] =
+            static_cast<char>(
+                static_cast<unsigned char>(
+                    bytes[position]) ^
+                0x01U
+            );
+
+        std::ofstream output(
+            corrupt_path,
+            std::ios::binary |
+                std::ios::trunc
+        );
+
+        output.write(
+            bytes.data(),
+            static_cast<std::streamsize>(
+                bytes.size())
+        );
+
+        assert(output.good());
+    }
+
+    {
+        Wallet corrupt{
+            params,
+            corrupt_directory
+        };
+
+        const auto started =
+            corrupt.start(
+                "stage21-test-passphrase"
+            );
+
+        assert(!started.ok());
+        assert(started.store_error ==
+               WalletStoreError::
+                   invalid_passphrase);
+    }
+
+    crypto::secure_erase(seed);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        source_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        recovered_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        corrupt_directory,
+        ec
+    );
+}
+
+void test_legacy_wallet_encryption_migration()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("encrypt-migrate");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    std::vector<std::string> expected;
+
+    {
+        Wallet wallet{
+            params,
+            directory
+        };
+
+        const auto started =
+            wallet.start();
+
+        assert(started.ok());
+        assert(!wallet.encrypted());
+
+        const auto second =
+            wallet.new_receive_address();
+
+        assert(second.ok());
+
+        expected = wallet.addresses();
+
+        assert(wallet.encrypt_wallet(
+                   "migration-passphrase") ==
+               WalletStoreError::none);
+        assert(wallet.encrypted());
+
+        // A migrated v1 wallet still contains legacy random
+        // keys. Seed-only recovery must not be advertised as
+        // complete for those keys.
+        assert(!wallet.recovery_seed());
+    }
+
+    {
+        Wallet reopened{
+            params,
+            directory
+        };
+
+        const auto started =
+            reopened.start(
+                "migration-passphrase"
+            );
+
+        assert(started.ok());
+        assert(reopened.encrypted());
+        assert(reopened.addresses() ==
+               expected);
+        assert(!reopened.recovery_seed());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
+
 } // namespace
 
 int main()
@@ -975,5 +1265,7 @@ int main()
     test_prebacked_keypool_recovers_future_address();
     test_wallet_balance_build_sign_confirm_and_recover();
     test_network_runtime_wallet_bridge();
+    test_encrypted_wallet_and_hd_recovery();
+    test_legacy_wallet_encryption_migration();
     return 0;
 }
