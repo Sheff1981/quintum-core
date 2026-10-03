@@ -179,6 +179,70 @@ quintum::Transaction make_spend(
     return spend;
 }
 
+void test_default_listener_port_fallback()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto params =
+        consensus::regtest_params();
+
+    PeerListener blocker{params};
+
+    assert(blocker.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    const std::uint16_t blocked_port =
+        blocker.local_port();
+
+    assert(blocked_port != 0U);
+
+    params.p2p_port = blocked_port;
+
+    const auto directory =
+        unique_dir("listener-fallback");
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address =
+        "127.0.0.1";
+    config.target_outbound = 0U;
+    config.allow_local_peers = true;
+    config.allow_ephemeral_listener_fallback =
+        true;
+    config.wallet_passphrase =
+        "listener-fallback-wallet";
+
+    const auto started =
+        runtime.start(
+            std::move(config)
+        );
+
+    assert(started.ok());
+
+    const auto status =
+        runtime.status();
+
+    assert(status.running);
+    assert(status.listen_port != 0U);
+    assert(status.listen_port != blocked_port);
+
+    runtime.stop();
+    blocker.close();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 void test_continuous_runtime_sync_relay_reconnect()
 {
     using namespace quintum;
@@ -437,6 +501,7 @@ void test_continuous_runtime_sync_relay_reconnect()
 
 int main()
 {
+    test_default_listener_port_fallback();
     test_continuous_runtime_sync_relay_reconnect();
     return 0;
 }
