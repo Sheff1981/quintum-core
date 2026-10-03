@@ -2,6 +2,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "node/node.hpp"
+#include "net/runtime.hpp"
 #include "policy/fees.hpp"
 #include "wallet/address.hpp"
 #include "wallet/fee_policy.hpp"
@@ -364,6 +365,124 @@ void test_wallet_auto_fee_quotes_and_creates_exact_fee()
     );
 }
 
+void test_runtime_exposes_quote_and_auto_send()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace quintum::wallet;
+
+    const auto directory =
+        unique_dir("runtime-auto");
+    const auto& params =
+        consensus::regtest_params();
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.accept_poll_ms = 10U;
+    config.wallet_passphrase =
+        "stage24-runtime-password";
+
+    assert(runtime.start(
+               std::move(config)).ok());
+
+    const auto initial =
+        runtime.status();
+
+    assert(initial.min_relay_fee_rate_per_kb ==
+           policy::kDefaultMinRelayFeeRatePerKb);
+    assert(initial.recommended_fee_rate_per_kb >=
+           initial.min_relay_fee_rate_per_kb);
+
+    const auto owned =
+        decode_address(
+            params.network,
+            initial.receive_address
+        );
+    assert(owned.ok());
+
+    const Bytes owned_payout =
+        consensus::make_p2pk_locking_script(
+            owned.public_key
+        );
+    const Bytes external_payout =
+        payout_from_scalar(60U);
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 100'000U;
+
+    const auto first =
+        runtime.mine_mempool_block_at(
+            owned_payout,
+            base_time + 1U,
+            4'096U
+        );
+    assert(first.ok());
+
+    for (std::uint32_t height = 2U;
+         height <= 100U;
+         ++height) {
+        const auto mined =
+            runtime.mine_mempool_block_at(
+                external_payout,
+                base_time +
+                    static_cast<std::uint64_t>(
+                        height
+                    ),
+                4'096U
+            );
+        assert(mined.ok());
+    }
+
+    const std::string destination =
+        encode_address(
+            params.network,
+            public_key_from_scalar(61U)
+        );
+    const Amount amount =
+        consensus::block_subsidy(1U) / 3U;
+
+    const auto quote =
+        runtime.quote_send_fee(
+            destination,
+            amount
+        );
+
+    assert(quote.ok());
+    assert(quote.fee > 0U);
+    assert(quote.fee_rate_per_kb >=
+           runtime.status()
+               .min_relay_fee_rate_per_kb);
+
+    const auto sent =
+        runtime.send_to_address_auto_fee(
+            destination,
+            amount
+        );
+
+    assert(sent.ok());
+    assert(sent.wallet.fee ==
+           quote.fee);
+    assert(sent.wallet.fee_rate_per_kb ==
+           quote.fee_rate_per_kb);
+    assert(sent.node.mempool.required_fee <=
+           sent.wallet.fee);
+
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
@@ -371,5 +490,6 @@ int main()
     test_min_relay_fee_rejects_underpriced_transaction();
     test_recommended_rate_never_below_relay_floor();
     test_wallet_auto_fee_quotes_and_creates_exact_fee();
+    test_runtime_exposes_quote_and_auto_send();
     return 0;
 }
