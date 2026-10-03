@@ -204,11 +204,20 @@ void test_mnemonic_validation_rejects_bad_input()
     assert(checksum.error ==
            MnemonicError::invalid_checksum);
 
+    std::string unknown_phrase{valid};
+    const auto unknown_last_space =
+        unknown_phrase.rfind(' ');
+    assert(unknown_last_space !=
+           std::string::npos);
+    unknown_phrase.replace(
+        unknown_last_space + 1U,
+        std::string::npos,
+        "nope"
+    );
+
     const auto unknown =
         decode_recovery_mnemonic(
-            "legal winner thank year wave sausage worth useful "
-            "legal winner thank year wave sausage worth useful "
-            "legal winner thank year wave sausage worth nope"
+            unknown_phrase
         );
     assert(!unknown.ok());
     assert(unknown.error ==
