@@ -495,9 +495,15 @@ WalletMetadataError Wallet::load_metadata()
             return WalletMetadataError::corrupt;
         }
 
+        const std::string canonical =
+            encode_address(
+                params_.network,
+                decoded.public_key
+            );
+
         if (!loaded_addresses
                  .emplace(
-                     std::move(*address),
+                     canonical,
                      std::move(*label)
                  )
                  .second) {
@@ -671,19 +677,41 @@ WalletMetadataError Wallet::set_address_label(
                   invalid_address;
     }
 
-    if (label.empty()) {
-        address_labels_.erase(
-            std::string{address}
+    const std::string key =
+        encode_address(
+            params_.network,
+            decoded.public_key
         );
-        return save_metadata();
+
+    if (label.empty()) {
+        const auto found =
+            address_labels_.find(key);
+
+        if (found ==
+            address_labels_.end()) {
+            return WalletMetadataError::none;
+        }
+
+        const std::string old =
+            found->second;
+
+        address_labels_.erase(found);
+
+        const auto saved =
+            save_metadata();
+
+        if (saved !=
+            WalletMetadataError::none) {
+            address_labels_[key] = old;
+        }
+
+        return saved;
     }
 
     if (!valid_label(label)) {
         return WalletMetadataError::
             invalid_label;
     }
-
-    const std::string key{address};
 
     const auto previous =
         address_labels_.find(key);
@@ -723,8 +751,29 @@ WalletMetadataError Wallet::set_transaction_label(
     }
 
     if (label.empty()) {
-        transaction_labels_.erase(txid);
-        return save_metadata();
+        const auto found =
+            transaction_labels_.find(txid);
+
+        if (found ==
+            transaction_labels_.end()) {
+            return WalletMetadataError::none;
+        }
+
+        const std::string old =
+            found->second;
+
+        transaction_labels_.erase(found);
+
+        const auto saved =
+            save_metadata();
+
+        if (saved !=
+            WalletMetadataError::none) {
+            transaction_labels_[txid] =
+                old;
+        }
+
+        return saved;
     }
 
     if (!valid_label(label)) {
