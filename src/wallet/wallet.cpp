@@ -52,6 +52,13 @@ constexpr Byte kKnownKeyFlags{
 constexpr std::size_t kKeyRecordSize{
     1U + crypto::PrivateKey{}.size()
 };
+constexpr std::array<Byte, 8> kBackupBundleMagic{
+    'Q', 'T', 'M', 'B', 'K', 'P', '0', '1'
+};
+constexpr std::uint32_t kBackupBundleVersion{1U};
+constexpr std::uintmax_t kMaxBackupBundleSize{
+    20U * 1024U * 1024U
+};
 
 bool flush_file(std::FILE* file) noexcept
 {
@@ -208,8 +215,9 @@ WalletStoreError write_atomic(
     return WalletStoreError::none;
 }
 
-std::optional<Bytes> read_file(
-    const std::filesystem::path& path)
+std::optional<Bytes> read_file_limited(
+    const std::filesystem::path& path,
+    std::uintmax_t max_size)
 {
     std::ifstream input(
         path,
@@ -229,10 +237,6 @@ std::optional<Bytes> read_file(
 
     const auto size =
         static_cast<std::uintmax_t>(end);
-
-    constexpr std::uintmax_t max_size{
-        8U * 1024U * 1024U
-    };
 
     if (size > max_size ||
         size >
@@ -263,6 +267,19 @@ std::optional<Bytes> read_file(
     }
 
     return bytes;
+}
+
+std::optional<Bytes> read_file(
+    const std::filesystem::path& path)
+{
+    constexpr std::uintmax_t max_size{
+        8U * 1024U * 1024U
+    };
+
+    return read_file_limited(
+        path,
+        max_size
+    );
 }
 
 bool add_amount(
@@ -1414,6 +1431,377 @@ WalletStoreError Wallet::backup(
         *bytes,
         overwrite
     );
+}
+
+WalletStoreError Wallet::backup_bundle(
+    const std::filesystem::path& destination,
+    bool overwrite) const
+{
+    if (!started_) {
+        return WalletStoreError::io_error;
+    }
+
+    auto wallet_bytes =
+        read_file(path_);
+
+    if (!wallet_bytes) {
+        return WalletStoreError::io_error;
+    }
+
+    SecretBytesGuard wallet_guard{
+        &*wallet_bytes
+    };
+
+    Bytes metadata_bytes;
+    std::error_code ec;
+
+    const bool metadata_exists =
+        std::filesystem::exists(
+            metadata_path_,
+            ec
+        );
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
+    if (metadata_exists) {
+        auto loaded =
+            read_file(metadata_path_);
+
+        if (!loaded) {
+            return WalletStoreError::io_error;
+        }
+
+        metadata_bytes =
+            std::move(*loaded);
+    }
+
+    SecretBytesGuard metadata_guard{
+        &metadata_bytes
+    };
+
+    Bytes bundle;
+    bundle.reserve(
+        64U +
+        wallet_bytes->size() +
+        metadata_bytes.size()
+    );
+
+    bundle.insert(
+        bundle.end(),
+        kBackupBundleMagic.begin(),
+        kBackupBundleMagic.end()
+    );
+
+    append_little_endian(
+        bundle,
+        kBackupBundleVersion
+    );
+
+    bundle.insert(
+        bundle.end(),
+        params_.message_start.begin(),
+        params_.message_start.end()
+    );
+
+    append_compact_size(
+        bundle,
+        static_cast<std::uint64_t>(
+            wallet_bytes->size()
+        )
+    );
+
+    append_compact_size(
+        bundle,
+        static_cast<std::uint64_t>(
+            metadata_bytes.size()
+        )
+    );
+
+    bundle.insert(
+        bundle.end(),
+        wallet_bytes->begin(),
+        wallet_bytes->end()
+    );
+
+    bundle.insert(
+        bundle.end(),
+        metadata_bytes.begin(),
+        metadata_bytes.end()
+    );
+
+    const Hash256 checksum =
+        crypto::double_sha256(bundle);
+
+    bundle.insert(
+        bundle.end(),
+        checksum.begin(),
+        checksum.end()
+    );
+
+    SecretBytesGuard bundle_guard{
+        &bundle
+    };
+
+    if (bundle.size() >
+        kMaxBackupBundleSize) {
+        return WalletStoreError::io_error;
+    }
+
+    return write_atomic(
+        destination,
+        bundle,
+        overwrite
+    );
+}
+
+WalletStoreError Wallet::restore_bundle(
+    const std::filesystem::path& source)
+{
+    if (started_) {
+        return WalletStoreError::target_exists;
+    }
+
+    std::error_code ec;
+
+    if (std::filesystem::exists(
+            path_,
+            ec)) {
+        return ec
+            ? WalletStoreError::io_error
+            : WalletStoreError::target_exists;
+    }
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
+    auto bundle =
+        read_file_limited(
+            source,
+            kMaxBackupBundleSize
+        );
+
+    if (!bundle ||
+        bundle->size() <
+            kBackupBundleMagic.size() +
+                sizeof(std::uint32_t) +
+                params_.message_start.size() +
+                2U +
+                kChecksumSize) {
+        return WalletStoreError::corrupt;
+    }
+
+    SecretBytesGuard bundle_guard{
+        &*bundle
+    };
+
+    const std::size_t payload_size =
+        bundle->size() - kChecksumSize;
+
+    const Hash256 expected =
+        crypto::double_sha256(
+            std::span<const Byte>{
+                bundle->data(),
+                payload_size
+            }
+        );
+
+    Hash256 stored{};
+    std::copy_n(
+        bundle->begin() +
+            static_cast<std::ptrdiff_t>(
+                payload_size),
+        static_cast<std::ptrdiff_t>(
+            stored.size()),
+        stored.begin()
+    );
+
+    if (expected != stored) {
+        return WalletStoreError::corrupt;
+    }
+
+    const std::span<const Byte> payload{
+        bundle->data(),
+        payload_size
+    };
+
+    std::size_t offset{0U};
+    std::array<Byte, 8> magic{};
+
+    if (offset + magic.size() >
+        payload.size()) {
+        return WalletStoreError::corrupt;
+    }
+
+    std::copy_n(
+        payload.begin(),
+        static_cast<std::ptrdiff_t>(
+            magic.size()),
+        magic.begin()
+    );
+    offset += magic.size();
+
+    if (magic != kBackupBundleMagic) {
+        return WalletStoreError::corrupt;
+    }
+
+    const auto version =
+        read_little_endian<std::uint32_t>(
+            payload,
+            offset
+        );
+
+    if (!version ||
+        *version != kBackupBundleVersion) {
+        return WalletStoreError::corrupt;
+    }
+
+    if (offset +
+            params_.message_start.size() >
+        payload.size()) {
+        return WalletStoreError::corrupt;
+    }
+
+    std::array<Byte, 4> message_start{};
+    std::copy_n(
+        payload.begin() +
+            static_cast<std::ptrdiff_t>(
+                offset),
+        static_cast<std::ptrdiff_t>(
+            message_start.size()),
+        message_start.begin()
+    );
+    offset += message_start.size();
+
+    if (message_start !=
+        params_.message_start) {
+        return WalletStoreError::wrong_network;
+    }
+
+    const auto wallet_size =
+        read_compact_size(
+            payload,
+            offset
+        );
+    const auto metadata_size =
+        read_compact_size(
+            payload,
+            offset
+        );
+
+    if (!wallet_size ||
+        !metadata_size ||
+        *wallet_size > 8U * 1024U * 1024U ||
+        *metadata_size > 8U * 1024U * 1024U) {
+        return WalletStoreError::corrupt;
+    }
+
+    const std::uint64_t total_size =
+        *wallet_size +
+        *metadata_size;
+
+    if (total_size >
+            static_cast<std::uint64_t>(
+                payload.size()) ||
+        offset > payload.size() ||
+        total_size !=
+            static_cast<std::uint64_t>(
+                payload.size() - offset)) {
+        return WalletStoreError::corrupt;
+    }
+
+    const std::size_t wallet_count =
+        static_cast<std::size_t>(
+            *wallet_size
+        );
+    const std::size_t metadata_count =
+        static_cast<std::size_t>(
+            *metadata_size
+        );
+
+    const std::span<const Byte>
+        wallet_data{
+            payload.data() + offset,
+            wallet_count
+        };
+
+    offset += wallet_count;
+
+    const std::span<const Byte>
+        metadata_data{
+            payload.data() + offset,
+            metadata_count
+        };
+
+    auto result =
+        write_atomic(
+            path_,
+            wallet_data,
+            false
+        );
+
+    if (result !=
+        WalletStoreError::none) {
+        return result;
+    }
+
+    const auto rollback_wallet =
+        [&]() noexcept {
+            std::error_code remove_ec;
+            std::filesystem::remove(
+                path_,
+                remove_ec
+            );
+        };
+
+    if (!metadata_data.empty()) {
+        result =
+            write_atomic(
+                metadata_path_,
+                metadata_data,
+                true
+            );
+
+        if (result !=
+            WalletStoreError::none) {
+            rollback_wallet();
+            return result;
+        }
+    } else {
+        ec.clear();
+
+        if (std::filesystem::exists(
+                metadata_path_,
+                ec)) {
+            if (ec ||
+                !std::filesystem::remove(
+                    metadata_path_,
+                    ec) ||
+                ec) {
+                rollback_wallet();
+                return WalletStoreError::io_error;
+            }
+        } else if (ec) {
+            rollback_wallet();
+            return WalletStoreError::io_error;
+        }
+    }
+
+    ec.clear();
+
+    if (std::filesystem::exists(
+            state_path_,
+            ec) &&
+        !ec) {
+        std::filesystem::remove(
+            state_path_,
+            ec
+        );
+    }
+
+    return WalletStoreError::none;
 }
 
 WalletSyncResult Wallet::sync(
