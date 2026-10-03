@@ -2,7 +2,7 @@
 
 Status: **DRAFT — pre-mainnet**
 
-Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 adds shared relay-fee policy, automatic wallet fee selection and desktop-facing fee quote/send APIs.
+Stage 20 introduced the first real QUINTUM wallet core. Stage 21 hardened key storage and deterministic recovery. Stage 22 added persistent transaction history, a restart-safe incremental wallet index, reorg-safe cache rebuilding and a local fee-policy foundation. Stage 23 added a 24-word human recovery representation, gap-aware restoration and atomic recovery commit semantics. Stage 24 added shared relay-fee policy and automatic wallet fee selection. Stage 25 adds durable user metadata plus a guarded preview/confirm model and unified desktop-facing snapshot API.
 
 The wallet does not bypass consensus. A transaction produced by the wallet must still pass the same mempool/UTXO/signature validation as a transaction received from any peer.
 
@@ -245,6 +245,60 @@ Two send modes now coexist:
 
 Both paths still select mature UTXOs deterministically, use an internal change key, sign every input through the existing QUINTUM P2PK authorization path, validate against a staged chain+mempool UTXO view and finally submit through the same node mempool/P2P relay path. Auto does not bypass any transaction or relay validation.
 
+## User metadata and desktop send confirmation
+
+Stage 25 adds a separate `wallet_meta.dat` for user-created metadata that is not derivable from the blockchain:
+
+- address-book entries: canonical network address + label;
+- transaction labels keyed by txid;
+- maximum 10,000 address labels and 10,000 transaction labels;
+- maximum label length: 128 bytes;
+- empty label removes the stored label.
+
+The metadata file contains **no private keys, recovery seed or wallet encryption password**. It is nevertheless privacy-sensitive because labels can reveal counterparties or the user's own transaction notes. The current format is checksummed and crash-safe but **not encrypted**. POSIX writes use mode `0600`; Windows-specific ACL hardening remains a later security item.
+
+Persistence uses the same safety pattern as the other wallet stores: temporary file, flush/fsync, atomic replacement and checksum verification. The file is bound to the QUINTUM network and to a stable hash of a public key actually owned by the wallet. Key-record reordering, new receive addresses, change-key use, keypool refill and imported additional keys therefore do not change the binding. Copying metadata from another wallet is rejected as `wrong_wallet`.
+
+Unlike `wallet_state.dat`, labels are not rebuildable from the blockchain. Corrupt, wrong-network or wrong-wallet metadata is therefore **not silently ignored**: wallet startup returns a metadata failure so the user has a chance to restore or repair the file rather than unknowingly losing labels.
+
+The current single-file `wallet.dat` backup API still protects spend authority, not labels. Preserving the full data directory (and later the desktop backup bundle) is required to preserve `wallet_meta.dat`. Losing `wallet_meta.dat` cannot lose coins or private keys, only user-created labels.
+
+### Guarded preview / confirm
+
+The desktop send contract is now explicitly two-step.
+
+`NetworkRuntime::preview_send()` returns a `NetworkWalletSendPreview` containing:
+
+- destination and amount;
+- current automatic `WalletFeeQuote`;
+- recipient label when present in the address book;
+- a `state_hash` covering current active-chain height/tip plus current mempool txids/fees/sizes;
+- a `preview_id` binding the request, fee quote and state hash.
+
+`NetworkRuntime::confirm_send()` runs under the same runtime state lock used by node/wallet mutation. Before creating a transaction it:
+
+1. verifies the preview id, rejecting modified preview contents as `invalid_preview`;
+2. recomputes the node state hash, rejecting changed chain/mempool state as `stale_preview`;
+3. recomputes the automatic fee quote and requires it to match the preview;
+4. only then creates/signs the transaction, submits it to the normal mempool, refreshes wallet state and announces it through normal P2P relay.
+
+This prevents a desktop confirmation screen from silently authorizing a different fee after a new block or mempool change. Metadata changes such as editing a recipient label do not alter monetary transaction state and therefore do not invalidate the preview.
+
+### Desktop snapshot
+
+`NetworkRuntime::desktop_snapshot()` provides one GUI-facing read model containing:
+
+- runtime/network status and peer counts;
+- active height/tip;
+- mempool transaction count;
+- wallet balances;
+- minimum relay and recommended fee rates;
+- current receive address;
+- wallet transaction history decorated with optional user labels;
+- address-book entries.
+
+The actual Qt GUI is intentionally kept outside consensus/wallet internals and will consume this API in the next stage.
+
 ## Continuous-node integration
 
 `NetworkRuntime` owns the wallet together with the node.
@@ -285,7 +339,6 @@ The current pre-mainnet wallet still does not claim these are finished:
 - GUI presentation/confirmation workflow for the implemented 24-word recovery phrase;
 - recovery-rescan performance optimization for very large chains;
 - historical/confirmation-target fee estimation beyond the current mempool-median policy;
-- transaction labels/address book metadata;
 - hardware-wallet support;
 - P2PKH/P2WPKH-style locking;
 - GUI/RPC wallet control.
