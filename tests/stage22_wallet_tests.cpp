@@ -690,6 +690,156 @@ void test_network_runtime_exposes_wallet_history_and_fee_rate()
     );
 }
 
+void test_wallet_index_rebuilds_after_reorg()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_a_directory =
+        unique_dir("reorg-a");
+    const auto chain_b_directory =
+        unique_dir("reorg-b");
+    const auto wallet_directory =
+        unique_dir("reorg-wallet");
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 40'000U;
+
+    NodeRuntime node_a{
+        params,
+        chain_a_directory
+    };
+    NodeRuntime node_b{
+        params,
+        chain_b_directory
+    };
+
+    assert(node_a.start_at(base_time).ok());
+    assert(node_b.start_at(base_time).ok());
+
+    Wallet wallet{
+        params,
+        wallet_directory
+    };
+
+    assert(wallet.start().ok());
+
+    const auto imported =
+        wallet.import_private_key(
+            key_from_scalar(61U)
+        );
+    assert(imported.ok());
+
+    const Bytes owned_payout =
+        consensus::make_p2pk_locking_script(
+            public_key_from_scalar(61U)
+        );
+
+    const auto a1 =
+        node_a.mine_block_at(
+            owned_payout,
+            base_time + 1U,
+            4'096U
+        );
+    assert(a1.ok());
+
+    const Hash256 abandoned_txid =
+        transaction_id(
+            a1.block.transactions.front()
+        );
+
+    const auto a2 =
+        node_a.mine_block_at(
+            payout_from_scalar(62U),
+            base_time + 2U,
+            4'096U
+        );
+    assert(a2.ok());
+
+    const auto indexed =
+        wallet.sync(
+            node_a.chain(),
+            node_a.mempool()
+        );
+
+    assert(indexed.ok());
+    assert(indexed.index_rebuilt);
+    assert(find_history(
+               wallet.history(),
+               abandoned_txid) != nullptr);
+
+    std::vector<Block> stronger_branch;
+
+    for (std::uint32_t height = 1U;
+         height <= 3U;
+         ++height) {
+        const auto mined =
+            node_b.mine_block_at(
+                payout_from_scalar(63U),
+                base_time +
+                    10U +
+                    static_cast<std::uint64_t>(
+                        height),
+                4'096U
+            );
+
+        assert(mined.ok());
+        stronger_branch.push_back(
+            mined.block
+        );
+    }
+
+    for (std::size_t i = 0U;
+         i < stronger_branch.size();
+         ++i) {
+        const auto submitted =
+            node_a.submit_block_at(
+                stronger_branch[i],
+                base_time + 20U +
+                    static_cast<std::uint64_t>(i)
+            );
+
+        assert(submitted.ok());
+    }
+
+    assert(node_a.chain().height() ==
+           std::optional<std::uint32_t>{3U});
+    assert(node_a.chain().tip_hash() ==
+           node_b.chain().tip_hash());
+
+    const auto after_reorg =
+        wallet.sync(
+            node_a.chain(),
+            node_a.mempool()
+        );
+
+    assert(after_reorg.ok());
+    assert(after_reorg.index_rebuilt);
+    assert(after_reorg.blocks_scanned == 4U);
+    assert(find_history(
+               wallet.history(),
+               abandoned_txid) == nullptr);
+    assert(wallet.balance() ==
+           WalletBalance{});
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        chain_a_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        chain_b_directory,
+        ec
+    );
+    std::filesystem::remove_all(
+        wallet_directory,
+        ec
+    );
+}
+
 } // namespace
 
 int main()
@@ -697,5 +847,6 @@ int main()
     test_fee_policy_math_and_mempool_estimate();
     test_persistent_history_and_incremental_index();
     test_network_runtime_exposes_wallet_history_and_fee_rate();
+    test_wallet_index_rebuilds_after_reorg();
     return 0;
 }
