@@ -440,3 +440,17 @@ add_test(
     NAME stage28_release_hardening
     COMMAND quintum_stage28_release_hardening_tests
 )
+add_executable(quintum_stage29_public_testnet_tests
+    tests/stage29_public_testnet_tests.cpp
+)
+target_link_libraries(
+    quintum_stage29_public_testnet_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_stage29_public_testnet_tests)
+quintum_test_assertions(quintum_stage29_public_testnet_tests)
+
+add_test(
+    NAME stage29_public_testnet
+    COMMAND quintum_stage29_public_testnet_tests
+)
