@@ -47,6 +47,7 @@ enum class NetworkRuntimeStartError {
     wallet_failed,
     address_store_failed,
     listener_failed,
+    worker_start_failed,
 };
 
 struct NetworkRuntimeStartResult {
