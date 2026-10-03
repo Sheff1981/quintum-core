@@ -357,10 +357,92 @@ void test_three_node_partition_reorg_reconnect_restart()
     remove_tree(c_dir);
 }
 
+
+void test_real_testnet_params_bootstrap_and_peer_store()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::testnet_params();
+
+    const auto seed_dir =
+        unique_dir("testnet-seed");
+    const auto peer_dir =
+        unique_dir("testnet-peer");
+
+    NetworkRuntime seed{params, seed_dir};
+    auto seed_config =
+        isolated_config("stage29-testnet-seed");
+    assert(seed.start(
+               std::move(seed_config)).ok());
+
+    const auto seed_status = seed.status();
+    assert(seed_status.height ==
+           std::optional<std::uint32_t>{0U});
+    assert(seed_status.tip ==
+           std::optional<Hash256>{
+               params.genesis.hash});
+    assert(seed_status.listen_port != 0U);
+
+    NetworkRuntime peer{params, peer_dir};
+    auto peer_config =
+        isolated_config("stage29-testnet-peer");
+    peer_config.target_outbound = 1U;
+    peer_config.bootstrap_peers.push_back(
+        loopback_peer(seed_status.listen_port)
+    );
+
+    assert(peer.start(
+               std::move(peer_config)).ok());
+
+    assert(wait_until(
+        std::chrono::seconds(15),
+        [&] {
+            const auto status = peer.status();
+            return status.outbound_peers == 1U &&
+                   status.height ==
+                       std::optional<std::uint32_t>{0U} &&
+                   status.tip ==
+                       std::optional<Hash256>{
+                           params.genesis.hash} &&
+                   status.known_addresses >= 1U;
+        }
+    ));
+
+    // Prove the first bootstrap survives restart in peers.dat.
+    peer.stop();
+
+    auto restart_config =
+        isolated_config("stage29-testnet-peer");
+    restart_config.target_outbound = 1U;
+
+    assert(peer.start(
+               std::move(restart_config)).ok());
+
+    assert(wait_until(
+        std::chrono::seconds(15),
+        [&] {
+            const auto status = peer.status();
+            return status.outbound_peers == 1U &&
+                   status.tip ==
+                       std::optional<Hash256>{
+                           params.genesis.hash};
+        }
+    ));
+
+    peer.stop();
+    seed.stop();
+
+    remove_tree(peer_dir);
+    remove_tree(seed_dir);
+}
+
 } // namespace
 
 int main()
 {
+    test_real_testnet_params_bootstrap_and_peer_store();
     test_three_node_partition_reorg_reconnect_restart();
     return 0;
 }
