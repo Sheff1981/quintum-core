@@ -580,6 +580,46 @@ WalletStoreError Wallet::encrypt_wallet(
             invalid_passphrase;
     }
 
+    auto original_wallet =
+        read_file(path_);
+
+    if (!original_wallet) {
+        return WalletStoreError::io_error;
+    }
+
+    SecretBytesGuard wallet_guard{
+        &*original_wallet
+    };
+
+    std::error_code ec;
+    const bool metadata_existed =
+        std::filesystem::exists(
+            metadata_path_,
+            ec
+        );
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
+    Bytes original_metadata;
+
+    if (metadata_existed) {
+        auto loaded =
+            read_file(metadata_path_);
+
+        if (!loaded) {
+            return WalletStoreError::io_error;
+        }
+
+        original_metadata =
+            std::move(*loaded);
+    }
+
+    SecretBytesGuard metadata_guard{
+        &original_metadata
+    };
+
     WalletSalt salt{};
     RecoverySeed seed{};
     WalletEncryptionKey key{};
@@ -611,24 +651,72 @@ WalletStoreError Wallet::encrypt_wallet(
     argon2_passes_ =
         kWalletArgon2Passes;
 
+    const auto clear_encryption_state =
+        [&]() noexcept {
+            encrypted_ = false;
+            crypto::secure_erase(
+                encryption_key_);
+            crypto::secure_erase(
+                encryption_salt_);
+
+            if (recovery_seed_) {
+                crypto::secure_erase(
+                    *recovery_seed_);
+                recovery_seed_.reset();
+            }
+        };
+
     const auto result =
         save_keys(keys_);
 
     if (result != WalletStoreError::none) {
-        encrypted_ = false;
-        crypto::secure_erase(
-            encryption_key_);
-        crypto::secure_erase(
-            encryption_salt_);
-
-        if (recovery_seed_) {
-            crypto::secure_erase(
-                *recovery_seed_);
-            recovery_seed_.reset();
-        }
+        clear_encryption_state();
+        return result;
     }
 
-    return result;
+    // Encrypt/migrate metadata in the same user operation. If it cannot
+    // be committed, restore the original wallet and metadata so Encrypt
+    // does not leave half-migrated privacy state.
+    const auto metadata_result =
+        save_metadata();
+
+    if (metadata_result !=
+        WalletMetadataError::none) {
+        bool rollback_ok =
+            write_atomic(
+                path_,
+                *original_wallet,
+                true
+            ) == WalletStoreError::none;
+
+        if (metadata_existed) {
+            rollback_ok =
+                rollback_ok &&
+                write_atomic(
+                    metadata_path_,
+                    original_metadata,
+                    true
+                ) == WalletStoreError::none;
+        } else {
+            std::error_code remove_ec;
+            std::filesystem::remove(
+                metadata_path_,
+                remove_ec
+            );
+
+            if (remove_ec) {
+                rollback_ok = false;
+            }
+        }
+
+        if (rollback_ok) {
+            clear_encryption_state();
+        }
+
+        return WalletStoreError::io_error;
+    }
+
+    return WalletStoreError::none;
 }
 
 WalletStoreError Wallet::recover_from_seed(
