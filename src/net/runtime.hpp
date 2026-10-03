@@ -75,6 +75,9 @@ struct NetworkRuntimeStatus {
     std::optional<Hash256> tip{};
     std::size_t mempool_transactions{0U};
     wallet::WalletBalance wallet_balance{};
+    Amount min_relay_fee_rate_per_kb{
+        policy::kDefaultMinRelayFeeRatePerKb
+    };
     Amount recommended_fee_rate_per_kb{
         wallet::kDefaultFeeRatePerKb
     };
@@ -150,6 +153,18 @@ public:
     backup_wallet(
         const std::filesystem::path& destination,
         bool overwrite = false
+    );
+
+    [[nodiscard]] wallet::WalletFeeQuote
+    quote_send_fee(
+        std::string_view destination,
+        Amount amount
+    );
+
+    [[nodiscard]] NetworkWalletSendResult
+    send_to_address_auto_fee(
+        std::string_view destination,
+        Amount amount
     );
 
     [[nodiscard]] NetworkWalletSendResult
