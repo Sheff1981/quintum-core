@@ -39,10 +39,10 @@ jobs:
       - name: Build GUI
         run: cmake --build build-gui --config Release --target quintum_qt
 
-      - name: Smoke GUI binary
+      - name: Smoke GUI runtime
         env:
           QT_QPA_PLATFORM: offscreen
-        run: ./build-gui/QUINTUM --version
+        run: ./build-gui/QUINTUM --smoke-test
 
   gui-windows:
     runs-on: windows-latest
@@ -74,9 +74,10 @@ jobs:
       - name: Build GUI
         run: cmake --build build-gui --config Release --target quintum_qt
 
-      - name: Smoke GUI binary
+      - name: Smoke GUI runtime
         shell: pwsh
         run: |
           $env:PATH = "$env:QT_ROOT\bin;$env:PATH"
-          & ".\build-gui\Release\QUINTUM.exe" --version
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & ".\build-gui\Release\QUINTUM.exe" --smoke-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
