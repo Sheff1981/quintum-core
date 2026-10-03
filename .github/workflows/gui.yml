@@ -81,3 +81,112 @@ jobs:
           $env:QT_QPA_PLATFORM = "offscreen"
           & ".\build-gui\Release\QUINTUM.exe" --smoke-test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage deployable Windows folder
+        shell: pwsh
+        run: |
+          $stage = Join-Path $PWD "dist\windows"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item ".\build-gui\Release\QUINTUM.exe" (Join-Path $stage "QUINTUM.exe")
+          Copy-Item ".\README.md" (Join-Path $stage "README.md")
+          Copy-Item ".\docs\DESKTOP.md" (Join-Path $stage "DESKTOP.md")
+
+          $deploy = Join-Path $env:QT_ROOT "bin\windeployqt.exe"
+          if (-not (Test-Path $deploy)) { throw "windeployqt.exe not found" }
+
+          & $deploy --release --dir $stage (Join-Path $stage "QUINTUM.exe")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if (-not (Test-Path (Join-Path $stage "Qt6Core.dll"))) {
+            throw "Qt6Core.dll was not deployed"
+          }
+          if (-not (Test-Path (Join-Path $stage "platforms\qwindows.dll"))) {
+            throw "qwindows.dll was not deployed"
+          }
+
+      - name: Smoke portable deployment
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & ".\dist\windows\QUINTUM.exe" --smoke-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+
+          if (-not $iscc) {
+            $candidates = @(
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+            )
+            $iscc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          }
+
+          if (-not $iscc) { throw "Inno Setup ISCC.exe not found" }
+
+          $source = (Resolve-Path ".\dist\windows").Path
+          $output = Join-Path $PWD "dist\installer"
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+
+          & $iscc "/DSourceDir=$source" "/DOutputDir=$output" "/DAppVersion=0.0.1-prealpha" ".\packaging\windows\quintum.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $installer = Get-ChildItem $output -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "QUINTUM installer was not produced" }
+
+      - name: Smoke install update uninstall and preserve data
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem ".\dist\installer" -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1).FullName
+          if (-not $installer) { throw "Installer missing" }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "quintum-stage28-install"
+          $dataDir = Join-Path $env:APPDATA "QUINTUM\QUINTUM Core\regtest"
+          $sentinel = Join-Path $dataDir "installer-preserve-sentinel.txt"
+
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          Set-Content -Path $sentinel -Value "preserve-me"
+
+          $args = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir")
+          $first = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($first.ExitCode -ne 0) { exit $first.ExitCode }
+
+          if (-not (Test-Path (Join-Path $installDir "QUINTUM.exe"))) {
+            throw "Installed QUINTUM.exe missing"
+          }
+
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & (Join-Path $installDir "QUINTUM.exe") --smoke-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $second = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($second.ExitCode -ne 0) { exit $second.ExitCode }
+
+          if (-not (Test-Path $sentinel)) {
+            throw "User data was removed during installer update"
+          }
+
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) { throw "Uninstaller missing" }
+
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { exit $uninstall.ExitCode }
+
+          if (-not (Test-Path $sentinel)) {
+            throw "User data was removed by uninstall"
+          }
+
+          Remove-Item -Recurse -Force (Join-Path $env:APPDATA "QUINTUM") -ErrorAction SilentlyContinue
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-windows-x64
+          path: |
+            dist/installer/*.exe
+            dist/windows/**
+          if-no-files-found: error
