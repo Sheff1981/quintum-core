@@ -428,11 +428,22 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     );
     running_.store(true);
 
-    worker_ = std::thread(
-        [this] {
-            run_loop();
-        }
-    );
+    try {
+        worker_ = std::thread(
+            [this] {
+                run_loop();
+            }
+        );
+    } catch (...) {
+        running_.store(false);
+        stop_requested_.store(true);
+        listener_.close();
+        listen_port_.store(0U);
+        out.error =
+            NetworkRuntimeStartError::
+                worker_start_failed;
+        return out;
+    }
 
     return out;
 }
