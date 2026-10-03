@@ -1060,6 +1060,49 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
         return out;
     }
 
+    // Mark keys referenced by the current mempool before the
+    // pre-commit sync. This guarantees sync() does not need to persist
+    // key metadata while wallet.dat is intentionally still absent.
+    std::map<
+        crypto::PublicKey,
+        std::size_t> recovered_lookup;
+
+    for (std::size_t i = 0U;
+         i < recovered.size();
+         ++i) {
+        recovered_lookup.emplace(
+            recovered[i].public_key,
+            i
+        );
+    }
+
+    for (const auto& entry :
+         mempool.entries()) {
+        for (const auto& output :
+             entry.transaction.outputs) {
+            const auto public_key =
+                consensus::
+                    parse_p2pk_locking_script(
+                        output.locking_script
+                    );
+
+            if (!public_key) {
+                continue;
+            }
+
+            const auto found =
+                recovered_lookup.find(
+                    *public_key
+                );
+
+            if (found !=
+                recovered_lookup.end()) {
+                recovered[found->second].used =
+                    true;
+            }
+        }
+    }
+
     WalletSalt salt{};
     WalletEncryptionKey key{};
 
@@ -1090,35 +1133,48 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
     argon2_passes_ =
         kWalletArgon2Passes;
 
-    out.store_error =
-        save_keys(recovered);
-
-    if (out.store_error !=
-        WalletStoreError::none) {
-        encrypted_ = false;
-        crypto::secure_erase(
-            encryption_key_
-        );
-        crypto::secure_erase(
-            encryption_salt_
-        );
-
-        if (recovery_seed_) {
-            crypto::secure_erase(
-                *recovery_seed_
-            );
-            recovery_seed_.reset();
-        }
-
-        out.error =
-            WalletRecoveryError::store_failed;
-        return out;
-    }
-
     keys_ = std::move(recovered);
     started_ = true;
     reset_index_state();
 
+    const auto rollback_uncommitted =
+        [&]() noexcept {
+            started_ = false;
+            reset_index_state();
+            clear_keys();
+
+            encrypted_ = false;
+            crypto::secure_erase(
+                encryption_key_
+            );
+            crypto::secure_erase(
+                encryption_salt_
+            );
+
+            if (recovery_seed_) {
+                crypto::secure_erase(
+                    *recovery_seed_
+                );
+                recovery_seed_.reset();
+            }
+
+            std::error_code cleanup_ec;
+
+            if (std::filesystem::
+                    is_regular_file(
+                        state_path_,
+                        cleanup_ec) &&
+                !cleanup_ec) {
+                std::filesystem::remove(
+                    state_path_,
+                    cleanup_ec
+                );
+            }
+        };
+
+    // Build the complete derivable index first. wallet.dat is deliberately
+    // not committed until this succeeds, so an interrupted/failed recovery
+    // cannot look like a completed wallet restore.
     out.sync =
         sync(
             chain,
@@ -1126,8 +1182,43 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
         );
 
     if (!out.sync.ok()) {
+        rollback_uncommitted();
         out.error =
             WalletRecoveryError::sync_failed;
+        return out;
+    }
+
+    // sync() must not have persisted key metadata during pre-commit.
+    // Treat any unexpected wallet file as a failed atomic recovery.
+    ec.clear();
+
+    if (std::filesystem::exists(
+            path_,
+            ec) ||
+        ec) {
+        if (!ec) {
+            std::filesystem::remove(
+                path_,
+                ec
+            );
+        }
+
+        rollback_uncommitted();
+        out.error =
+            WalletRecoveryError::store_failed;
+        out.store_error =
+            WalletStoreError::io_error;
+        return out;
+    }
+
+    out.store_error =
+        save_keys(keys_);
+
+    if (out.store_error !=
+        WalletStoreError::none) {
+        rollback_uncommitted();
+        out.error =
+            WalletRecoveryError::store_failed;
         return out;
     }
 
