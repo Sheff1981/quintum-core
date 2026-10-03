@@ -480,6 +480,40 @@ void test_continuous_runtime_sync_relay_reconnect()
         }
     ));
 
+    // Mine on the client. The server accepts and re-announces the same
+    // active block. The originating client must learn that its peer now
+    // has this height instead of leaving peer_best_height stuck at the
+    // handshake height.
+    const auto client_mined =
+        client.mine_mempool_block_at(
+            payout,
+            base_time + 3'000U,
+            4'096U
+        );
+
+    assert(client_mined.ok());
+    assert(client_mined.height == 108U);
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            const auto server_status =
+                restarted_server.status();
+            const auto client_status =
+                client.status();
+
+            return server_status.height ==
+                       std::optional<std::uint32_t>{
+                           108U} &&
+                   client_status.height ==
+                       std::optional<std::uint32_t>{
+                           108U} &&
+                   client_status.peer_best_height ==
+                       std::optional<std::uint32_t>{
+                           108U};
+        }
+    ));
+
     client.stop();
     restarted_server.stop();
 
