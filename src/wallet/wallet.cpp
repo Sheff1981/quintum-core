@@ -1261,6 +1261,28 @@ WalletRecoveryResult Wallet::recover_from_mnemonic(
         return out;
     }
 
+    // Metadata is not seed-recoverable. Replace any orphaned metadata
+    // from a previous wallet only after the recovered wallet keys have
+    // been committed, binding an empty metadata store to this wallet.
+    const auto metadata_saved =
+        save_metadata();
+
+    if (metadata_saved !=
+        WalletMetadataError::none) {
+        std::error_code remove_ec;
+        std::filesystem::remove(
+            path_,
+            remove_ec
+        );
+
+        rollback_uncommitted();
+        out.error =
+            WalletRecoveryError::store_failed;
+        out.store_error =
+            WalletStoreError::io_error;
+        return out;
+    }
+
     return out;
 }
 
