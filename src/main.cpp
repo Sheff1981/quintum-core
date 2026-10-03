@@ -19,6 +19,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -202,6 +203,8 @@ void print_usage()
         << "Usage: quintumd [--regtest|--testnet|--mainnet]"
         << " [--datadir PATH]"
         << " [--listen-port N]"
+        << " [--addnode HOST[:PORT]]"
+        << " [--run-seconds N]"
         << " [--new-address]"
         << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
         << " [--backup-wallet PATH]"
@@ -228,6 +231,8 @@ int main(int argc, char* argv[])
     std::uint64_t mine_blocks{0U};
     std::uint64_t max_attempts{5'000'000U};
     std::optional<std::uint16_t> listen_port;
+    std::vector<std::string> addnodes{};
+    std::optional<std::uint64_t> run_seconds{};
     std::optional<crypto::PublicKey> miner_public_key;
     bool new_address_requested{false};
     std::optional<std::string> send_to;
@@ -284,6 +289,32 @@ int main(int argc, char* argv[])
             }
 
             listen_port = parsed_port;
+            continue;
+        }
+
+        if (arg == "--addnode") {
+            if (i + 1 >= argc) {
+                std::cerr
+                    << "Missing value for --addnode\n";
+                return 2;
+            }
+
+            addnodes.emplace_back(argv[++i]);
+            continue;
+        }
+
+        if (arg == "--run-seconds") {
+            std::uint64_t value{0U};
+
+            if (i + 1 >= argc ||
+                !parse_u64(argv[++i], value) ||
+                value == 0U) {
+                std::cerr
+                    << "Invalid --run-seconds value\n";
+                return 2;
+            }
+
+            run_seconds = value;
             continue;
         }
 
@@ -464,6 +495,73 @@ int main(int argc, char* argv[])
     network_config.listen_port = listen_port;
     network_config.wallet_passphrase =
         wallet_passphrase;
+
+    const std::uint64_t addnode_seen =
+        unix_time_now();
+
+    for (const auto& endpoint : addnodes) {
+        std::string_view host{endpoint};
+        std::uint16_t port =
+            static_cast<std::uint16_t>(
+                params.p2p_port
+            );
+
+        const auto colon = host.rfind(':');
+
+        if (colon != std::string_view::npos) {
+            if (host.find(':') != colon) {
+                wipe_string(wallet_passphrase);
+                std::cerr
+                    << "--addnode currently supports IPv4/DNS only: "
+                    << endpoint << '\n';
+                return 2;
+            }
+
+            const std::string_view port_text =
+                host.substr(colon + 1U);
+            host = host.substr(0U, colon);
+
+            if (host.empty() ||
+                port_text.empty() ||
+                !parse_u16(port_text, port) ||
+                port == 0U) {
+                wipe_string(wallet_passphrase);
+                std::cerr
+                    << "Invalid --addnode endpoint: "
+                    << endpoint << '\n';
+                return 2;
+            }
+        }
+
+        if (host.empty()) {
+            wipe_string(wallet_passphrase);
+            std::cerr
+                << "Invalid --addnode endpoint\n";
+            return 2;
+        }
+
+        const auto resolved =
+            net::resolve_ipv4_host(host);
+
+        if (resolved.empty()) {
+            wipe_string(wallet_passphrase);
+            std::cerr
+                << "Unable to resolve --addnode host: "
+                << host << '\n';
+            return 2;
+        }
+
+        for (const auto ipv4 : resolved) {
+            network_config.bootstrap_peers.push_back(
+                net::PeerAddress{
+                    .ipv4 = ipv4,
+                    .port = port,
+                    .services = 1U,
+                    .last_seen = addnode_seen,
+                }
+            );
+        }
+    }
 
     const auto start_result =
         runtime.start(
@@ -780,8 +878,27 @@ int main(int argc, char* argv[])
     std::cout
         << "P2P runtime active. Press Ctrl+C to stop.\n";
 
+    const auto run_started =
+        std::chrono::steady_clock::now();
+
     while (g_stop_requested == 0 &&
            runtime.running()) {
+        if (run_seconds) {
+            const auto elapsed_seconds =
+                std::chrono::duration_cast<
+                    std::chrono::seconds>(
+                    std::chrono::steady_clock::now() -
+                    run_started
+                ).count();
+
+            if (elapsed_seconds >= 0 &&
+                static_cast<std::uint64_t>(
+                    elapsed_seconds
+                ) >= *run_seconds) {
+                break;
+            }
+        }
+
         std::this_thread::sleep_for(
             std::chrono::milliseconds(250)
         );
@@ -791,6 +908,9 @@ int main(int argc, char* argv[])
         g_stop_requested == 0 &&
         !runtime.running();
 
+    const auto final_status =
+        runtime.status();
+
     runtime.stop();
 
     if (unexpected_stop) {
@@ -799,8 +919,12 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const auto final_status =
-        runtime.status();
+    std::cout
+        << "Final peers: "
+        << final_status.peers
+        << " (outbound "
+        << final_status.outbound_peers
+        << ")\n";
 
     if (final_status.height) {
         std::cout
