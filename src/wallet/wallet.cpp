@@ -1291,6 +1291,47 @@ bool Wallet::encrypted() const noexcept
     return encrypted_;
 }
 
+bool Wallet::verify_passphrase(
+    std::string_view passphrase) const
+{
+    if (!started_ ||
+        !encrypted_ ||
+        passphrase.empty()) {
+        return false;
+    }
+
+    WalletEncryptionKey candidate{};
+    SecretArrayGuard candidate_guard{
+        &candidate
+    };
+
+    if (!derive_wallet_encryption_key(
+            passphrase,
+            encryption_salt_,
+            argon2_memory_blocks_,
+            argon2_passes_,
+            candidate)) {
+        return false;
+    }
+
+    Byte difference{0U};
+
+    for (std::size_t i = 0U;
+         i < candidate.size();
+         ++i) {
+        difference =
+            static_cast<Byte>(
+                difference |
+                static_cast<Byte>(
+                    candidate[i] ^
+                    encryption_key_[i]
+                )
+            );
+    }
+
+    return difference == 0U;
+}
+
 std::optional<RecoverySeed>
 Wallet::recovery_seed() const noexcept
 {
