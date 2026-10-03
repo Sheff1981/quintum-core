@@ -1,3 +1,4 @@
+#include "crypto/random.hpp"
 #include "crypto/secp256k1.hpp"
 #include "wallet/mnemonic.hpp"
 #include "wallet/secure.hpp"
