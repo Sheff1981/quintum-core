@@ -10,6 +10,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -33,6 +34,7 @@ struct WalletSetup {
     bool accepted{false};
     std::string password{};
     std::string mnemonic{};
+    std::filesystem::path restore_bundle{};
 };
 
 std::filesystem::path filesystem_path(
@@ -278,6 +280,34 @@ QString recovery_error_text(
     }
 
     return {};
+}
+
+QString store_error_text(
+    quintum::wallet::WalletStoreError error)
+{
+    using quintum::wallet::WalletStoreError;
+
+    switch (error) {
+    case WalletStoreError::none:
+        return {};
+    case WalletStoreError::not_found:
+        return "The backup file was not found.";
+    case WalletStoreError::io_error:
+        return "The backup could not be read or restored safely.";
+    case WalletStoreError::corrupt:
+        return "The backup file is corrupt or has been modified.";
+    case WalletStoreError::wrong_network:
+        return "The backup belongs to another QUINTUM network.";
+    case WalletStoreError::target_exists:
+        return "wallet.dat already exists. QUINTUM will not overwrite it.";
+    case WalletStoreError::passphrase_required:
+    case WalletStoreError::invalid_passphrase:
+        return "The wallet password is missing or invalid.";
+    case WalletStoreError::crypto_error:
+        return "The wallet cryptography operation failed.";
+    }
+
+    return "The wallet operation failed.";
 }
 
 QString startup_error_text(
@@ -553,7 +583,7 @@ int main(int argc, char* argv[])
             "Set up QUINTUM wallet"
         );
         chooser.setText(
-            "Create a new encrypted wallet or recover an existing wallet from its 24 words."
+            "Create a new encrypted wallet, recover from 24 words, or restore a complete QUINTUM backup."
         );
 
         auto* create_button =
@@ -564,6 +594,11 @@ int main(int argc, char* argv[])
         auto* recover_button =
             chooser.addButton(
                 "Recover from 24 words",
+                QMessageBox::ActionRole
+            );
+        auto* restore_button =
+            chooser.addButton(
+                "Restore backup",
                 QMessageBox::ActionRole
             );
         chooser.addButton(
@@ -585,6 +620,52 @@ int main(int argc, char* argv[])
                     nullptr,
                     true
                 );
+        } else if (chooser.clickedButton() ==
+                   restore_button) {
+            const QString selected =
+                QFileDialog::getOpenFileName(
+                    nullptr,
+                    "Restore QUINTUM backup",
+                    {},
+                    "QUINTUM backup (*.qtmbackup);;All files (*)"
+                );
+
+            if (selected.isEmpty()) {
+                return 0;
+            }
+
+            bool accepted{false};
+            QString passphrase =
+                QInputDialog::getText(
+                    nullptr,
+                    "Open restored QUINTUM wallet",
+                    "Wallet password from this backup:",
+                    QLineEdit::Password,
+                    {},
+                    &accepted
+                );
+
+            if (!accepted) {
+                return 0;
+            }
+
+            QByteArray password_utf8 =
+                passphrase.toUtf8();
+
+            setup.password.assign(
+                password_utf8.constData(),
+                static_cast<std::size_t>(
+                    password_utf8.size()
+                )
+            );
+
+            setup.restore_bundle =
+                filesystem_path(selected);
+
+            wipe_byte_array(password_utf8);
+            passphrase.fill(QChar{0});
+            passphrase.clear();
+            setup.accepted = true;
         } else {
             return 0;
         }
@@ -598,6 +679,25 @@ int main(int argc, char* argv[])
         params,
         data_path
     };
+
+    if (!setup.restore_bundle.empty()) {
+        const auto restored =
+            runtime.restore_wallet_bundle(
+                setup.restore_bundle
+            );
+
+        if (restored !=
+            quintum::wallet::WalletStoreError::none) {
+            QMessageBox::critical(
+                nullptr,
+                "Backup restore failed",
+                store_error_text(restored)
+            );
+            wipe_string(setup.password);
+            wipe_string(setup.mnemonic);
+            return 7;
+        }
+    }
 
     quintum::net::NetworkRuntimeConfig config;
     config.wallet_passphrase =
