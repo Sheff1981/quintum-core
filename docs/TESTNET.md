@@ -48,3 +48,15 @@ After the first seed is pinned, perform external multi-host QA:
 - long-duration soak with at least three geographically separate nodes.
 
 Mainnet must not be frozen or launched from this stage.
+
+
+## Seed deployment package
+
+Stage 29 CI now publishes a Linux x86-64 headless seed package containing `quintumd`, a hardened systemd unit and an operator runbook. The package does not fabricate or pin any public endpoint.
+
+The headless daemon also supports two deployment-QA controls:
+
+- `--addnode HOST[:PORT]` resolves an explicit IPv4/DNS peer and places it into the normal address manager;
+- `--run-seconds N` runs the normal P2P runtime for a bounded interval and prints the final peer count.
+
+These switches exist so a newly provisioned seed can be verified from a second network before its real endpoint is committed to the hardcoded Testnet seed list. They do not change consensus or bypass handshake/block validation.
