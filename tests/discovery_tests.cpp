@@ -282,7 +282,7 @@ void test_retry_backoff_and_seed_bootstrap()
 
     const auto selected =
         manager.select(
-            1'000U,
+            1'010U,
             excluded
         );
 
