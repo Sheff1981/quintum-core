@@ -1065,17 +1065,20 @@ PeerError PeerListener::listen(
         return PeerError::socket_create_failed;
     }
 
-    int reuse{1};
-
 #ifdef _WIN32
+    // Windows SO_REUSEADDR permits multiple listeners to bind the same
+    // address/port, which can make inbound ownership ambiguous. A wallet
+    // node must own its listening endpoint exclusively.
+    int exclusive{1};
     (void)setsockopt(
         socket,
         SOL_SOCKET,
-        SO_REUSEADDR,
-        reinterpret_cast<const char*>(&reuse),
-        static_cast<int>(sizeof(reuse))
+        SO_EXCLUSIVEADDRUSE,
+        reinterpret_cast<const char*>(&exclusive),
+        static_cast<int>(sizeof(exclusive))
     );
 #else
+    int reuse{1};
     (void)setsockopt(
         socket,
         SOL_SOCKET,
