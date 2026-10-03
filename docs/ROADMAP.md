@@ -42,3 +42,6 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.
+
+
+**Stage 30 desktop parity in progress:** Bitcoin Core-style desktop menus, wallet navigation, debug-window structure and first-run data-directory selection are implemented on top of the existing QUINTUM runtime APIs. Unsupported Bitcoin-only GUI functions are not faked. Consensus/network identity remains unchanged.
