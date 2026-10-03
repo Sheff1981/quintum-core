@@ -2597,3 +2597,95 @@ Genesis, block/transaction consensus, PoW, difficulty, monetary policy, network 
 ### Следующий этап
 
 **Этап 22 — persistent wallet transaction history + incremental wallet index + fee policy foundation.**
+
+
+---
+
+## 2026-10-03 — Этап 22. Persistent wallet history, incremental index и fee policy
+
+### Цель
+
+Убрать полный проход кошелька от Genesis при каждом обновлении, сделать историю транзакций постоянной между перезапусками и заложить локальную fee-policy основу без изменения consensus.
+
+### Что добавлено
+
+1. **Persistent `wallet_state.dat`**
+   - хранит только восстанавливаемое wallet state;
+   - confirmed wallet UTXO index;
+   - transaction history;
+   - indexed height/tip;
+   - network/message magic;
+   - fingerprint полного public-key set;
+   - double-SHA-256 checksum;
+   - atomic durable replacement;
+   - private keys и recovery seed в этот файл не записываются.
+
+2. **Incremental wallet sync**
+   - первый запуск сканирует active chain;
+   - следующие sync обрабатывают только blocks после сохранённого tip;
+   - без новых blocks повторный sync сканирует 0 blocks;
+   - corruption/wrong wallet/wrong network автоматически заставляют перестроить index;
+   - reorg автоматически обнаруживается по active hash сохранённой высоты и вызывает correctness-first rebuild.
+
+3. **Key-set safety**
+   - index привязан ко всему набору public keys;
+   - импорт historical private key инвалидирует текущий index немедленно;
+   - restart после import до rescan также обнаруживает несовпадение fingerprint и делает полный rescan;
+   - исторические средства импортированного ключа не теряются.
+
+4. **Persistent transaction history**
+   - statuses: confirmed / unconfirmed / inactive;
+   - received/spent amounts;
+   - exact fee, когда она доказуема;
+   - coinbase marker;
+   - block height/hash;
+   - confirmations;
+   - unconfirmed tx после restart становится inactive до повторного появления в mempool;
+   - tx из ветки, удалённой reorg, сохраняется как inactive вместо исчезновения из пользовательской истории.
+
+5. **Fee policy foundation**
+   - default: 1 000 atomic units / 1 000 serialized bytes;
+   - ceiling arithmetic;
+   - overflow/money-range checks;
+   - recommendation по median fee-rate текущего mempool с default floor;
+   - значение доступно через NetworkRuntimeStatus;
+   - это policy, а не consensus/min-relay rule.
+
+6. **Runtime API**
+   - NetworkRuntime отдаёт persistent wallet history;
+   - status отдаёт recommended fee rate;
+   - wallet refresh после block/tx/mining продолжает идти через существующий synchronized runtime.
+
+### QA
+
+Новый 21-й suite `stage22_wallet` проверяет:
+
+- fee arithmetic и overflow;
+- mempool fee-rate recommendation;
+- первый полный wallet scan;
+- второй sync без новых blocks = 0 scanned blocks;
+- restart без rescan от Genesis;
+- confirmed history persistence;
+- unconfirmed -> inactive после restart;
+- pending -> confirmed transition;
+- corrupt `wallet_state.dat` -> automatic rebuild;
+- live NetworkRuntime history/fee API;
+- heavier-chain reorg -> index rebuild;
+- reorged confirmed transaction -> inactive history;
+- immediate rescan после private-key import;
+- crash/restart сразу после import до rescan;
+- все предыдущие 20 regression suites.
+
+### Статус
+
+Код этапа прошёл GitHub Actions:
+
+- Linux — success;
+- Windows — success;
+- **21/21 test suites passed** на обеих ОС.
+
+Genesis, transaction/block consensus, UTXO rules, PoW, difficulty, monetary policy, network magic, ports и blockchain storage format не изменялись.
+
+### Следующий этап
+
+**Этап 23 — recovery UX foundation:** mnemonic/seed export-import safety, deterministic rescan/gap policy и desktop-facing recovery API перед Qt GUI.
