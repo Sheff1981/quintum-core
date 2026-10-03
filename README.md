@@ -23,7 +23,8 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - secp256k1 for transaction signatures
 - SHA-256 family cryptographic hashing
 - Durable restart-safe blockchain storage
-- Durable wallet key storage with atomic replacement and backup support
+- Authenticated encrypted wallet storage with Argon2id + XChaCha20-Poly1305
+- BIP32 deterministic recovery foundation with atomic replacement and backup support
 - Qt 6 desktop wallet planned after the node and network are stable
 
 ## Repository map
@@ -39,14 +40,12 @@ Consensus-critical constants are **DRAFT** until the genesis block and mainnet s
 
 ## Current milestone
 
-**M7 — Wallet Core:** `quintumd` now owns a persistent QUINTUM wallet in addition to the continuous P2P node. The wallet creates private keys from the operating-system CSPRNG, derives network-specific Bech32m receive addresses, tracks wallet-owned active-chain/mempool outputs, reports confirmed/available/pending/immature balances, constructs and signs spends, handles change, and supports durable `wallet.dat` backup/recovery.
+**M8 — Wallet hardening (Stage 21):** `wallet.dat` v2 encrypts the recovery seed, private keys and keypool metadata with XChaCha20-Poly1305. The password key is derived with Argon2id (64 MiB, 3 passes), and every rewrite uses a fresh random nonce. The authenticated open header binds the wallet version, network and KDF parameters.
 
-The wallet uses the same P2PK authorization, UTXO and mempool validation paths as the rest of the node. A locally created transaction gets no consensus privilege: it must validate normally before it is relayed.
+New password-created wallets are deterministic. Key derivation uses BIP32 CKDpriv mechanics (HMAC-SHA512 + libsecp256k1 tweak-add) on the QUINTUM path `m/5329997'/network'/branch/index`.
 
-A pre-generated receive/change keypool is persisted before use so an older wallet backup can recover a bounded set of future addresses. Imported keys and keypool refill explicitly require a fresh backup.
+Legacy Stage 20 v1 wallets remain readable and can be explicitly migrated without changing addresses or private keys. A migrated/imported-key wallet still requires a `wallet.dat` backup; seed-only recovery is exposed only when every wallet key is deterministic.
 
-**Security limitation:** current `wallet.dat` is checksummed and crash-safe but is not yet password-encrypted at rest. QUINTUM remains pre-mainnet and must not be treated as production-money software until wallet encryption/HD recovery and further hardening are completed.
+The wallet remains on the same P2PK/UTXO/mempool/consensus path. Stage 21 changes wallet storage and recovery only; Genesis, PoW, monetary policy, network magic and transaction consensus are unchanged.
 
-The public QUINTUM seed list is intentionally empty until real independent seed infrastructure exists; no fake or developer-only endpoint is embedded.
-
-Next: **M8 — Wallet hardening:** encrypted key storage, deterministic/HD recovery, persistent transaction history, fee policy/estimation and incremental wallet indexing before GUI/release work.
+Next wallet work: persistent transaction history/indexing and fee policy/estimation, followed by desktop GUI/release hardening.
