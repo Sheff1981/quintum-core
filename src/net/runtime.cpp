@@ -1,5 +1,6 @@
 #include "net/runtime.hpp"
 
+#include "consensus/tx_auth.hpp"
 #include "core/serialize.hpp"
 #include "crypto/random.hpp"
 #include "crypto/sha256.hpp"
@@ -249,20 +250,58 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         out.node = node_.start();
 
         if (out.node.ok()) {
-            out.wallet =
-                wallet_.start(
-                    config_.wallet_passphrase
-                );
-
-            if (out.wallet.ok()) {
-                const auto synced =
-                    wallet_.sync(
+            if (!config_.wallet_recovery_mnemonic.empty()) {
+                out.wallet_recovery =
+                    wallet_.recover_from_mnemonic(
+                        config_.wallet_recovery_mnemonic,
+                        config_.wallet_passphrase,
                         node_.chain(),
-                        node_.mempool()
+                        node_.mempool(),
+                        config_.wallet_recovery_gap_limit
                     );
 
-                out.wallet_sync =
-                    synced.error;
+                out.recovered_wallet =
+                    out.wallet_recovery.ok();
+
+                if (out.wallet_recovery.ok()) {
+                    out.wallet.error =
+                        wallet::WalletStartError::none;
+                    out.wallet.created = true;
+                    out.wallet.backup_recommended = true;
+
+                    const auto recovered_addresses =
+                        wallet_.addresses();
+
+                    if (!recovered_addresses.empty()) {
+                        out.wallet.receive_address =
+                            recovered_addresses.back();
+                    }
+
+                    out.wallet_sync =
+                        out.wallet_recovery.sync.error;
+                } else {
+                    out.wallet.error =
+                        wallet::WalletStartError::
+                            store_failed;
+                    out.wallet.store_error =
+                        out.wallet_recovery.store_error;
+                }
+            } else {
+                out.wallet =
+                    wallet_.start(
+                        config_.wallet_passphrase
+                    );
+
+                if (out.wallet.ok()) {
+                    const auto synced =
+                        wallet_.sync(
+                            node_.chain(),
+                            node_.mempool()
+                        );
+
+                    out.wallet_sync =
+                        synced.error;
+                }
             }
         }
     }
@@ -277,6 +316,18 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         );
         config_.wallet_passphrase.clear();
         config_.wallet_passphrase.shrink_to_fit();
+    }
+
+    if (!config_.wallet_recovery_mnemonic.empty()) {
+        crypto::secure_erase(
+            std::span<Byte>{
+                reinterpret_cast<Byte*>(
+                    config_.wallet_recovery_mnemonic.data()),
+                config_.wallet_recovery_mnemonic.size()
+            }
+        );
+        config_.wallet_recovery_mnemonic.clear();
+        config_.wallet_recovery_mnemonic.shrink_to_fit();
     }
 
     if (!out.node.ok()) {
@@ -414,6 +465,26 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     std::scoped_lock lock(state_mutex_);
 
     out.height = node_.chain().height();
+
+    if (have_peer_height_.load()) {
+        out.peer_best_height =
+            peer_best_height_.load();
+    }
+
+    if (out.height &&
+        out.peer_best_height &&
+        *out.peer_best_height > *out.height) {
+        out.synchronizing = true;
+        out.sync_progress =
+            static_cast<double>(*out.height) /
+            static_cast<double>(
+                *out.peer_best_height
+            );
+    } else {
+        out.synchronizing = false;
+        out.sync_progress = 1.0;
+    }
+
     out.tip = node_.chain().tip_hash();
     out.mempool_transactions =
         node_.mempool().size();
@@ -970,6 +1041,52 @@ NetworkRuntime::mine_mempool_block(
 }
 
 NodeMineResult
+NetworkRuntime::mine_wallet_block(
+    std::uint64_t max_attempts)
+{
+    std::string address;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        const auto addresses =
+            wallet_.addresses();
+
+        if (addresses.empty()) {
+            NodeMineResult out;
+            out.error =
+                NodeMineError::template_failed;
+            return out;
+        }
+
+        address = addresses.back();
+    }
+
+    const auto decoded =
+        wallet::decode_address(
+            params_.network,
+            address
+        );
+
+    if (!decoded.ok()) {
+        NodeMineResult out;
+        out.error =
+            NodeMineError::template_failed;
+        return out;
+    }
+
+    const Bytes payout_script =
+        consensus::make_p2pk_locking_script(
+            decoded.public_key
+        );
+
+    return mine_mempool_block(
+        payout_script,
+        max_attempts
+    );
+}
+
+NodeMineResult
 NetworkRuntime::mine_mempool_block_at(
     const Bytes& payout_script,
     std::uint64_t adjusted_time,
@@ -1090,7 +1207,12 @@ void NetworkRuntime::accept_inbound(
             std::move(*accepted.session),
         .address = std::nullopt,
         .last_activity = now,
+
+        .reported_height = 0U,
     };
+
+    peer.reported_height =
+        peer.session.remote_version().start_height;
 
     if (!prepare_live_peer(
             peer,
@@ -1176,7 +1298,9 @@ void NetworkRuntime::maintain_outbound(
                 std::move(*connected.session),
             .address = it->address,
             .last_activity = now,
-        };
+    
+        .reported_height = 0U,
+    };
 
         if (!prepare_live_peer(
                 peer,
@@ -1243,7 +1367,12 @@ void NetworkRuntime::maintain_outbound(
             std::move(*connected.session),
         .address = connected.address,
         .last_activity = now,
+
+        .reported_height = 0U,
     };
+
+    peer.reported_height =
+        peer.session.remote_version().start_height;
 
     if (!prepare_live_peer(
             peer,
@@ -1795,6 +1924,15 @@ bool NetworkRuntime::process_block(
             const auto synchronized_tip =
                 node_.chain().tip_hash();
 
+            if (const auto synchronized_height =
+                    node_.chain().height()) {
+                peer.reported_height =
+                    std::max(
+                        peer.reported_height,
+                        *synchronized_height
+                    );
+            }
+
             if (synchronized_tip) {
                 queue_announcement(
                     kInventoryBlock,
@@ -1816,6 +1954,13 @@ bool NetworkRuntime::process_block(
                ChainConnectError::
                    duplicate_block;
     }
+
+    peer.reported_height =
+        std::max(
+            peer.reported_height,
+            submitted.connect.chain.height
+        );
+    update_peer_counts();
 
     queue_announcement(
         kInventoryBlock,
@@ -1986,16 +2131,30 @@ void NetworkRuntime::schedule_reconnect(
 void NetworkRuntime::update_peer_counts() noexcept
 {
     std::size_t outbound{0U};
+    std::uint32_t best_height{0U};
+    bool have_height{false};
 
     for (const auto& peer : peers_) {
-        if (peer.session.valid() &&
-            peer.address) {
+        if (!peer.session.valid()) {
+            continue;
+        }
+
+        if (peer.address) {
             ++outbound;
         }
+
+        best_height =
+            std::max(
+                best_height,
+                peer.reported_height
+            );
+        have_height = true;
     }
 
     peer_count_.store(peers_.size());
     outbound_count_.store(outbound);
+    peer_best_height_.store(best_height);
+    have_peer_height_.store(have_height);
 }
 
 bool NetworkRuntime::sync_wallet_locked()
