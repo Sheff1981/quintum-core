@@ -477,7 +477,7 @@ void test_mainnet_is_runtime_gated_before_launch()
     using namespace quintum;
 
     const auto root =
-        unique_directory("mainnet-gate");
+        unique_dir("mainnet-gate");
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
 
