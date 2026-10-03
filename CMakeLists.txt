@@ -138,6 +138,7 @@ if(QUINTUM_BUILD_GUI)
         src/qt/main.cpp
         src/qt/mainwindow.cpp
         src/qt/mainwindow.hpp
+        src/qt/resources.qrc
     )
 
     target_link_libraries(
