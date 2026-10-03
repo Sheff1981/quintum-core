@@ -188,6 +188,10 @@ public:
     [[nodiscard]] std::optional<std::string>
     wallet_recovery_mnemonic() const;
 
+    [[nodiscard]] bool verify_wallet_passphrase(
+        std::string_view passphrase
+    ) const;
+
     [[nodiscard]] NodeTransactionResult submit_transaction(
         const Transaction& transaction
     );
