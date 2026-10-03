@@ -718,14 +718,16 @@ void MainWindow::apply_snapshot(
     }
 
     const int progress =
-        std::clamp(
-            static_cast<int>(
-                status.sync_progress *
-                100.0
-            ),
-            0,
-            100
-        );
+        status.peer_best_height
+            ? std::clamp(
+                  static_cast<int>(
+                      status.sync_progress *
+                      100.0
+                  ),
+                  0,
+                  100
+              )
+            : 0;
 
     overview_sync_progress_->setValue(
         progress
@@ -1292,8 +1294,6 @@ void MainWindow::mine_once()
     if (mining_timer_->isActive()) {
         mining_state_->setText("Mining");
     }
-
-    refresh();
 }
 
 void MainWindow::show_recovery_phrase()
