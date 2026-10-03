@@ -1007,6 +1007,12 @@ WalletSyncResult Wallet::sync(
     }
 
     for (auto& record : history_) {
+        if (record.status !=
+            WalletTransactionStatus::confirmed) {
+            record.confirmations = 0U;
+            continue;
+        }
+
         if (!record.block_height ||
             *record.block_height > *height) {
             reset_index_state();
