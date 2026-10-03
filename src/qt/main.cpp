@@ -23,6 +23,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <exception>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -385,14 +386,65 @@ QString startup_error_text(
     }
 
     if (result.error ==
+        NetworkRuntimeStartError::node_failed) {
+        using quintum::NodeStartError;
+        using quintum::StorageError;
+
+        if (result.node.error ==
+                NodeStartError::storage_failed) {
+            switch (result.node.storage_error) {
+            case StorageError::wrong_network:
+                return
+                    "The blockchain data belongs to another QUINTUM network. "
+                    "No wallet data was changed.";
+            case StorageError::checksum_mismatch:
+            case StorageError::truncated:
+            case StorageError::bad_format:
+            case StorageError::unsupported_version:
+            case StorageError::state_mismatch:
+            case StorageError::consensus_replay_failed:
+                return
+                    "The local blockchain database could not be validated. "
+                    "Do not delete wallet.dat; blockchain data can be resynchronized.";
+            case StorageError::io_error:
+                return
+                    "The local blockchain database could not be read or written. "
+                    "Check disk access and free space. wallet.dat was not changed.";
+            case StorageError::not_found:
+            case StorageError::none:
+                break;
+            }
+        }
+
+        return
+            "The local QUINTUM blockchain could not start safely. "
+            "wallet.dat was not changed.";
+    }
+
+    if (result.error ==
+        NetworkRuntimeStartError::address_store_failed) {
+        return
+            "The peer database (peers.dat) could not be loaded or saved. "
+            "The wallet and blockchain were not discarded.";
+    }
+
+    if (result.error ==
         NetworkRuntimeStartError::listener_failed) {
         return
-            "The QUINTUM P2P listener could not start. "
-            "The configured port may already be in use.";
+            "The QUINTUM P2P listener could not start, even after the safe alternate-port retry. "
+            "Check local socket/network policy. The wallet was not changed.";
+    }
+
+    if (result.error ==
+        NetworkRuntimeStartError::worker_start_failed) {
+        return
+            "QUINTUM could not start its background network worker. "
+            "The wallet was opened safely and no wallet data was changed.";
     }
 
     return
-        "QUINTUM Core could not start its node runtime.";
+        "QUINTUM Core could not start its node runtime. "
+        "No wallet data was changed.";
 }
 
 } // namespace
@@ -756,14 +808,43 @@ int main(int argc, char* argv[])
         setup.password;
     config.wallet_recovery_mnemonic =
         setup.mnemonic;
+    config.allow_ephemeral_listener_fallback =
+        true;
 
     wipe_string(setup.password);
     wipe_string(setup.mnemonic);
 
-    const auto started =
-        runtime.start(
-            std::move(config)
+    quintum::net::NetworkRuntimeStartResult started;
+
+    try {
+        started =
+            runtime.start(
+                std::move(config)
+            );
+    } catch (const std::exception& error) {
+        QMessageBox::critical(
+            nullptr,
+            "QUINTUM Core did not start",
+            QString(
+                "QUINTUM caught an unexpected startup error instead of closing silently.\n\n%1\n\nNo wallet data was intentionally discarded."
+            ).arg(
+                QString::fromUtf8(
+                    error.what()
+                )
+            )
         );
+        runtime.stop();
+        return 6;
+    } catch (...) {
+        QMessageBox::critical(
+            nullptr,
+            "QUINTUM Core did not start",
+            "QUINTUM caught an unexpected startup error instead of closing silently. "
+            "No wallet data was intentionally discarded."
+        );
+        runtime.stop();
+        return 6;
+    }
 
     if (!started.ok()) {
         QMessageBox::critical(
@@ -780,6 +861,33 @@ int main(int argc, char* argv[])
         params
     };
     window.show();
+
+    const auto live_status =
+        runtime.status();
+
+    if (live_status.listen_port !=
+            params.p2p_port &&
+        live_status.listen_port != 0U) {
+        QTimer::singleShot(
+            0,
+            &window,
+            [&window,
+             actual_port = live_status.listen_port,
+             expected_port = params.p2p_port] {
+                QMessageBox::warning(
+                    &window,
+                    "P2P port fallback",
+                    QString(
+                        "The default P2P port %1 was unavailable. "
+                        "QUINTUM stayed running and switched to local port %2. "
+                        "Outbound peers, synchronization and block relay still work."
+                    )
+                        .arg(expected_port)
+                        .arg(actual_port)
+                );
+            }
+        );
+    }
 
     if (started.recovered_wallet) {
         QMessageBox::information(
