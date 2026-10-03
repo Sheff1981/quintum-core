@@ -633,6 +633,12 @@ int main(int argc, char* argv[])
             << " wallet_sync="
             << static_cast<int>(
                    start_result.wallet_sync)
+            << " datadir="
+            << static_cast<int>(
+                   start_result.data_directory)
+            << " datadir_lock="
+            << static_cast<int>(
+                   start_result.data_directory_lock)
             << " addr="
             << static_cast<int>(
                    start_result.address_store)

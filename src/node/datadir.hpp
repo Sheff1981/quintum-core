@@ -10,6 +10,12 @@ enum class DataDirectoryError {
     conflict,
 };
 
+enum class DataDirectoryLockError {
+    none,
+    already_locked,
+    io_error,
+};
+
 class DataDirectoryLayout {
 public:
     explicit DataDirectoryLayout(
@@ -42,6 +48,8 @@ public:
     wallet_metadata_file() const;
     [[nodiscard]] std::filesystem::path
     peers_file() const;
+    [[nodiscard]] std::filesystem::path
+    lock_file() const;
 
     // Creates the version-1 directory layout and moves known legacy flat
     // files into it using same-filesystem rename. Existing destination files
@@ -56,6 +64,37 @@ public:
 
 private:
     std::filesystem::path root_{};
+};
+
+// Process-lifetime exclusive ownership of a network data directory.
+// The .lock file is intentionally persistent; exclusivity is provided by the
+// live OS handle/lock, not by the file's mere existence.
+class DataDirectoryLock {
+public:
+    DataDirectoryLock() = default;
+    ~DataDirectoryLock();
+
+    DataDirectoryLock(const DataDirectoryLock&) = delete;
+    DataDirectoryLock& operator=(
+        const DataDirectoryLock&) = delete;
+
+    DataDirectoryLock(DataDirectoryLock&& other) noexcept;
+    DataDirectoryLock& operator=(
+        DataDirectoryLock&& other) noexcept;
+
+    [[nodiscard]] DataDirectoryLockError acquire(
+        const std::filesystem::path& root
+    );
+
+    void release() noexcept;
+    [[nodiscard]] bool locked() const noexcept;
+
+private:
+#ifdef _WIN32
+    void* handle_{nullptr};
+#else
+    int fd_{-1};
+#endif
 };
 
 } // namespace quintum

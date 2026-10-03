@@ -124,6 +124,91 @@ void test_new_layout_and_network_only_policy()
     remove_tree(root);
 }
 
+void test_exclusive_datadir_lock()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto root =
+        test_root("lock");
+    remove_tree(root);
+
+    DataDirectoryLayout layout{root};
+
+    {
+        DataDirectoryLock first;
+        DataDirectoryLock second;
+
+        assert(first.acquire(root) ==
+               DataDirectoryLockError::none);
+        assert(first.locked());
+        assert(std::filesystem::exists(
+            layout.lock_file()
+        ));
+
+        assert(second.acquire(root) ==
+               DataDirectoryLockError::already_locked);
+        assert(!second.locked());
+
+        first.release();
+        assert(!first.locked());
+
+        assert(second.acquire(root) ==
+               DataDirectoryLockError::none);
+        assert(second.locked());
+    }
+
+    const auto& params =
+        consensus::regtest_params();
+
+    NetworkRuntime first_runtime{
+        params,
+        root
+    };
+    NetworkRuntimeConfig first_config;
+    first_config.listen_port = 0U;
+    first_config.target_outbound = 0U;
+    first_config.enable_wallet = false;
+
+    assert(first_runtime.start(
+               std::move(first_config)).ok());
+
+    NetworkRuntime second_runtime{
+        params,
+        root
+    };
+    NetworkRuntimeConfig second_config;
+    second_config.listen_port = 0U;
+    second_config.target_outbound = 0U;
+    second_config.enable_wallet = false;
+
+    const auto blocked =
+        second_runtime.start(
+            std::move(second_config)
+        );
+
+    assert(!blocked.ok());
+    assert(blocked.error ==
+           NetworkRuntimeStartError::
+               data_directory_locked);
+    assert(blocked.data_directory_lock ==
+           DataDirectoryLockError::
+               already_locked);
+
+    first_runtime.stop();
+
+    NetworkRuntimeConfig retry_config;
+    retry_config.listen_port = 0U;
+    retry_config.target_outbound = 0U;
+    retry_config.enable_wallet = false;
+
+    assert(second_runtime.start(
+               std::move(retry_config)).ok());
+    second_runtime.stop();
+
+    remove_tree(root);
+}
+
 void test_legacy_flat_data_migrates_without_mutation()
 {
     using namespace quintum;
@@ -304,6 +389,7 @@ void test_conflict_fails_closed()
 int main()
 {
     test_new_layout_and_network_only_policy();
+    test_exclusive_datadir_lock();
     test_legacy_flat_data_migrates_without_mutation();
     test_conflict_fails_closed();
     return 0;

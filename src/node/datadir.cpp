@@ -1,8 +1,20 @@
 #include "node/datadir.hpp"
 
 #include <array>
+#include <cerrno>
 #include <system_error>
 #include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
 namespace quintum {
 namespace {
@@ -204,6 +216,12 @@ DataDirectoryLayout::peers_file() const
     return root_ / "peers.dat";
 }
 
+std::filesystem::path
+DataDirectoryLayout::lock_file() const
+{
+    return root_ / ".lock";
+}
+
 DataDirectoryError DataDirectoryLayout::prepare(
     bool wallet_enabled) const
 {
@@ -227,13 +245,9 @@ DataDirectoryError DataDirectoryLayout::prepare(
     }
 
     {
-        const std::array<const char*, 1> block_files{
-            "blocks.dat"
-        };
-
         const auto error =
             migrate_file(
-                root_ / block_files.front(),
+                root_ / "blocks.dat",
                 blocks_file()
             );
 
@@ -282,6 +296,140 @@ DataDirectoryError DataDirectoryLayout::prepare(
             "wallet_meta.dat"
         }
     );
+}
+
+DataDirectoryLock::~DataDirectoryLock()
+{
+    release();
+}
+
+DataDirectoryLock::DataDirectoryLock(
+    DataDirectoryLock&& other) noexcept
+{
+#ifdef _WIN32
+    handle_ = other.handle_;
+    other.handle_ = nullptr;
+#else
+    fd_ = other.fd_;
+    other.fd_ = -1;
+#endif
+}
+
+DataDirectoryLock& DataDirectoryLock::operator=(
+    DataDirectoryLock&& other) noexcept
+{
+    if (this == &other) {
+        return *this;
+    }
+
+    release();
+
+#ifdef _WIN32
+    handle_ = other.handle_;
+    other.handle_ = nullptr;
+#else
+    fd_ = other.fd_;
+    other.fd_ = -1;
+#endif
+
+    return *this;
+}
+
+DataDirectoryLockError DataDirectoryLock::acquire(
+    const std::filesystem::path& root)
+{
+    if (locked()) {
+        return DataDirectoryLockError::already_locked;
+    }
+
+    const auto root_error =
+        ensure_directory(root);
+
+    if (root_error != DataDirectoryError::none) {
+        return DataDirectoryLockError::io_error;
+    }
+
+    const auto path =
+        root / ".lock";
+
+#ifdef _WIN32
+    HANDLE handle =
+        CreateFileW(
+            path.c_str(),
+            GENERIC_READ | GENERIC_WRITE,
+            0,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
+
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD error =
+            GetLastError();
+
+        return error == ERROR_SHARING_VIOLATION ||
+                       error == ERROR_LOCK_VIOLATION
+            ? DataDirectoryLockError::already_locked
+            : DataDirectoryLockError::io_error;
+    }
+
+    handle_ = handle;
+#else
+    const int descriptor =
+        ::open(
+            path.c_str(),
+            O_RDWR | O_CREAT,
+            static_cast<mode_t>(0600)
+        );
+
+    if (descriptor < 0) {
+        return DataDirectoryLockError::io_error;
+    }
+
+    if (::flock(
+            descriptor,
+            LOCK_EX | LOCK_NB) != 0) {
+        const int error = errno;
+        (void)::close(descriptor);
+
+        return error == EWOULDBLOCK ||
+                       error == EAGAIN
+            ? DataDirectoryLockError::already_locked
+            : DataDirectoryLockError::io_error;
+    }
+
+    fd_ = descriptor;
+#endif
+
+    return DataDirectoryLockError::none;
+}
+
+void DataDirectoryLock::release() noexcept
+{
+#ifdef _WIN32
+    if (handle_ != nullptr) {
+        (void)CloseHandle(
+            static_cast<HANDLE>(handle_)
+        );
+        handle_ = nullptr;
+    }
+#else
+    if (fd_ >= 0) {
+        (void)::flock(fd_, LOCK_UN);
+        (void)::close(fd_);
+        fd_ = -1;
+    }
+#endif
+}
+
+bool DataDirectoryLock::locked() const noexcept
+{
+#ifdef _WIN32
+    return handle_ != nullptr;
+#else
+    return fd_ >= 0;
+#endif
 }
 
 } // namespace quintum

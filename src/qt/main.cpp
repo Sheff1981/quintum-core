@@ -466,6 +466,13 @@ QString startup_error_text(
     }
 
     if (result.error ==
+        NetworkRuntimeStartError::data_directory_locked) {
+        return
+            "Another QUINTUM Core process is already using this data directory. "
+            "Close the other instance or choose a different data directory.";
+    }
+
+    if (result.error ==
         NetworkRuntimeStartError::data_directory_failed) {
         return result.data_directory ==
                    quintum::DataDirectoryError::conflict
@@ -722,24 +729,26 @@ int main(int argc, char* argv[])
         data_path
     };
 
-    const auto data_layout_error =
-        data_layout.prepare(true);
+    // Read-only preflight only. Actual migration happens after NetworkRuntime
+    // owns the OS-level datadir lock.
+    std::error_code ec;
+    const bool legacy_wallet_exists =
+        std::filesystem::exists(
+            data_path / "wallet.dat",
+            ec
+        );
 
-    if (data_layout_error !=
-        quintum::DataDirectoryError::none) {
+    if (ec) {
         QMessageBox::critical(
             nullptr,
-            "Data directory error",
-            data_layout_error ==
-                    quintum::DataDirectoryError::conflict
-                ? "QUINTUM found both legacy and new copies of the same data. No file was overwritten. Resolve the duplicate files before starting."
-                : "QUINTUM could not prepare or migrate its data directory safely."
+            "Wallet error",
+            "QUINTUM could not inspect the legacy wallet.dat."
         );
         return 4;
     }
 
-    std::error_code ec;
-    const bool wallet_exists =
+    ec.clear();
+    const bool structured_wallet_exists =
         std::filesystem::exists(
             data_layout.wallet_file(),
             ec
@@ -753,6 +762,20 @@ int main(int argc, char* argv[])
         );
         return 4;
     }
+
+    if (legacy_wallet_exists &&
+        structured_wallet_exists) {
+        QMessageBox::critical(
+            nullptr,
+            "Data directory conflict",
+            "QUINTUM found both legacy wallet.dat and wallets/default/wallet.dat. Nothing was overwritten. Resolve the duplicate files before starting."
+        );
+        return 4;
+    }
+
+    const bool wallet_exists =
+        legacy_wallet_exists ||
+        structured_wallet_exists;
 
     WalletSetup setup;
 

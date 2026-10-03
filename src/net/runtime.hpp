@@ -45,6 +45,7 @@ enum class NetworkRuntimeStartError {
     none,
     already_running,
     data_directory_failed,
+    data_directory_locked,
     node_failed,
     wallet_failed,
     address_store_failed,
@@ -57,6 +58,9 @@ struct NetworkRuntimeStartResult {
     };
     DataDirectoryError data_directory{
         DataDirectoryError::none
+    };
+    DataDirectoryLockError data_directory_lock{
+        DataDirectoryLockError::none
     };
     NodeStartResult node{};
     wallet::WalletStartResult wallet{};
@@ -363,6 +367,7 @@ private:
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
     DataDirectoryLayout layout_;
+    DataDirectoryLock data_lock_{};
     NetworkRuntimeConfig config_{};
 
     mutable std::mutex state_mutex_{};

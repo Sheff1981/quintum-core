@@ -244,6 +244,26 @@ NetworkRuntimeStartResult NetworkRuntime::start(
 
     config_ = std::move(config);
 
+    DataDirectoryLock startup_lock;
+
+    out.data_directory_lock =
+        startup_lock.acquire(
+            directory_
+        );
+
+    if (out.data_directory_lock !=
+        DataDirectoryLockError::none) {
+        out.error =
+            out.data_directory_lock ==
+                    DataDirectoryLockError::
+                        already_locked
+                ? NetworkRuntimeStartError::
+                    data_directory_locked
+                : NetworkRuntimeStartError::
+                    data_directory_failed;
+        return out;
+    }
+
     out.data_directory =
         layout_.prepare(
             config_.enable_wallet
@@ -430,6 +450,11 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     listen_port_.store(
         listener_.local_port()
     );
+
+    // Keep exclusive ownership for the complete live runtime lifetime.
+    data_lock_ =
+        std::move(startup_lock);
+
     running_.store(true);
 
     worker_ = std::thread(
@@ -445,6 +470,7 @@ void NetworkRuntime::stop() noexcept
 {
     if (!running_.load() &&
         !worker_.joinable()) {
+        data_lock_.release();
         return;
     }
 
@@ -466,6 +492,7 @@ void NetworkRuntime::stop() noexcept
     outbound_count_.store(0U);
     listen_port_.store(0U);
     running_.store(false);
+    data_lock_.release();
 }
 
 bool NetworkRuntime::running() const noexcept
@@ -749,6 +776,25 @@ NetworkRuntime::restore_wallet_bundle(
     if (running_.load()) {
         return wallet::WalletStoreError::
             target_exists;
+    }
+
+    DataDirectoryLock restore_lock;
+
+    const auto lock_error =
+        restore_lock.acquire(
+            directory_
+        );
+
+    if (lock_error ==
+        DataDirectoryLockError::already_locked) {
+        return wallet::WalletStoreError::
+            target_exists;
+    }
+
+    if (lock_error !=
+        DataDirectoryLockError::none) {
+        return wallet::WalletStoreError::
+            io_error;
     }
 
     const auto layout_error =
