@@ -195,6 +195,22 @@ jobs:
 
           Remove-Item -Recurse -Force (Join-Path $env:APPDATA "QUINTUM") -ErrorAction SilentlyContinue
 
+      - name: Write release checksums
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem ".\dist\installer" -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Installer missing for checksum" }
+
+          $portable = Get-Item ".\dist\windows\QUINTUM.exe"
+
+          $installerHash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          $portableHash = (Get-FileHash -Algorithm SHA256 $portable.FullName).Hash.ToLowerInvariant()
+
+          @(
+            "$installerHash  $($installer.Name)"
+            "$portableHash  windows/QUINTUM.exe"
+          ) | Set-Content -Encoding ascii ".\dist\SHA256SUMS.txt"
+
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
@@ -202,4 +218,5 @@ jobs:
           path: |
             dist/installer/*.exe
             dist/windows/**
+            dist/SHA256SUMS.txt
           if-no-files-found: error
