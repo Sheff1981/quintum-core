@@ -1,0 +1,25 @@
+# Build outputs
+/build/
+/out/
+cmake-build-*/
+
+# Compilers and IDEs
+*.obj
+*.o
+*.exe
+*.pdb
+*.ilk
+.vs/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data (must never be committed)
+*.dat
+wallet/
+chainstate/
+blocks/
+peers.dat
