@@ -36,6 +36,8 @@ Historical documents are retained because they provide provenance; they are not 
 - [LISTING_REQUEST_TEMPLATES.md](LISTING_REQUEST_TEMPLATES.md) — initial listing requests, technical cover notes, due-diligence responses, upgrade/security notices and anti-fraud reply templates.
 - [EXCHANGE_READINESS_MATRIX.md](EXCHANGE_READINESS_MATRIX.md) — concrete readiness gates and current blockers per exchange.
 - [MICA_EEA_PREPARATION.md](MICA_EEA_PREPARATION.md) — MiCA/EEA preparation workflow, regulatory data-room checklist and XBRL/fact-check gates.
+- [DUE_DILIGENCE_DOCUMENT_CHECKLIST.md](DUE_DILIGENCE_DOCUMENT_CHECKLIST.md) — complete founder/KYC, company/legal, technical, security, integration, supply, market and compliance document checklist.
+- [LISTING_RISK_REGISTER.md](LISTING_RISK_REGISTER.md) — explicit reasons a venue may decline/defer QUINTUM and the evidence required to reduce each risk.
 
 ## Disclosure summary
 
@@ -61,6 +63,9 @@ Historical documents are retained because they provide provenance; they are not 
 - Independent third-party audit: **not yet**
 - Production Mainnet explorer: **not yet**
 - MiCA/XBRL package: **not yet**
+- Current human team: **one founder**
+- Company: **none currently**
+- Project legal documents: **none currently**
 
 ## Exchange-requirements policy
 
