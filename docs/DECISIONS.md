@@ -52,11 +52,16 @@ Use the existing secp256k1-based ownership model unless changed by a separate re
 - target spacing: 120 seconds;
 - seed interval: 2,048 blocks;
 - seed lag: 64 blocks;
-- planned difficulty algorithm: per-block ASERT;
-- planned ASERT half-life: 34,560 seconds / 9 h 36 min;
+- seed domain: `QUINTUM-RX-SEED-V1`;
+- seed height formula and byte-level key derivation are implemented and test-vector pinned;
+- difficulty algorithm: per-block ASERT;
+- ASERT half-life: 34,560 seconds / 9 h 36 min;
+- ASERT anchor: Genesis at height 0 with a virtual parent timestamp one target spacing before Genesis;
+- RandomX v2.0.1 is pinned to upstream commit `aaafe71322df6602c21a5c72937ac284724ae561`;
+- RandomX input is the existing 88-byte serialized block header;
 - active chain remains the valid chain with greatest cumulative work.
 
-A specific RandomX revision and exact byte-level test vectors must be pinned before network activation.
+Network activation still requires the founder payout script and new RandomX Testnet Genesis/network identity.
 
 ## D-009 — Timestamp and resource limits
 **State:** DRAFT until mainnet freeze.
