@@ -50,6 +50,28 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(monocypher_source)
 
+# Consensus-critical RandomX dependency. Pin the exact upstream v2.0.1
+# commit so a later tag move or upstream change cannot silently alter PoW.
+FetchContent_Declare(
+    randomx_source
+    GIT_REPOSITORY https://github.com/tevador/RandomX.git
+    GIT_TAG aaafe71322df6602c21a5c72937ac284724ae561
+    GIT_SHALLOW FALSE
+)
+FetchContent_GetProperties(randomx_source)
+if(NOT randomx_source_POPULATED)
+    FetchContent_Populate(randomx_source)
+    add_subdirectory(
+        ${randomx_source_SOURCE_DIR}
+        ${randomx_source_BINARY_DIR}
+        EXCLUDE_FROM_ALL
+    )
+endif()
+target_include_directories(
+    randomx
+    PUBLIC ${randomx_source_SOURCE_DIR}/src
+)
+
 add_library(monocypher STATIC
     ${monocypher_source_SOURCE_DIR}/src/monocypher.c
     ${monocypher_source_SOURCE_DIR}/src/optional/monocypher-ed25519.c
@@ -81,6 +103,7 @@ add_library(quintum_core STATIC
     src/crypto/sha256.cpp
     src/crypto/secp256k1.cpp
     src/crypto/random.cpp
+    src/crypto/randomx.cpp
     src/consensus/tx_auth.cpp
     src/primitives/transaction.cpp
     src/chain/utxo.cpp
@@ -116,7 +139,10 @@ add_library(quintum_core STATIC
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
 target_include_directories(quintum_core PUBLIC src)
-target_link_libraries(quintum_core PUBLIC secp256k1 monocypher)
+target_link_libraries(
+    quintum_core
+    PUBLIC secp256k1 monocypher randomx
+)
 if(WIN32)
     target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt advapi32)
 endif()
@@ -208,6 +234,18 @@ quintum_strict_warnings(quintum_pow_tests)
 quintum_test_assertions(quintum_pow_tests)
 
 add_test(NAME pow COMMAND quintum_pow_tests)
+
+add_executable(quintum_randomx_tests
+    tests/randomx_tests.cpp
+)
+target_link_libraries(
+    quintum_randomx_tests
+    PRIVATE quintum_core
+)
+quintum_strict_warnings(quintum_randomx_tests)
+quintum_test_assertions(quintum_randomx_tests)
+
+add_test(NAME randomx COMMAND quintum_randomx_tests)
 
 add_executable(quintum_monetary_tests
     tests/monetary_tests.cpp

@@ -1,8 +1,10 @@
 # QUINTUM Proof of Work
 
-Status: **DECIDED FOR NEXT RANDOMX TESTNET — NOT YET IMPLEMENTED — NOT MAINNET FROZEN**
+Status: **RANDOMX v2 CORE INTEGRATED — NETWORK ACTIVATION NOT YET ENABLED — NOT MAINNET FROZEN**
 
 The current running Testnet still uses double-SHA-256 PoW. The next incompatible Testnet will replace mining PoW with RandomX while retaining SHA-256 where it is useful for transaction IDs, block IDs, signatures and other non-mining hashing.
+
+RandomX v2.0.1 is now pinned in the build at upstream commit `aaafe71322df6602c21a5c72937ac284724ae561`. QUINTUM has a light-mode RandomX v2 hashing wrapper plus fixed upstream consensus vectors on Linux and Windows CI. This integration does **not** yet switch the live Testnet's block-validation path; activation follows only after the new seed schedule, ASERT, monetary rules and new Genesis are implemented and tested together.
 
 ## Mining algorithm
 
