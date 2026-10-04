@@ -122,6 +122,8 @@ public:
     [[nodiscard]] std::optional<std::uint32_t> next_work_required(
         std::uint64_t candidate_timestamp
     ) const;
+    [[nodiscard]] std::optional<Hash256>
+    next_randomx_seed_key() const;
 
     // Accepts active-tip extensions and side-branch blocks. A side branch is
     // activated only when its cumulative valid work becomes strictly greater.
@@ -141,6 +143,11 @@ private:
     ) const;
     [[nodiscard]] std::optional<std::uint64_t> median_time_past(
         const BlockIndexEntry* parent
+    ) const;
+    [[nodiscard]] std::optional<Hash256>
+    randomx_seed_key_for(
+        const BlockIndexEntry* parent,
+        std::uint32_t candidate_height
     ) const;
 
     consensus::ChainParams params_{};
