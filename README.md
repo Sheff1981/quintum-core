@@ -9,14 +9,12 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 
 External testers are welcome.
 
-**Current pre-alpha Windows builds:**  
-https://github.com/Sheff1981/quintum-core/actions/workflows/gui.yml?query=branch%3Amain+is%3Asuccess
+**Official pre-alpha Windows release:**  
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.1-prealpha
 
-Open the latest successful **gui** run on `main`, download the `quintum-windows-x64` artifact, extract it, and run:
+Download `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe` and `SHA256SUMS.txt`, then verify the installer checksum before running it.
 
-`installer/QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`
-
-The build is currently **unsigned pre-alpha software**. Verify the included `SHA256SUMS.txt` before running it.
+The installer is currently **unsigned pre-alpha software**. Windows may display a SmartScreen warning.
 
 Testing instructions: [docs/TESTNET_TESTING.md](docs/TESTNET_TESTING.md)  
 Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
