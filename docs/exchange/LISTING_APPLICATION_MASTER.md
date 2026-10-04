@@ -141,9 +141,9 @@ A future application must attach:
 **Co-founders:** None  
 **Project founder / responsible applicant:** [PRIVATE DUE-DILIGENCE FIELD — DO NOT COMMIT PERSONAL DATA]  
 **Role/title:** Founder / project owner; currently responsible for project direction, development coordination, releases and exchange-facing preparation  
-**Legal entity:** None currently  
-**Sole-trader / self-employed registration:** None currently  
-**Jurisdiction for any future project entity:** [TBD]  
+**Company:** None currently  
+**Project legal documents:** None currently  
+**Jurisdiction for any future company:** [TBD]  
 **Technical contact:** Founder unless a dedicated technical contact is appointed later  
 **Security contact:** Founder until a dedicated public security alias/process is created  
 **Business/listing contact:** Founder unless formally delegated
@@ -156,7 +156,7 @@ The current network architecture does not contain a protocol-level administrator
 
 ### Team disclosure rule
 
-Where an exchange asks for "team members", "core team" or "founders", answer truthfully that QUINTUM currently has one founder and no additional human team members. Do not pad the application with fictitious CTO/CMO/adviser roles. QUINTUM currently has no company, sole-trader registration or self-employed business registration. If an exchange requires a legal-person applicant or corporate KYC, that is a current readiness blocker rather than a field to fabricate. If an exchange accepts an individual applicant and requires identity/KYC, provide the founder's accurate information privately through the official exchange portal. Do not publish passports, addresses, private telephone numbers or similar KYC information in GitHub.
+Where an exchange asks for "team members", "core team" or "founders", answer truthfully that QUINTUM currently has one founder and no additional human team members. Do not pad the application with fictitious CTO/CMO/adviser roles. QUINTUM currently has no company and no project legal documents. If an exchange requires a company applicant or corporate KYC, that is a current readiness blocker rather than a field to fabricate. If an exchange accepts an individual applicant and requires identity/KYC, provide the founder's accurate information privately through the official exchange portal. Do not publish passports, addresses, private telephone numbers or similar KYC information in GitHub.
 
 ---
 
