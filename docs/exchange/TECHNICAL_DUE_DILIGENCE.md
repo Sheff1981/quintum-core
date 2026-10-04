@@ -11,6 +11,8 @@ The public repository was created on 2026-10-02. The first source commit was `fc
 
 Current license: **MIT**.
 
+Current human project structure: **one founder / solo project**. No co-founders, employees or broader human development team are currently represented in this due-diligence pack. Future contributors will be documented only when they actually exist and disclosure is appropriate.
+
 The project explicitly prohibits hidden premine paths, developer mint keys, master keys, consensus bypasses and private-key exfiltration.
 
 ## 2. Current lifecycle state
