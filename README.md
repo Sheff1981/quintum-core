@@ -58,3 +58,7 @@ Backup/distribution:
 The installer is currently **unsigned pre-alpha**. Code-signing requires a release signing certificate and is deliberately not simulated.
 
 Next: **Stage 29 — public testnet readiness:** seed/bootstrap infrastructure, multi-node soak/adversarial tests, external Windows installs and release-candidate networking before any mainnet freeze.
+
+## Exchange listing / due diligence
+
+A continuously maintained English exchange-facing documentation pack is available at [docs/exchange/README.md](docs/exchange/README.md). It covers technical due diligence, integration requirements, verification evidence and public development history. The package is pre-Mainnet and must be updated whenever consensus, networking, wallet, security, release or public-network behavior changes.
