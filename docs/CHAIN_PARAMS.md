@@ -22,7 +22,9 @@ The next incompatible public Testnet is specified to use:
 - mining PoW: **RandomX**;
 - target block spacing: **120 seconds**;
 - difficulty adjustment: **per-block ASERT**;
-- ASERT half-life target: **34,560 seconds / 9 hours 36 minutes**;
+- ASERT half-life: **34,560 seconds / 9 hours 36 minutes**;
+- ASERT arithmetic and Chainstate integration: **implemented and covered by deterministic vectors**;
+- ASERT anchor: **Genesis at height 0**, with a virtual parent timestamp one 120-second target interval before Genesis;
 - coinbase maturity: **500 blocks**;
 - RandomX seed interval: **2,048 blocks**;
 - RandomX seed lag: **64 blocks**;
