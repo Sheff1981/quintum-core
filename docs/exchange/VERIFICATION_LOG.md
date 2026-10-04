@@ -125,6 +125,25 @@ GitHub Actions evidence for this head:
 - build run: https://github.com/Sheff1981/quintum-core/actions/runs/37181984429 — **success**
 - GUI/Windows distribution run: https://github.com/Sheff1981/quintum-core/actions/runs/37181984433 — **success**
 
+## 2026-10-04 — First public Windows pre-alpha release
+
+The first public external Testnet release was published through GitHub Releases:
+
+`v0.0.1-prealpha`
+
+Release page:
+
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.1-prealpha
+
+The release workflow publishes:
+
+- `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`;
+- `SHA256SUMS.txt`;
+- pre-release status;
+- public Testnet testing instructions.
+
+Users are instructed to verify the installer checksum before execution. This public release is still Testnet/pre-alpha and must not be represented as a Mainnet release or exchange-ready production binary.
+
 ## Current Windows artifact recorded in this work session
 
 Filename:
