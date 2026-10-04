@@ -136,13 +136,18 @@ A future application must attach:
 
 ## F. Team and governance
 
+**Current team structure:** Solo founder / single-person project  
+**Employees:** None currently disclosed  
+**Co-founders:** None  
 **Project founder / responsible applicant:** [PRIVATE DUE-DILIGENCE FIELD — DO NOT COMMIT PERSONAL DATA]  
-**Role/title:** Founder / lead project owner, unless formally changed  
+**Role/title:** Founder / project owner; currently responsible for project direction, development coordination, releases and exchange-facing preparation  
 **Legal entity:** [TBD / PRIVATE WHEN CREATED]  
 **Jurisdiction:** [TBD]  
-**Technical contact:** [PRIVATE SUBMISSION FIELD]  
-**Security contact:** [TO BE CREATED; public security alias recommended]  
-**Business/listing contact:** [PRIVATE SUBMISSION FIELD]
+**Technical contact:** Founder unless a dedicated technical contact is appointed later  
+**Security contact:** Founder until a dedicated public security alias/process is created  
+**Business/listing contact:** Founder unless formally delegated
+
+QUINTUM must not invent a team for listing purposes. Until additional contributors, employees, contractors or advisers actually exist and are disclosure-appropriate, exchange applications must describe the project as a solo-founder project. Use of development tools, automation or AI-assisted engineering does not create fictitious human team members and must not be represented as such.
 
 ### Governance model
 
@@ -150,7 +155,7 @@ The current network architecture does not contain a protocol-level administrator
 
 ### Team disclosure rule
 
-Where an exchange requires identity/KYC, provide accurate information privately through the official exchange portal. Do not publish passports, addresses, private telephone numbers or similar KYC information in GitHub.
+Where an exchange asks for "team members", "core team" or "founders", answer truthfully that QUINTUM currently has one founder and no additional human team members. Do not pad the application with fictitious CTO/CMO/adviser roles. If an exchange requires identity/KYC, provide the founder's accurate information privately through the official exchange portal. Do not publish passports, addresses, private telephone numbers or similar KYC information in GitHub.
 
 ---
 
