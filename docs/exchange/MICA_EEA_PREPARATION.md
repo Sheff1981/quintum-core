@@ -79,8 +79,8 @@ Do not store personal/KYC/confidential legal records in the public repository.
 Private data-room sections should include, where applicable:
 
 ### Project/operator identity
-- legal entity name;
-- registration number;
+- company name, if one exists/is required;
+- registration number, if applicable;
 - registered office;
 - directors/authorized representatives;
 - beneficial ownership information where requested;
@@ -220,7 +220,7 @@ At 2026-10-04 the following are not yet available as final regulatory inputs:
 - Mainnet launch;
 - final ticker freeze;
 - final Mainnet parameter freeze;
-- final legal entity/operator structure;
+- final company/operator structure, if required;
 - final jurisdictional legal analysis;
 - final whitepaper;
 - XBRL conversion/validation;
