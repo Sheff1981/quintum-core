@@ -614,3 +614,27 @@ This file preserves a one-line chronological ledger of every Git commit in the p
 | 603 | 2026-10-04 | `325e8e01a268ba87c07c123bdb1c448a5582ee0a` | docs: add exchange readiness matrix |
 | 604 | 2026-10-04 | `92c6592fe29e5bac46a76ce25dd8139343b45647` | docs: add MiCA and EEA listing preparation checklist |
 | 605 | 2026-10-04 | `7742217a23c13cd75fab52f7174195c0df134e39` | docs: expand exchange listing and compliance pack index |
+
+| 606 | 2026-10-04T11:07:17Z | `4f1a3ebfaac8192d48bfb42b46c745c93440c7b7` | docs: extend development ledger through listing pack research |
+| 607 | 2026-10-04T11:15:19Z | `920b392e9947948a3249957ea3f565cbd6b70bac` | docs: add public testnet testing guide |
+| 608 | 2026-10-04T11:15:21Z | `7ecfbd9a1118d946e579845f7cbd9aa38cdce6f7` | docs: add contribution guidelines |
+| 609 | 2026-10-04T11:15:37Z | `ad69ff4c05c80fb7608cc20a17c1df223dd01e13` | docs: add public Windows testnet download path |
+| 610 | 2026-10-04T11:18:57Z | `e2912a065f6be0cfd33a83369c0c383371efd87f` | docs: add first public pre-alpha release notes |
+| 611 | 2026-10-04T11:20:11Z | `d6c1072160e927514f24d4aff836d7435ebb0be1` | ci: publish first public Windows pre-alpha release |
+| 612 | 2026-10-04T11:25:08Z | `7be7e2bea50ef85c49cda93d07bc53e8641001ca` | docs: point testers to first public GitHub Release |
+| 613 | 2026-10-04T11:25:34Z | `6652d13b61fda5a38298d9d26676ffbbba20af2d` | docs: link public testnet release |
+| 614 | 2026-10-04T11:26:04Z | `895e0e0f2bc6a55780a5bb3d26e6a438c335f7a5` | docs: simplify public release download steps |
+| 615 | 2026-10-04T11:28:08Z | `41dac2e9134ee4d983d91ddee5aa66ae394e75e2` | docs: record QUINTUM as a solo-founder project |
+| 616 | 2026-10-04T11:28:11Z | `69ab2ffd247c3ca3b106fd3692be028e7e5e11fc` | docs: disclose current solo-founder project structure |
+| 617 | 2026-10-04T11:28:14Z | `41c02ed6b775add5a458564a3a735f333be6517a` | docs: align exchange readiness with solo-founder structure |
+| 618 | 2026-10-04T11:31:27Z | `421b15d996003cdabb7db7c251c1cec59bfdc71e` | docs: disclose current absence of legal entity |
+| 619 | 2026-10-04T11:31:29Z | `1688d3b9b1cb1a2b8cc35daaabaaaa2cb37c72a6` | docs: mark legal-entity readiness gap |
+| 620 | 2026-10-04T11:38:55Z | `8931c07a0d38c341161bfb3e9f42f485f70ff473` | docs: simplify current company and legal-document status |
+| 621 | 2026-10-04T11:38:57Z | `2648eb5ca666d84898946c786e75bf5f645664c2` | docs: remove irrelevant registration categories |
+| 622 | 2026-10-04T11:39:00Z | `1e6769e0396048c4ce4d59c3f8f3688a5a8e1b11` | docs: normalize company documentation wording |
+| 623 | 2026-10-04T11:40:12Z | `dcdac782812db2d70889b47e819a62829b2288c8` | docs: add exchange listing risk register |
+| 624 | 2026-10-04T11:41:39Z | `2921b37db7c41c4e18a066d2d8a61167c9f45e82` | docs: add complete exchange due-diligence document checklist |
+| 625 | 2026-10-04T11:41:57Z | `fc4c96763ddcbe0a03e02cd40348741e5c12d82a` | docs: align MiCA preparation with current no-company status |
+| 626 | 2026-10-04T11:42:26Z | `6e475cbf0eb88bc69ffb980c0cb856b4d6427779` | docs: use company and legal-document wording consistently |
+| 627 | 2026-10-04T11:42:30Z | `1cca964f7998d2314138d2ab06ab56aab23ad43e` | docs: index listing risk and due-diligence document packs |
+| 628 | 2026-10-04T11:43:17Z | `2c92ce96f496f5e1a0e7eb17bf948822f82a9002` | docs: record first public Windows pre-alpha release |
