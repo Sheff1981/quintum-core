@@ -638,3 +638,6 @@ This file preserves a one-line chronological ledger of every Git commit in the p
 | 626 | 2026-10-04T11:42:26Z | `6e475cbf0eb88bc69ffb980c0cb856b4d6427779` | docs: use company and legal-document wording consistently |
 | 627 | 2026-10-04T11:42:30Z | `1cca964f7998d2314138d2ab06ab56aab23ad43e` | docs: index listing risk and due-diligence document packs |
 | 628 | 2026-10-04T11:43:17Z | `2c92ce96f496f5e1a0e7eb17bf948822f82a9002` | docs: record first public Windows pre-alpha release |
+
+| 629 | 2026-10-04 | `4eecf0705ae6f5ae84d5295df0aa1b9daffe0400` | docs: define QUINTUM community bootstrap and fair-launch principles |
+| 630 | 2026-10-04 | `ba736468696bb4a73d91e5149995f3e988795237` | docs: link community bootstrap from README |
