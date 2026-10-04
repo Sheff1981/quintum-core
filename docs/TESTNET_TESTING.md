@@ -6,9 +6,9 @@ We welcome external testers who want to run the Windows client, test networking 
 
 ## Download the Windows test build
 
-Until the first formal GitHub Release is published, the current Windows pre-alpha build is available from successful GitHub Actions runs:
+The official public Windows pre-alpha build is available from GitHub Releases:
 
-https://github.com/Sheff1981/quintum-core/actions/workflows/gui.yml?query=branch%3Amain+is%3Asuccess
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.1-prealpha
 
 1. Open the latest successful **gui** workflow run on `main`.
 2. In **Artifacts**, download `quintum-windows-x64`.
