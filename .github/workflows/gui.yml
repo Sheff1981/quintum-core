@@ -46,6 +46,8 @@ jobs:
 
   gui-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -220,3 +222,17 @@ jobs:
             dist/windows/**
             dist/SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Publish first public pre-alpha release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v0.0.1-prealpha
+          commit: ${{ github.sha }}
+          name: QUINTUM Core Testnet v0.0.1-prealpha
+          bodyFile: docs/releases/v0.0.1-prealpha.md
+          prerelease: true
+          skipIfReleaseExists: true
+          immutableCreate: true
+          artifactErrorsFailBuild: true
+          artifacts: "dist/installer/*.exe,dist/SHA256SUMS.txt"
