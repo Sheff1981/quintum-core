@@ -8,76 +8,80 @@ Origin: inspired by the classical idea of the fifth essence / quintessence.
 ## D-002 — Core language
 **Decision:** C++23.
 
-Reason: modern C++ with strong native performance and mature systems tooling while remaining suitable for a Bitcoin-class node architecture.
-
 ## D-003 — Ledger model
 **Decision:** UTXO.
-
-Reason: deterministic spend tracking, explicit double-spend validation and a proven fit for proof-of-work digital cash.
 
 ## D-004 — Consensus family
 **Decision:** Proof of Work.
 
-## D-005 — No privileged monetary controls
-**Decision:** no premine hidden from documentation, master mint key, balance override, or developer-only consensus bypass.
+## D-005 — No hidden monetary controls
+**Decision:** no hidden premine, master mint key, balance override or developer-only consensus bypass.
 
-## D-006 — Monetary policy candidate
-**State:** DRAFT until mainnet genesis freeze.
+A transparent founder subsidy is permitted only because it is explicitly specified below, enforced identically by every node, publicly visible, and cannot be increased without an incompatible consensus fork.
 
-Current candidate:
+## D-006 — Monetary policy for next RandomX Testnet
+**State:** DECIDED FOR IMPLEMENTATION; not Mainnet frozen.
 
-- 8 decimal places;
-- 50 QUINTUM initial block subsidy;
-- halving every 210,000 blocks;
-- 100-block coinbase maturity;
-- 21,000,000 QUINTUM money-range ceiling;
-- exact scheduled subsidy maximum 20,999,999.9769 QUINTUM;
-- coinbase may claim at most subsidy + transaction fees.
+- 8 decimals;
+- Genesis spendable issuance: 0 QTM;
+- target spacing: 120 seconds;
+- six primary eras of 1,000,000 mineable blocks each;
+- starting subsidy: 50 QTM/block;
+- subsidy halves at each 1,000,000-block era boundary for six eras;
+- primary issuance through height 6,000,000: exactly 98,437,500 QTM;
+- founder subsidy: exactly 5% of scheduled primary subsidy;
+- founder primary total: exactly 4,921,875 QTM;
+- miner primary total: exactly 93,515,625 QTM;
+- transaction fees: 100% to miner;
+- from height 6,000,001: permanent 1 QTM/block tail subsidy, 100% to miner;
+- founder subsidy from height 6,000,001 onward: 0 QTM;
+- coinbase maturity: 500 blocks, about 16 h 40 min at target spacing.
 
-Reason: conservative, audit-friendly fixed issuance with no privileged mint path.
+Detailed arithmetic is normative in `MONETARY_POLICY.md`.
 
 ## D-007 — Initial ownership primitive
-**State:** DRAFT until mainnet genesis freeze.
+**State:** DRAFT until mainnet freeze.
 
-Use Bitcoin Core's pinned `libsecp256k1` for ECDSA. Initial spend authorization is a minimal versioned P2PK construction with compressed public keys, compact low-S signatures and a QUINTUM-specific domain-separated SIGHASH_ALL preimage.
+Use the existing secp256k1-based ownership model unless changed by a separate reviewed decision.
 
-Reason: minimize consensus surface area while establishing real cryptographic ownership before addresses, wallet UX or a broader script system.
+## D-008 — PoW and difficulty for next RandomX Testnet
+**State:** DECIDED FOR IMPLEMENTATION; not Mainnet frozen.
 
-## D-008 — Network and difficulty candidate
-**State:** DRAFT until genesis freeze.
+- mining PoW changes from double-SHA-256 to RandomX;
+- RandomX is the sole mining PoW, not a hybrid;
+- target spacing: 120 seconds;
+- seed interval: 2,048 blocks;
+- seed lag: 64 blocks;
+- planned difficulty algorithm: per-block ASERT;
+- planned ASERT half-life: 34,560 seconds / 9 h 36 min;
+- active chain remains the valid chain with greatest cumulative work.
 
-Current Mainnet candidate uses 600-second target spacing, 2016-block Bitcoin-style periodic retargeting, 1/4x to 4x timespan clamps and PoW limit bits `0x1e0ffff0`.
-
-Testnet uses the same base policy with a delayed-block minimum-difficulty rule. Regtest has fixed easy difficulty.
-
-Every block's expected `bits` is derived from its own parent branch before PoW acceptance; miners cannot lower difficulty by placing an arbitrary target in the header.
-
-Reason: retain a small, deterministic, well-understood retarget design while keeping development and public testing networks operationally distinct.
+A specific RandomX revision and exact byte-level test vectors must be pinned before network activation.
 
 ## D-009 — Timestamp and resource limits
-**State:** DRAFT until genesis freeze.
+**State:** DRAFT until mainnet freeze.
 
-Use an 11-block Median Time Past rule, a 2-hour maximum future timestamp window, a 1,000,000-byte serialized block ceiling, 10,000-transaction block ceiling, 10,000-byte script ceiling and 100-byte coinbase unlocking-script ceiling.
+Current resource limits remain in force unless separately changed and tested.
 
-Reason: keep block validation deterministic and resource-bounded before network/P2P parsing is exposed to untrusted peers.
+## D-010 — Legacy SHA-256 Genesis identity
+**State:** HISTORICAL / CURRENT TESTNET IDENTITY.
 
-## D-010 — Genesis identity
-**State:** GENESIS PINNED.
+The existing pinned Genesis values identify the current SHA-256 Testnet candidate. They are not reused for the next RandomX Testnet. Existing chain and wallet data must be preserved rather than silently reinterpreted.
 
-Mainnet, Testnet and Regtest each have a deterministic Genesis block reconstructed from code and matched against pinned hash/Merkle/nonce constants.
+## D-011 — RandomX Testnet is a new incompatible chain
+**State:** DECIDED.
 
-The Genesis coinbase embeds the public pre-Genesis Stage 11 commit prefix `1bac54a3f46c` and sends its 50-QUINTUM height-0 subsidy to the permanently unspendable locking-script version `0x00`.
+The RandomX migration requires a new Genesis/network identity. The old SHA-256 Testnet is retained as an archive/test history. No production Mainnet exists yet, so this change does not fork live production funds.
 
-Built-in ChainParams enforce the exact configured Genesis as the only valid first block.
+## D-012 — Founder payout transparency
+**State:** DECIDED FOR IMPLEMENTATION.
 
-Reason: establish a reproducible, publicly anchored network identity with no creator-owned Genesis premine.
-
-Changing a Genesis field now intentionally defines a different network.
+For primary subsidy heights 1..6,000,000, 5% of scheduled subsidy is paid to one publicly documented founder payout script/address and 95% to the miner. The exact payout script/address must be published and pinned before activation. It receives no transaction fees and no tail subsidy.
 
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
 - **DRAFT**: value may change during development.
-- **GENESIS PINNED**: identity-defining Genesis constants are fixed in code; changing them creates a different network.
+- **DECIDED FOR IMPLEMENTATION**: approved target for the next test network but not yet present in running consensus code.
 - **TESTNET FROZEN**: fixed for that test network.
 - **MAINNET FROZEN**: changing it can split the production network.

@@ -1,134 +1,105 @@
 # QUINTUM Monetary Policy
 
-Status: **DRAFT — pre-mainnet**
+Status: **DECIDED FOR NEXT RANDOMX TESTNET — NOT YET IMPLEMENTED — NOT MAINNET FROZEN**
 
-These values are implemented and tested as the current consensus candidate. They are not **MAINNET FROZEN** until the genesis specification is deliberately finalized.
+This document records the monetary policy agreed for the next incompatible RandomX test network. The current running SHA-256 Testnet still follows the old code until the consensus migration is implemented and tested.
 
 ## Atomic unit
 
-One QUINTUM is represented internally as:
+- 1 QTM = 100,000,000 atomic units.
+- Decimal places: 8.
+- Smallest unit: 0.00000001 QTM.
 
-`1 QUINTUM = 100,000,000 atomic units`
+## Genesis
 
-This gives **8 decimal places**.
+- Spendable Genesis issuance: **0 QTM**.
+- Genesis is an identity anchor only and gives no spendable balance to the founder, miner or project.
 
-The public name of the smallest unit is not chosen yet.
+## Target block interval
 
-## Monetary range
+- Target spacing: **120 seconds / 2 minutes**.
+- Expected blocks per hour: **30**.
+- Expected blocks per 24-hour day: **720**.
 
-Consensus arithmetic rejects values above:
+## Primary subsidy schedule
 
-`21,000,000 QUINTUM`
+The first six subsidy eras contain exactly 1,000,000 mineable blocks each. Height 0 is Genesis and has no spendable subsidy.
 
-or:
+| Heights | Total subsidy/block | Miner 95% | Founder 5% | Era issuance |
+| --- | ---: | ---: | ---: | ---: |
+| 1..1,000,000 | 50.00000000 QTM | 47.50000000 | 2.50000000 | 50,000,000.00000000 |
+| 1,000,001..2,000,000 | 25.00000000 | 23.75000000 | 1.25000000 | 25,000,000.00000000 |
+| 2,000,001..3,000,000 | 12.50000000 | 11.87500000 | 0.62500000 | 12,500,000.00000000 |
+| 3,000,001..4,000,000 | 6.25000000 | 5.93750000 | 0.31250000 | 6,250,000.00000000 |
+| 4,000,001..5,000,000 | 3.12500000 | 2.96875000 | 0.15625000 | 3,125,000.00000000 |
+| 5,000,001..6,000,000 | 1.56250000 | 1.48437500 | 0.07812500 | 1,562,500.00000000 |
 
-`2,100,000,000,000,000 atomic units`
+Exact primary issuance through height 6,000,000:
 
-This is a hard money-range safety bound used for transaction/output validation.
+- total: **98,437,500.00000000 QTM**;
+- miners: **93,515,625.00000000 QTM**;
+- founder: **4,921,875.00000000 QTM**;
+- founder share: **exactly 5.00000000% of primary subsidy issuance**.
 
-## Initial block subsidy
+At the 120-second target, 1,000,000 blocks represent 120,000,000 seconds, or about 3.80257 years. Six primary eras therefore represent about 22.8154 years at target spacing.
 
-At height 0:
+## Founder reward
 
-`50 QUINTUM`
+For heights 1 through 6,000,000:
 
-or:
+- exactly 5% of the scheduled block subsidy is paid to the publicly documented founder payout script;
+- the founder reward is created only when a valid PoW block is mined;
+- it is not a hidden premine and there is no separate mint function;
+- the founder payout script/address must be pinned and published before RandomX Testnet activation;
+- the founder reward is subject to normal coinbase maturity;
+- transaction fees are not shared with the founder.
 
-`5,000,000,000 atomic units`
+After height 6,000,000, the founder consensus reward is permanently **0 QTM**.
 
-## Halving schedule
+## Tail emission
 
-The subsidy halves every:
+Beginning at height **6,000,001**:
 
-`210,000 blocks`
+- block subsidy: **1.00000000 QTM per block forever**;
+- founder share: **0 QTM**;
+- the full tail subsidy goes to the miner.
 
-Examples:
+At target spacing:
 
-- heights 0..209,999: 50 QUINTUM
-- heights 210,000..419,999: 25 QUINTUM
-- heights 420,000..629,999: 12.5 QUINTUM
-- and so on
+- 30 QTM/hour;
+- 720 QTM/day;
+- 262,800 QTM per 365-day year;
+- 262,980 QTM per 365.25-day average calendar year.
 
-Subsidy arithmetic uses atomic integer units only. Fractions smaller than one atomic unit are discarded naturally by integer halving.
+Because tail emission is constant in QTM while circulating supply grows, percentage monetary inflation declines over time.
 
-The scheduled subsidy reaches zero after 33 non-zero subsidy eras.
+## Transaction fees
 
-If every block claims the full allowed subsidy, the exact total scheduled subsidy is:
-
-`20,999,999.9769 QUINTUM`
-
-or:
-
-`2,099,999,997,690,000 atomic units`
-
-This is below the 21,000,000 QUINTUM money-range ceiling.
-
-## Genesis subsidy and spendable maximum
-
-The Mainnet Genesis coinbase claims the normal height-0 subsidy of **50 QUINTUM**, but sends it to the consensus-reserved unspendable locking-script version `0x00`.
-
-Therefore:
-
-- scheduled subsidy total remains **20,999,999.9769 QUINTUM**;
-- Genesis subsidy is permanently unspendable;
-- maximum theoretically spendable subsidy supply is **20,999,949.9769 QUINTUM**, before accounting for any later voluntarily burned or under-claimed rewards.
-
-There is no private key, developer key or recovery mechanism for the Genesis output.
-
-## Coinbase reward rule
-
-A valid block may create at most:
-
-`block subsidy + total transaction fees in that block`
-
-The miner may claim less.
-
-The miner may **not** claim even one atomic unit more.
-
-The rule is checked only after all non-coinbase transactions have been evaluated so that the actual fee total is known.
+- **100% of transaction fees go to the miner of the block.**
+- Founder reward is calculated only from scheduled subsidy, never from fees.
 
 ## Coinbase maturity
 
-A coinbase output cannot be spent until it has at least:
+Coinbase outputs become spendable only after **500 blocks**.
 
-`100 blocks of maturity`
+At the 120-second target:
 
-If a coinbase was created at height H, it becomes spendable at height:
+- 500 blocks × 120 seconds = 60,000 seconds;
+- 60,000 seconds = **16 hours 40 minutes**.
 
-`H + 100`
+The same maturity applies to miner subsidy and founder subsidy outputs because both are coinbase outputs.
 
-This prevents newly mined outputs from being spent immediately while the chain tip is still vulnerable to short reorganizations.
-
-## Money-range checks
-
-The current consensus validation rejects:
-
-- any output above 21,000,000 QUINTUM;
-- any transaction whose output sum exceeds the monetary range;
-- any input accumulation that exceeds the monetary range;
-- immature coinbase spends;
-- block coinbase rewards above subsidy + fees.
-
-## No privileged issuance
+## Consensus invariants
 
 There is no:
 
+- hidden premine;
 - developer mint key;
-- hidden premine path;
-- administrator balance override;
-- RPC that bypasses consensus issuance;
-- special developer-only block reward.
+- master balance override;
+- RPC bypass for issuance;
+- mechanism to increase the founder percentage after activation;
+- mechanism to re-enable the founder reward after height 6,000,000 without a network-breaking consensus fork.
 
-All issuance must come through a valid coinbase transaction under the same consensus rules every node enforces.
+## Implementation status
 
-## Parameters still not frozen
-
-This document defines the current monetary candidate. Mainnet Genesis has now been constructed and code-pinned as a reproducible candidate.
-
-Before **MAINNET FROZEN**, we still must deliberately confirm:
-
-- final public-testnet validation;
-- final review of network identifiers and ports;
-- final freeze of the implemented candidate address format;
-- smallest-unit public name;
-- ticker.
+The current code still implements the legacy pre-RandomX candidate (21M / 10-minute / SHA-256 schedule). This document is the authoritative target specification for the next RandomX Testnet implementation. Code, tests, GUI and exchange documentation must be updated together before activation.

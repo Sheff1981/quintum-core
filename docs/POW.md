@@ -1,80 +1,61 @@
 # QUINTUM Proof of Work
 
-Status: **DRAFT — pre-mainnet**
+Status: **DECIDED FOR NEXT RANDOMX TESTNET — NOT YET IMPLEMENTED — NOT MAINNET FROZEN**
 
-## Purpose
+The current running Testnet still uses double-SHA-256 PoW. The next incompatible Testnet will replace mining PoW with RandomX while retaining SHA-256 where it is useful for transaction IDs, block IDs, signatures and other non-mining hashing.
 
-Proof of Work makes block creation objectively expensive and lets independent nodes compare competing chains by cumulative work.
+## Mining algorithm
 
-## Compact target
+- Consensus mining algorithm: **RandomX**.
+- RandomX is the only mining PoW for the new network.
+- QUINTUM will not use a hybrid SHA-256 + RandomX mining schedule.
+- A specific RandomX upstream revision/configuration must be vendored or pinned before activation so dependency updates cannot silently change consensus behavior.
 
-The block header stores a 32-bit `bits` value containing:
+## Target block interval
 
-- an 8-bit exponent;
-- a 23-bit mantissa;
-- a sign bit that is forbidden for valid PoW targets.
+- **120 seconds** per block.
 
-The decoder rejects:
+## RandomX seed schedule
 
-- zero targets;
-- negative targets;
-- targets that overflow 256 bits;
-- non-canonical encodings when validating or mining a header.
+Planned QUINTUM RandomX seed policy:
 
-## Hash interpretation
+- seed interval: **2,048 blocks**;
+- seed lag: **64 blocks**;
+- domain separation: **QUINTUM-RX-SEED-V1**;
+- seed material is derived deterministically from QUINTUM chain history;
+- all nodes must derive the identical seed for the same candidate height.
 
-The 32 bytes returned by double-SHA-256 are interpreted as one unsigned 256-bit integer in big-endian byte order for PoW comparison.
+The exact byte-level seed preimage and genesis/bootstrap behavior must be covered by fixed consensus test vectors before activation.
 
-A header satisfies Proof of Work when:
+## Difficulty adjustment
 
-`block_hash <= target`
+The next RandomX Testnet is planned to use per-block **ASERT** difficulty adjustment rather than the current 2,016-block Bitcoin-style retarget.
 
-## Mining loop
+Target parameters:
 
-`mine_header()`:
+- target spacing: **120 seconds**;
+- adjustment: **every block**;
+- ASERT half-life: **34,560 seconds / 9 hours 36 minutes**;
+- chain selection: greatest cumulative valid chain work.
 
-1. decodes and validates the compact target;
-2. hashes the current header;
-3. checks the hash against the target;
-4. increments the 64-bit nonce when the target is not met;
-5. stops when a valid hash is found or the supplied attempt limit is exhausted.
+Exact integer arithmetic, anchor rules and test vectors must be frozen before activation.
 
-This is real nonce search. There is no simulated success path.
+## Proof validation
 
-## Chain work
+A candidate block is valid only when:
 
-Work contributed by one block target is calculated exactly as:
+1. its header and consensus fields are structurally valid;
+2. the expected difficulty target for that branch is correct;
+3. the deterministic RandomX seed for that height is correct;
+4. the RandomX PoW hash meets the encoded target;
+5. all normal transaction, UTXO, monetary and resource checks pass.
 
-`floor(2^256 / (target + 1))`
+There is no simulated mining success path.
 
-The implementation uses deterministic 256-bit integer arithmetic without platform-specific wide integer extensions.
+## Non-mining hashes
 
-Cumulative chain work is formed by adding the work of each connected valid block.
+Changing mining PoW to RandomX does **not** imply replacing every SHA-256 use in QUINTUM. Transaction IDs, signature hashing and other cryptographic identifiers may continue to use the existing SHA-256/double-SHA-256 constructions unless separately changed by an explicit consensus decision.
 
-Future chain selection will use greatest cumulative valid work, not merely the greatest block height.
+## Migration rule
 
-## Test vectors
-
-Compact value:
-
-`0x1d00ffff`
-
-decodes to:
-
-`00000000ffff0000000000000000000000000000000000000000000000000000`
-
-Its exact per-block work is:
-
-`0000000000000000000000000000000000000000000000000000000100010001`
-
-An intentionally easy development target `0x2100ffff` is used to verify the mining loop deterministically.
-
-## Not frozen yet
-
-Before QUINTUM genesis, the following still require explicit consensus decisions:
-
-- mainnet PoW limit;
-- initial mainnet difficulty;
-- target block interval;
-- difficulty adjustment algorithm;
-- testnet/regtest special rules.
+RandomX activation defines a new incompatible test network with a new Genesis/network identity. The existing SHA-256 Testnet data is preserved as historical test data and is not silently reinterpreted as RandomX chain data.

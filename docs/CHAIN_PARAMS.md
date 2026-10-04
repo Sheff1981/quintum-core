@@ -1,92 +1,70 @@
 # QUINTUM Chain Parameters
 
-Status: **DRAFT — pre-mainnet**
+Status: **CURRENT SHA-256 TESTNET IMPLEMENTED; RANDOMX TESTNET PARAMETERS DECIDED FOR NEXT NETWORK**
 
 QUINTUM uses explicit parameter sets so Mainnet, Testnet and Regtest cannot silently share network identity or Proof-of-Work policy.
 
-These values are implemented and tested. Genesis constants are now code-pinned; changing them creates a different network identity. Other pre-launch parameters remain subject to explicit review.
+## Current implemented SHA-256 test network
 
-## Mainnet candidate
+The repository currently contains the original pre-mainnet SHA-256 candidate:
 
-- network name: `mainnet`
-- message start / network magic: `51 b7 4c a3`
+- target block spacing: 600 seconds;
+- periodic 2,016-block retarget;
+- SHA-256-based PoW;
+- existing pinned Genesis values.
+
+Those values remain necessary to interpret the existing public Testnet and its stored chain data.
+
+## Next RandomX Testnet
+
+The next incompatible public Testnet is specified to use:
+
+- mining PoW: **RandomX**;
+- target block spacing: **120 seconds**;
+- difficulty adjustment: **per-block ASERT**;
+- ASERT half-life target: **34,560 seconds / 9 hours 36 minutes**;
+- coinbase maturity: **500 blocks**;
+- RandomX seed interval: **2,048 blocks**;
+- RandomX seed lag: **64 blocks**;
+- primary monetary schedule and 5% founder subsidy split as defined in `MONETARY_POLICY.md`;
+- tail subsidy of 1 QTM/block from height 6,000,001.
+
+The RandomX Testnet must receive a **new Genesis and distinct network identity**. Existing SHA-256 Testnet chain/wallet data must not be deleted or silently migrated.
+
+## Existing network identities
+
+Current implemented identities remain documented for the legacy SHA-256 Testnet until the RandomX network is implemented:
+
+### Mainnet candidate
+
+- message start: `51 b7 4c a3`
 - P2P port: `28444`
 - RPC port: `28445`
-- target block spacing: **600 seconds**
-- retarget interval: **2016 blocks**
-- target retarget timespan: **1209600 seconds / 14 days**
-- PoW limit compact bits: `0x1e0ffff0`
-- special minimum-difficulty blocks: **disabled**
-- difficulty retargeting: **enabled**
 
-## Testnet candidate
+### Testnet candidate
 
-- network name: `testnet`
-- message start / network magic: `b7 d7 16 5a`
+- message start: `b7 d7 16 5a`
 - P2P port: `38444`
 - RPC port: `38445`
-- target block spacing: **600 seconds**
-- retarget interval: **2016 blocks**
-- PoW limit compact bits: `0x1e0ffff0`
-- special minimum-difficulty blocks: **enabled**
-- difficulty retargeting: **enabled**
 
-Testnet permits a minimum-difficulty block when its timestamp is more than **2 target spacings (1200 seconds)** after its parent. A normally timed following block restores the most recent non-minimum difficulty, except at a normal retarget boundary.
+### Regtest candidate
 
-## Regtest candidate
-
-- network name: `regtest`
-- message start / network magic: `33 20 e2 ee`
+- message start: `33 20 e2 ee`
 - P2P port: `48444`
 - RPC port: `48445`
-- target block spacing: **1 second**
-- nominal retarget interval: **144 blocks**
-- PoW limit compact bits: `0x2100ffff`
-- difficulty retargeting: **disabled**
 
-Regtest intentionally keeps a fixed easy target so automated tests and local developers can mine blocks immediately.
-
-## Network magic derivation
-
-The current draft message-start bytes were deterministically selected from the first four SHA-256 bytes of:
-
-- `QUINTUM-mainnet`
-- `QUINTUM-testnet`
-- `QUINTUM-regtest`
-
-They exist to reduce accidental cross-network message interpretation.
-
-## Separation rule
-
-A node must be created with exactly one ChainParams set. Consensus validation reads its PoW policy from that set.
-
-A Mainnet node must never accept a Testnet or Regtest difficulty policy merely because a block's raw hash satisfies some target.
-
-## Genesis identity
-
-Exact Genesis hashes, Merkle roots, timestamps, bits, nonces and messages are recorded in `docs/GENESIS.md` and stored directly in `ChainParams`.
-
-Built-in networks set `genesis.enforce = true`: the first block must equal the configured Genesis hash.
-
-## Still subject to pre-launch review
-
-- network magic bytes;
-- P2P/RPC ports;
-- address prefixes/encoding;
-- fee policy;
-- public-testnet operational behavior.
-
-Changing Genesis itself is no longer a parameter tweak; it defines another network.
-
+The next RandomX Testnet network magic, ports, Genesis hash, Merkle root, timestamp, nonce and PoW limit must be generated and pinned during implementation rather than reusing the legacy SHA-256 Testnet identity.
 
 ## Wallet address encoding candidate
 
-Stage 20 implements network-separated Bech32m wallet addresses:
+Current address HRPs remain:
 
-- Mainnet HRP: `qtm`
-- Testnet HRP: `tqtm`
-- Regtest HRP: `rqtm`
+- Mainnet: `qtm`
+- Testnet: `tqtm`
+- Regtest: `rqtm`
 
-The payload currently contains address type `0x01` followed by the 33-byte compressed secp256k1 public key and maps directly to the existing P2PK v1 locking model.
+Address encoding is independent from the PoW migration unless a separate decision changes it.
 
-These prefixes and encoding rules are implemented and regression-tested, but remain **pre-mainnet candidates** until the public network specification is deliberately frozen.
+## Freeze rule
+
+No RandomX parameter is **MAINNET FROZEN** yet. The next step is implementation and destructive-incompatibility-aware public Testnet validation. Mainnet parameters are frozen only after multi-node, reorg, persistence, wallet and mining tests pass.
