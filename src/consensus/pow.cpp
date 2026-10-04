@@ -1,5 +1,7 @@
 #include "consensus/pow.hpp"
 
+#include "crypto/randomx.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -325,6 +327,76 @@ PowCheckError check_proof_of_work(
     return PowCheckError::none;
 }
 
+std::optional<Hash256> randomx_pow_hash(
+    const BlockHeader& header,
+    const Hash256& seed_key)
+{
+    crypto::RandomXLightHasher hasher{
+        std::span<const Byte>{seed_key}
+    };
+
+    if (!hasher.valid()) {
+        return std::nullopt;
+    }
+
+    const auto input =
+        serialize_block_header(header);
+
+    return hasher.hash(input);
+}
+
+PowCheckError check_randomx_proof_of_work(
+    const BlockHeader& header,
+    const PowParams& params,
+    const Hash256& seed_key)
+{
+    const auto compact =
+        decode_compact_target(header.bits);
+
+    if (!compact_is_canonical(
+            header.bits,
+            compact)) {
+        return PowCheckError::invalid_target;
+    }
+
+    const auto limit =
+        decode_compact_target(
+            params.pow_limit_bits
+        );
+
+    if (!compact_is_canonical(
+            params.pow_limit_bits,
+            limit)) {
+        return PowCheckError::invalid_target;
+    }
+
+    if (std::lexicographical_compare(
+            limit.target.begin(),
+            limit.target.end(),
+            compact.target.begin(),
+            compact.target.end())) {
+        return PowCheckError::target_above_pow_limit;
+    }
+
+    const auto hash =
+        randomx_pow_hash(
+            header,
+            seed_key
+        );
+
+    if (!hash) {
+        return PowCheckError::hashing_failed;
+    }
+
+    if (!hash_meets_target(
+            *hash,
+            compact.target)) {
+        return PowCheckError::hash_above_target;
+    }
+
+    return PowCheckError::none;
+}
+
 MiningResult mine_header(
     BlockHeader& header,
     std::uint64_t max_attempts)
@@ -350,6 +422,73 @@ MiningResult mine_header(
         }
 
         if (header.nonce == std::numeric_limits<std::uint64_t>::max()) {
+            result.status = MineStatus::exhausted;
+            return result;
+        }
+
+        ++header.nonce;
+    }
+
+    result.status = MineStatus::exhausted;
+    return result;
+}
+
+MiningResult mine_randomx_header(
+    BlockHeader& header,
+    const Hash256& seed_key,
+    std::uint64_t max_attempts)
+{
+    const auto compact =
+        decode_compact_target(header.bits);
+
+    MiningResult result;
+    result.nonce = header.nonce;
+
+    if (!compact_is_canonical(
+            header.bits,
+            compact)) {
+        result.status =
+            MineStatus::invalid_target;
+        return result;
+    }
+
+    crypto::RandomXLightHasher hasher{
+        std::span<const Byte>{seed_key}
+    };
+
+    if (!hasher.valid()) {
+        result.status =
+            MineStatus::hashing_failed;
+        return result;
+    }
+
+    for (std::uint64_t attempt = 0U;
+         attempt < max_attempts;
+         ++attempt) {
+        const auto input =
+            serialize_block_header(header);
+        const auto hash =
+            hasher.hash(input);
+
+        if (!hash) {
+            result.status =
+                MineStatus::hashing_failed;
+            return result;
+        }
+
+        result.hash = *hash;
+        result.nonce = header.nonce;
+        result.attempts = attempt + 1U;
+
+        if (hash_meets_target(
+                result.hash,
+                compact.target)) {
+            result.status = MineStatus::found;
+            return result;
+        }
+
+        if (header.nonce ==
+            std::numeric_limits<std::uint64_t>::max()) {
             result.status = MineStatus::exhausted;
             return result;
         }
