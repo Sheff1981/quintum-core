@@ -78,6 +78,20 @@ The RandomX migration requires a new Genesis/network identity. The old SHA-256 T
 
 For primary subsidy heights 1..6,000,000, 5% of scheduled subsidy is paid to one publicly documented founder payout script/address and 95% to the miner. The exact payout script/address must be published and pinned before activation. It receives no transaction fees and no tail subsidy.
 
+## D-013 — Transaction fee model
+**State:** DECIDED FOR IMPLEMENTATION.
+
+QUINTUM keeps the existing Bitcoin/Litecoin-style size-based fee model:
+
+- fees are based on serialized transaction size and fee rate, not on the amount being transferred;
+- default wallet/minimum relay candidate: 1,000 atomic units per 1,000 serialized bytes;
+- the wallet Auto rate is the maximum of its default rate, the node relay floor and the median current mempool fee rate;
+- 100% of transaction fees go to the miner that includes the transaction;
+- the founder receives 0% of transaction fees;
+- fee policy remains separate from consensus: an otherwise valid lower-fee transaction is not made consensus-invalid merely because a node would normally refuse to relay it.
+
+At the current P2PK transaction shape, a common 1-input/2-output transaction is about 202 bytes and therefore costs 202 atomic units = 0.00000202 QTM at the default rate.
+
 ## Freeze states
 
 - **DECIDED**: architectural direction chosen.
