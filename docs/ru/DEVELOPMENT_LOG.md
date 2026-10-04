@@ -3499,3 +3499,20 @@ Mainnet consensus-параметры не менялись в ходе Stage 29.
 - после проверки основной systemd-сервис снова запущен и имеет состояние `active`.
 
 Это повторно подтверждает, что новые блоки Windows-майнера (height 3..7) не остались локальными: они были переданы по P2P, приняты VPS, проверены consensus и сохранены на диске.
+
+
+### Overnight live test — reconnect, sync and coinbase maturity at height 139
+
+A long-running Windows Testnet wallet/miner was left running overnight without software updates or manual peer configuration. After a prior temporary failure to reconnect, the application was restarted. By the next morning the desktop wallet reported:
+
+- Local block height: 139
+- Peer best height: 139
+- Peers: 1
+- Synchronization: Up to date
+- Available: 2000.00000000 QTM
+- Confirmed: 2000.00000000 QTM
+- Immature: 4950.00000000 QTM
+
+Accounting is internally consistent with 139 mined 50-QTM coinbase rewards and 100-block coinbase maturity: 40 matured rewards = 2000 QTM, 99 immature rewards = 4950 QTM, total = 6950 QTM.
+
+This live run confirms persistent chain/wallet state across restart, automatic P2P reconnection to the public peer, full height agreement with the peer, and automatic transition of coinbase rewards from immature to spendable without manual intervention.
