@@ -5,6 +5,7 @@
 #include "primitives/block.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace quintum::consensus {
 
@@ -22,12 +23,14 @@ enum class PowCheckError {
     invalid_target,
     target_above_pow_limit,
     hash_above_target,
+    hashing_failed,
 };
 
 enum class MineStatus {
     found,
     exhausted,
     invalid_target,
+    hashing_failed,
 };
 
 struct MiningResult {
@@ -59,6 +62,17 @@ struct MiningResult {
     const PowParams& params
 );
 
+[[nodiscard]] std::optional<Hash256> randomx_pow_hash(
+    const BlockHeader& header,
+    const Hash256& seed_key
+);
+
+[[nodiscard]] PowCheckError check_randomx_proof_of_work(
+    const BlockHeader& header,
+    const PowParams& params,
+    const Hash256& seed_key
+);
+
 [[nodiscard]] Hash256 work_for_target(const Hash256& target);
 [[nodiscard]] bool add_chain_work(
     Hash256& accumulated,
@@ -67,6 +81,12 @@ struct MiningResult {
 
 [[nodiscard]] MiningResult mine_header(
     BlockHeader& header,
+    std::uint64_t max_attempts
+);
+
+[[nodiscard]] MiningResult mine_randomx_header(
+    BlockHeader& header,
+    const Hash256& seed_key,
     std::uint64_t max_attempts
 );
 
