@@ -28,7 +28,7 @@ The following package is maintained for every exchange:
 - official website and source repository;
 - whitepaper / protocol specification;
 - team and responsible-contact information for private due diligence;
-- legal entity information if/when one exists;
+- company and project legal documentation if/when they exist or are required by the venue;
 - launch history and development provenance;
 - Mainnet Genesis data and exact network parameters;
 - consensus algorithm and chain-selection rules;
