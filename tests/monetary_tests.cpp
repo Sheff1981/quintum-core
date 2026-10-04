@@ -164,9 +164,9 @@ void test_randomx_candidate_schedule()
     assert(randomx_miner_subsidy(6'000'001U) ==
            kRandomXTailSubsidy);
 
-    Amount primary_total{0U};
-    Amount founder_total{0U};
-    Amount miner_total{0U};
+    quintum::Amount primary_total{0U};
+    quintum::Amount founder_total{0U};
+    quintum::Amount miner_total{0U};
 
     for (std::uint32_t era = 0U;
          era < kRandomXPrimaryEras;
@@ -174,7 +174,7 @@ void test_randomx_candidate_schedule()
         const std::uint32_t height =
             era * kRandomXEraBlocks + 1U;
 
-        const Amount blocks =
+        const quintum::Amount blocks =
             static_cast<Amount>(
                 kRandomXEraBlocks);
 
