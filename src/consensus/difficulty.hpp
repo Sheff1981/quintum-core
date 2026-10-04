@@ -31,6 +31,15 @@ struct DifficultyResult {
     const PowParams& params
 );
 
+[[nodiscard]] DifficultyResult calculate_asert_bits(
+    std::uint32_t reference_bits,
+    std::int64_t target_spacing_seconds,
+    std::int64_t time_diff_seconds,
+    std::int64_t height_diff,
+    std::uint32_t pow_limit_bits,
+    std::int64_t half_life_seconds
+);
+
 [[nodiscard]] Hash256 scale_target_clamped(
     const Hash256& target,
     std::uint64_t numerator,
