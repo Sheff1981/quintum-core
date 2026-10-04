@@ -1,6 +1,7 @@
 #include "consensus/monetary.hpp"
 
 #include <cassert>
+#include <limits>
 
 namespace {
 
@@ -114,11 +115,98 @@ void test_output_money_range()
 
 } // namespace
 
+void test_randomx_candidate_schedule()
+{
+    using namespace quintum::consensus;
+
+    static_assert(kRandomXEraBlocks == 1'000'000U);
+    static_assert(kRandomXPrimaryEras == 6U);
+    static_assert(kRandomXPrimaryEndHeight == 6'000'000U);
+    static_assert(kRandomXFounderBasisPoints == 500U);
+    static_assert(kRandomXCoinbaseMaturity == 500U);
+
+    assert(randomx_total_subsidy(0U) == 0U);
+
+    assert(randomx_total_subsidy(1U) ==
+           50ULL * kAtomicUnitsPerCoin);
+    assert(randomx_total_subsidy(1'000'000U) ==
+           50ULL * kAtomicUnitsPerCoin);
+    assert(randomx_total_subsidy(1'000'001U) ==
+           25ULL * kAtomicUnitsPerCoin);
+    assert(randomx_total_subsidy(2'000'001U) ==
+           1'250'000'000ULL);
+    assert(randomx_total_subsidy(3'000'001U) ==
+           625'000'000ULL);
+    assert(randomx_total_subsidy(4'000'001U) ==
+           312'500'000ULL);
+    assert(randomx_total_subsidy(5'000'001U) ==
+           156'250'000ULL);
+    assert(randomx_total_subsidy(6'000'000U) ==
+           156'250'000ULL);
+
+    assert(randomx_total_subsidy(6'000'001U) ==
+           kRandomXTailSubsidy);
+    assert(randomx_total_subsidy(
+               std::numeric_limits<std::uint32_t>::max()) ==
+           kRandomXTailSubsidy);
+
+    assert(randomx_founder_subsidy(1U) ==
+           250'000'000ULL);
+    assert(randomx_miner_subsidy(1U) ==
+           4'750'000'000ULL);
+
+    assert(randomx_founder_subsidy(5'000'001U) ==
+           7'812'500ULL);
+    assert(randomx_miner_subsidy(5'000'001U) ==
+           148'437'500ULL);
+
+    assert(randomx_founder_subsidy(6'000'001U) == 0U);
+    assert(randomx_miner_subsidy(6'000'001U) ==
+           kRandomXTailSubsidy);
+
+    Amount primary_total{0U};
+    Amount founder_total{0U};
+    Amount miner_total{0U};
+
+    for (std::uint32_t era = 0U;
+         era < kRandomXPrimaryEras;
+         ++era) {
+        const std::uint32_t height =
+            era * kRandomXEraBlocks + 1U;
+
+        const Amount blocks =
+            static_cast<Amount>(
+                kRandomXEraBlocks);
+
+        primary_total +=
+            randomx_total_subsidy(height) *
+            blocks;
+        founder_total +=
+            randomx_founder_subsidy(height) *
+            blocks;
+        miner_total +=
+            randomx_miner_subsidy(height) *
+            blocks;
+    }
+
+    assert(primary_total ==
+           kRandomXPrimaryIssuance);
+    assert(founder_total ==
+           kRandomXFounderPrimaryIssuance);
+    assert(miner_total ==
+           kRandomXMinerPrimaryIssuance);
+    assert(founder_total + miner_total ==
+           primary_total);
+    assert(founder_total * 20ULL ==
+           primary_total);
+}
+
 int main()
 {
     test_money_constants();
     test_subsidy_schedule();
     test_coinbase_reward_limit();
     test_output_money_range();
+    test_randomx_candidate_schedule();
     return 0;
 }

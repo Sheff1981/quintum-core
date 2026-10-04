@@ -1,6 +1,6 @@
 # QUINTUM Monetary Policy
 
-Status: **DECIDED FOR NEXT RANDOMX TESTNET — NOT YET IMPLEMENTED — NOT MAINNET FROZEN**
+Status: **RANDOMX MONETARY ARITHMETIC IMPLEMENTED AND TESTED — NETWORK ACTIVATION NOT YET ENABLED — NOT MAINNET FROZEN**
 
 This document records the monetary policy agreed for the next incompatible RandomX test network. The current running SHA-256 Testnet still follows the old code until the consensus migration is implemented and tested.
 
@@ -108,4 +108,6 @@ There is no:
 
 ## Implementation status
 
-The current code still implements the legacy pre-RandomX candidate (21M / 10-minute / SHA-256 schedule). This document is the authoritative target specification for the next RandomX Testnet implementation. Code, tests, GUI and exchange documentation must be updated together before activation.
+The exact RandomX monetary arithmetic is now present in consensus code and covered by tests, including all six era boundaries, the exact 5%/95% split, the 98,437,500 QTM primary total, the 4,921,875 QTM founder total, the 93,515,625 QTM miner total, the height-6,000,001 tail transition and the 500-block maturity constant.
+
+The currently running SHA-256 Testnet still uses the legacy monetary path. The new arithmetic is **not activated for a network yet**. Activation waits for the new RandomX ChainParams, founder payout script, ASERT rules and new Genesis so existing Testnet data remains readable and untouched.

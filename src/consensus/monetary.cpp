@@ -21,6 +21,53 @@ Amount block_subsidy(std::uint32_t height) noexcept
     return kInitialSubsidy >> halvings;
 }
 
+Amount randomx_total_subsidy(
+    std::uint32_t height) noexcept
+{
+    if (height == 0U) {
+        return 0U;
+    }
+
+    if (height > kRandomXPrimaryEndHeight) {
+        return kRandomXTailSubsidy;
+    }
+
+    const std::uint32_t era =
+        (height - 1U) / kRandomXEraBlocks;
+
+    return kRandomXInitialSubsidy >> era;
+}
+
+Amount randomx_founder_subsidy(
+    std::uint32_t height) noexcept
+{
+    if (height == 0U ||
+        height > kRandomXPrimaryEndHeight) {
+        return 0U;
+    }
+
+    const Amount subsidy =
+        randomx_total_subsidy(height);
+
+    return (
+        subsidy *
+        static_cast<Amount>(
+            kRandomXFounderBasisPoints)
+    ) /
+        static_cast<Amount>(
+            kBasisPointsDenominator);
+}
+
+Amount randomx_miner_subsidy(
+    std::uint32_t height) noexcept
+{
+    const Amount total =
+        randomx_total_subsidy(height);
+
+    return total -
+           randomx_founder_subsidy(height);
+}
+
 std::optional<Amount> transaction_output_total(
     const Transaction& tx) noexcept
 {
