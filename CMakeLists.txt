@@ -260,6 +260,18 @@ quintum_test_assertions(quintum_randomx_seed_tests)
 
 add_test(NAME randomx_seed COMMAND quintum_randomx_seed_tests)
 
+add_executable(quintum_randomx_chain_tests
+    tests/randomx_chain_tests.cpp
+)
+target_link_libraries(
+    quintum_randomx_chain_tests
+    PRIVATE quintum_core
+)
+quintum_strict_warnings(quintum_randomx_chain_tests)
+quintum_test_assertions(quintum_randomx_chain_tests)
+
+add_test(NAME randomx_chain COMMAND quintum_randomx_chain_tests)
+
 add_executable(quintum_monetary_tests
     tests/monetary_tests.cpp
 )
