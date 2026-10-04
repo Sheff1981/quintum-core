@@ -10,14 +10,12 @@ The official public Windows pre-alpha build is available from GitHub Releases:
 
 https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.1-prealpha
 
-1. Open the latest successful **gui** workflow run on `main`.
-2. In **Artifacts**, download `quintum-windows-x64`.
-3. Extract the ZIP archive.
-4. Run:
-   `installer/QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`
-5. The archive also contains `SHA256SUMS.txt` so you can verify the downloaded binaries.
+1. Download `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`.
+2. Download `SHA256SUMS.txt`.
+3. Verify the installer checksum.
+4. Run the installer.
 
-The installer is currently **unsigned pre-alpha software**. Windows may display a SmartScreen warning. Do not disable system security globally; verify the artifact source and checksum before running it.
+The installer is currently **unsigned pre-alpha software**. Windows may display a SmartScreen warning. Do not disable system security globally; verify the GitHub Release source and checksum before running it.
 
 ## What we want tested
 
