@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/types.hpp"
+#include "consensus/monetary.hpp"
 
 #include <array>
 #include <cstdint>
@@ -69,6 +70,7 @@ struct ChainParams {
     std::uint16_t p2p_port{0U};
     std::uint16_t rpc_port{0U};
     PowParams pow{};
+    MonetaryParams monetary{};
     TimeParams time{};
     ResourceLimits limits{};
     GenesisParams genesis{};

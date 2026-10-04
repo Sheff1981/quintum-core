@@ -112,7 +112,8 @@ MempoolAcceptResult Mempool::accept(
         const auto existing =
             view.apply_transaction(
                 entry.transaction,
-                *height
+                *height,
+                chain.params().monetary
             );
 
         if (!existing.ok()) {
@@ -126,7 +127,8 @@ MempoolAcceptResult Mempool::accept(
     const auto applied =
         view.apply_transaction(
             transaction,
-            *height
+            *height,
+            chain.params().monetary
         );
 
     if (!applied.ok()) {
@@ -135,7 +137,9 @@ MempoolAcceptResult Mempool::accept(
         return out;
     }
 
-    if (!consensus::money_range(applied.fee)) {
+    if (!consensus::money_range(
+            applied.fee,
+            chain.params().monetary)) {
         out.error = MempoolError::transaction_rejected;
         out.transaction_error =
             UtxoApplyError::money_out_of_range;
@@ -207,7 +211,8 @@ void Mempool::reconcile(
         const auto applied =
             view.apply_transaction(
                 entry.transaction,
-                *height
+                *height,
+                chain.params().monetary
             );
 
         if (!applied.ok()) {

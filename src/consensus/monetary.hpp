@@ -1,5 +1,6 @@
 #pragma once
 
+#include "crypto/secp256k1.hpp"
 #include "primitives/transaction.hpp"
 
 #include <cstdint>
@@ -8,14 +9,23 @@
 namespace quintum::consensus {
 
 inline constexpr Amount kAtomicUnitsPerCoin = 100'000'000ULL;
-inline constexpr Amount kMaxMoney = 21'000'000ULL * kAtomicUnitsPerCoin;
-inline constexpr Amount kInitialSubsidy = 50ULL * kAtomicUnitsPerCoin;
-inline constexpr std::uint32_t kSubsidyHalvingInterval = 210'000U;
-inline constexpr std::uint32_t kCoinbaseMaturity = 100U;
 
-// Next incompatible RandomX Testnet monetary schedule.
-// These constants are deliberately separate from the currently active
-// legacy SHA-256 Testnet schedule until the new network is activated.
+// Legacy SHA-256 networks retain their original 21M transaction-money
+// range. This is a per-transaction arithmetic/consensus bound, not a claim
+// about future RandomX lifetime supply.
+inline constexpr Amount kLegacyMaxMoney =
+    21'000'000ULL * kAtomicUnitsPerCoin;
+inline constexpr Amount kMaxMoney =
+    kLegacyMaxMoney;
+
+inline constexpr Amount kInitialSubsidy =
+    50ULL * kAtomicUnitsPerCoin;
+inline constexpr std::uint32_t kSubsidyHalvingInterval =
+    210'000U;
+inline constexpr std::uint32_t kCoinbaseMaturity =
+    100U;
+
+// RandomX Testnet monetary schedule.
 inline constexpr Amount kRandomXInitialSubsidy =
     50ULL * kAtomicUnitsPerCoin;
 inline constexpr std::uint32_t kRandomXEraBlocks =
@@ -33,6 +43,12 @@ inline constexpr std::uint32_t kBasisPointsDenominator =
 inline constexpr std::uint32_t kRandomXCoinbaseMaturity =
     500U;
 
+// Safety/range bound for a single RandomX transaction/value sum.
+// It is deliberately much larger than scheduled supply and is NOT a
+// total-supply cap. Tail emission remains governed only by subsidy rules.
+inline constexpr Amount kRandomXMoneyRange =
+    100'000'000'000ULL * kAtomicUnitsPerCoin;
+
 inline constexpr Amount kRandomXPrimaryIssuance =
     98'437'500ULL * kAtomicUnitsPerCoin;
 inline constexpr Amount kRandomXFounderPrimaryIssuance =
@@ -40,9 +56,40 @@ inline constexpr Amount kRandomXFounderPrimaryIssuance =
 inline constexpr Amount kRandomXMinerPrimaryIssuance =
     93'515'625ULL * kAtomicUnitsPerCoin;
 
-[[nodiscard]] bool money_range(Amount value) noexcept;
+enum class MonetarySchedule {
+    legacy_halving,
+    randomx_v1,
+};
 
-[[nodiscard]] Amount block_subsidy(std::uint32_t height) noexcept;
+struct MonetaryParams {
+    MonetarySchedule schedule{
+        MonetarySchedule::legacy_halving
+    };
+    Amount max_money{kLegacyMaxMoney};
+    std::uint32_t coinbase_maturity{
+        kCoinbaseMaturity
+    };
+    bool founder_payout_enabled{false};
+    crypto::PublicKey founder_public_key{};
+};
+
+[[nodiscard]] bool money_range(
+    Amount value
+) noexcept;
+
+[[nodiscard]] bool money_range(
+    Amount value,
+    const MonetaryParams& params
+) noexcept;
+
+[[nodiscard]] Amount block_subsidy(
+    std::uint32_t height
+) noexcept;
+
+[[nodiscard]] Amount block_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params
+) noexcept;
 
 [[nodiscard]] Amount randomx_total_subsidy(
     std::uint32_t height
@@ -56,14 +103,38 @@ inline constexpr Amount kRandomXMinerPrimaryIssuance =
     std::uint32_t height
 ) noexcept;
 
-[[nodiscard]] std::optional<Amount> transaction_output_total(
+[[nodiscard]] Amount founder_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params
+) noexcept;
+
+[[nodiscard]] Amount miner_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params
+) noexcept;
+
+[[nodiscard]] std::optional<Amount>
+transaction_output_total(
     const Transaction& tx
+) noexcept;
+
+[[nodiscard]] std::optional<Amount>
+transaction_output_total(
+    const Transaction& tx,
+    const MonetaryParams& params
 ) noexcept;
 
 [[nodiscard]] bool coinbase_reward_is_valid(
     const Transaction& coinbase,
     std::uint32_t height,
     Amount fees
+) noexcept;
+
+[[nodiscard]] bool coinbase_reward_is_valid(
+    const Transaction& coinbase,
+    std::uint32_t height,
+    Amount fees,
+    const MonetaryParams& params
 ) noexcept;
 
 } // namespace quintum::consensus

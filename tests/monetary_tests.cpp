@@ -1,4 +1,5 @@
 #include "consensus/monetary.hpp"
+#include "consensus/tx_auth.hpp"
 
 #include <cassert>
 #include <limits>
@@ -201,6 +202,144 @@ void test_randomx_candidate_schedule()
            primary_total);
 }
 
+void test_randomx_consensus_policy()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+
+    crypto::PrivateKey founder_private{};
+    founder_private.back() = 2U;
+
+    const auto founder_public =
+        crypto::derive_public_key(
+            founder_private
+        );
+    assert(founder_public.has_value());
+
+    MonetaryParams params{
+        .schedule =
+            MonetarySchedule::randomx_v1,
+        .max_money =
+            kRandomXMoneyRange,
+        .coinbase_maturity =
+            kRandomXCoinbaseMaturity,
+        .founder_payout_enabled = true,
+        .founder_public_key =
+            *founder_public,
+    };
+
+    assert(money_range(
+        kRandomXMoneyRange,
+        params
+    ));
+    assert(!money_range(
+        kRandomXMoneyRange + 1U,
+        params
+    ));
+
+    Transaction genesis =
+        make_coinbase(0U);
+
+    assert(coinbase_reward_is_valid(
+        genesis,
+        0U,
+        0U,
+        params
+    ));
+
+    constexpr Amount fee{321U};
+
+    Transaction block_one;
+    TxInput input;
+    input.unlocking_script = {0x01U};
+    block_one.inputs.push_back(input);
+
+    block_one.outputs.push_back(
+        TxOutput{
+            .value =
+                randomx_miner_subsidy(1U) +
+                fee,
+            .locking_script = {0x51U},
+        }
+    );
+    block_one.outputs.push_back(
+        TxOutput{
+            .value =
+                randomx_founder_subsidy(1U),
+            .locking_script =
+                make_p2pk_locking_script(
+                    *founder_public
+                ),
+        }
+    );
+
+    assert(coinbase_reward_is_valid(
+        block_one,
+        1U,
+        fee,
+        params
+    ));
+
+    auto missing_founder = block_one;
+    missing_founder.outputs.pop_back();
+
+    assert(!coinbase_reward_is_valid(
+        missing_founder,
+        1U,
+        fee,
+        params
+    ));
+
+    auto wrong_founder_amount = block_one;
+    ++wrong_founder_amount.outputs[1].value;
+
+    assert(!coinbase_reward_is_valid(
+        wrong_founder_amount,
+        1U,
+        fee,
+        params
+    ));
+
+    auto wrong_founder_script = block_one;
+    wrong_founder_script.outputs[1].
+        locking_script = {0x51U};
+
+    assert(!coinbase_reward_is_valid(
+        wrong_founder_script,
+        1U,
+        fee,
+        params
+    ));
+
+    params.founder_payout_enabled = false;
+
+    assert(!coinbase_reward_is_valid(
+        block_one,
+        1U,
+        fee,
+        params
+    ));
+
+    params.founder_payout_enabled = true;
+
+    Transaction tail =
+        make_coinbase(
+            kRandomXTailSubsidy + fee
+        );
+
+    assert(coinbase_reward_is_valid(
+        tail,
+        kRandomXPrimaryEndHeight + 1U,
+        fee,
+        params
+    ));
+
+    assert(founder_subsidy(
+        kRandomXPrimaryEndHeight + 1U,
+        params
+    ) == 0U);
+}
+
 int main()
 {
     test_money_constants();
@@ -208,5 +347,6 @@ int main()
     test_coinbase_reward_limit();
     test_output_money_range();
     test_randomx_candidate_schedule();
+    test_randomx_consensus_policy();
     return 0;
 }

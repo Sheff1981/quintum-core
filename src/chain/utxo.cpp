@@ -30,6 +30,18 @@ UtxoApplyResult UtxoSet::apply_transaction(
     const Transaction& tx,
     std::uint32_t height)
 {
+    return apply_transaction(
+        tx,
+        height,
+        consensus::MonetaryParams{}
+    );
+}
+
+UtxoApplyResult UtxoSet::apply_transaction(
+    const Transaction& tx,
+    std::uint32_t height,
+    const consensus::MonetaryParams& monetary)
+{
     UtxoApplyResult result;
 
     if (validate_transaction_structure(tx) != TxStructureError::none) {
@@ -53,7 +65,9 @@ UtxoApplyResult UtxoSet::apply_transaction(
                 return result;
             }
 
-            if (!consensus::money_range(it->second.output.value)) {
+            if (!consensus::money_range(
+                    it->second.output.value,
+                    monetary)) {
                 result.error = UtxoApplyError::money_out_of_range;
                 return result;
             }
@@ -61,7 +75,7 @@ UtxoApplyResult UtxoSet::apply_transaction(
             if (it->second.coinbase) {
                 if (height < it->second.height ||
                     height - it->second.height <
-                        consensus::kCoinbaseMaturity) {
+                        monetary.coinbase_maturity) {
                     result.error =
                         UtxoApplyError::premature_coinbase_spend;
                     return result;
@@ -79,7 +93,7 @@ UtxoApplyResult UtxoSet::apply_transaction(
             }
 
             if (it->second.output.value >
-                consensus::kMaxMoney - input_total) {
+                monetary.max_money - input_total) {
                 result.error = UtxoApplyError::input_sum_overflow;
                 return result;
             }
@@ -90,7 +104,10 @@ UtxoApplyResult UtxoSet::apply_transaction(
     }
 
     const auto output_total_value =
-        consensus::transaction_output_total(tx);
+        consensus::transaction_output_total(
+            tx,
+            monetary
+        );
 
     if (!output_total_value) {
         result.error = UtxoApplyError::money_out_of_range;

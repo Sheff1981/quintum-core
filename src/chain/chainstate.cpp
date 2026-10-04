@@ -45,6 +45,7 @@ ApplyBlockResult apply_block_to_view(
     std::uint32_t height,
     const Hash256& parent_work,
     const consensus::PowParams& pow_params,
+    const consensus::MonetaryParams& monetary_params,
     const consensus::ResourceLimits& limits,
     const std::optional<Hash256>& randomx_seed_key)
 {
@@ -104,7 +105,11 @@ ApplyBlockResult apply_block_to_view(
 
     for (std::size_t i = 0; i < block.transactions.size(); ++i) {
         auto tx_result =
-            candidate.apply_transaction(block.transactions[i], height);
+            candidate.apply_transaction(
+                block.transactions[i],
+                height,
+                monetary_params
+            );
 
         if (!tx_result.ok()) {
             out.result.error = ChainConnectError::transaction_failed;
@@ -127,7 +132,8 @@ ApplyBlockResult apply_block_to_view(
     if (!consensus::coinbase_reward_is_valid(
             block.transactions.front(),
             height,
-            total_fees)) {
+            total_fees,
+            monetary_params)) {
         out.result.error = ChainConnectError::invalid_coinbase_reward;
         return out;
     }
@@ -991,6 +997,7 @@ ChainConnectResult Chainstate::connect_block(
             staged_height,
             staged_parent_work,
             params_.pow,
+            params_.monetary,
             params_.limits,
             staged_randomx_seed
         );

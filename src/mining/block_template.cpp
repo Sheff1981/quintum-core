@@ -81,7 +81,11 @@ BlockTemplateResult create_block_template(
             return out;
         }
 
-        auto applied = view.apply_transaction(tx, height);
+        auto applied = view.apply_transaction(
+            tx,
+            height,
+            chain.params().monetary
+        );
         if (!applied.ok()) {
             out.error = BlockTemplateError::transaction_failed;
             out.transaction_error = applied.error;
@@ -89,7 +93,9 @@ BlockTemplateResult create_block_template(
             return out;
         }
 
-        if (applied.fee > consensus::kMaxMoney - total_fees) {
+        if (applied.fee >
+            chain.params().monetary.max_money -
+                total_fees) {
             out.error = BlockTemplateError::fee_sum_overflow;
             out.transaction_index = i;
             return out;
@@ -98,21 +104,84 @@ BlockTemplateResult create_block_template(
         total_fees += applied.fee;
     }
 
-    const Amount subsidy = consensus::block_subsidy(height);
-    if (total_fees > consensus::kMaxMoney - subsidy) {
-        out.error = BlockTemplateError::reward_overflow;
+    const auto& monetary =
+        chain.params().monetary;
+
+    const Amount subsidy =
+        consensus::block_subsidy(
+            height,
+            monetary
+        );
+
+    if (!consensus::money_range(
+            subsidy,
+            monetary) ||
+        total_fees >
+            monetary.max_money - subsidy) {
+        out.error =
+            BlockTemplateError::reward_overflow;
+        return out;
+    }
+
+    const Amount miner_subsidy =
+        consensus::miner_subsidy(
+            height,
+            monetary
+        );
+
+    if (total_fees >
+        monetary.max_money -
+            miner_subsidy) {
+        out.error =
+            BlockTemplateError::reward_overflow;
         return out;
     }
 
     Transaction coinbase;
     TxInput coinbase_input;
-    append_little_endian(coinbase_input.unlocking_script, height);
-    coinbase.inputs.push_back(std::move(coinbase_input));
+    append_little_endian(
+        coinbase_input.unlocking_script,
+        height
+    );
+    coinbase.inputs.push_back(
+        std::move(coinbase_input)
+    );
 
     TxOutput reward;
-    reward.value = subsidy + total_fees;
-    reward.locking_script = payout_script;
-    coinbase.outputs.push_back(std::move(reward));
+    reward.value =
+        miner_subsidy + total_fees;
+    reward.locking_script =
+        payout_script;
+    coinbase.outputs.push_back(
+        std::move(reward)
+    );
+
+    const Amount founder_subsidy =
+        consensus::founder_subsidy(
+            height,
+            monetary
+        );
+
+    if (founder_subsidy > 0U) {
+        if (!monetary.founder_payout_enabled ||
+            !crypto::is_valid_public_key(
+                monetary.founder_public_key)) {
+            out.error =
+                BlockTemplateError::
+                    founder_payout_unavailable;
+            return out;
+        }
+
+        TxOutput founder;
+        founder.value = founder_subsidy;
+        founder.locking_script =
+            consensus::make_p2pk_locking_script(
+                monetary.founder_public_key
+            );
+        coinbase.outputs.push_back(
+            std::move(founder)
+        );
+    }
 
     Block block;
     block.header.version = 1U;

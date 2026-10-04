@@ -235,6 +235,96 @@ void test_failed_transaction_is_atomic()
     assert(utxos.contains(funding));
 }
 
+void test_network_specific_coinbase_maturity()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+
+    MonetaryParams randomx{
+        .schedule =
+            MonetarySchedule::randomx_v1,
+        .max_money =
+            kRandomXMoneyRange,
+        .coinbase_maturity =
+            kRandomXCoinbaseMaturity,
+    };
+
+    UtxoSet utxos;
+
+    const auto coinbase =
+        make_coinbase(1'000U);
+
+    assert(utxos.apply_transaction(
+        coinbase,
+        1U,
+        randomx
+    ).ok());
+
+    const OutPoint funding{
+        .txid = transaction_id(coinbase),
+        .index = 0U,
+    };
+
+    const auto spend =
+        make_signed_spend(
+            funding,
+            coinbase.outputs.front(),
+            900U,
+            50U
+        );
+
+    const auto premature =
+        utxos.apply_transaction(
+            spend,
+            500U,
+            randomx
+        );
+
+    assert(
+        premature.error ==
+        UtxoApplyError::
+            premature_coinbase_spend
+    );
+
+    const auto mature =
+        utxos.apply_transaction(
+            spend,
+            501U,
+            randomx
+        );
+
+    assert(mature.ok());
+    assert(mature.fee == 50U);
+}
+
+void test_randomx_money_range_is_not_legacy_supply_cap()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+
+    MonetaryParams randomx{
+        .schedule =
+            MonetarySchedule::randomx_v1,
+        .max_money =
+            kRandomXMoneyRange,
+        .coinbase_maturity =
+            kRandomXCoinbaseMaturity,
+    };
+
+    UtxoSet utxos;
+
+    const auto coinbase =
+        make_coinbase(
+            kLegacyMaxMoney + 1U
+        );
+
+    assert(utxos.apply_transaction(
+        coinbase,
+        1U,
+        randomx
+    ).ok());
+}
+
 } // namespace
 
 int main()
@@ -243,5 +333,7 @@ int main()
     test_invalid_signature_rejected();
     test_money_range_rejected();
     test_failed_transaction_is_atomic();
+    test_network_specific_coinbase_maturity();
+    test_randomx_money_range_is_not_legacy_supply_cap();
     return 0;
 }

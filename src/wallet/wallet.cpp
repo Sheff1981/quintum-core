@@ -284,11 +284,12 @@ std::optional<Bytes> read_file(
 
 bool add_amount(
     Amount& total,
-    Amount value) noexcept
+    Amount value,
+    Amount max_money) noexcept
 {
-    if (!consensus::money_range(value) ||
-        value >
-            consensus::kMaxMoney - total) {
+    if (value > max_money ||
+        total > max_money ||
+        value > max_money - total) {
         return false;
     }
 
@@ -321,7 +322,8 @@ struct SecretArrayGuard {
 
 bool mature_at_height(
     const Coin& coin,
-    std::uint32_t spend_height) noexcept
+    std::uint32_t spend_height,
+    std::uint32_t coinbase_maturity) noexcept
 {
     if (!coin.coinbase) {
         return true;
@@ -329,7 +331,7 @@ bool mature_at_height(
 
     return spend_height >= coin.height &&
            spend_height - coin.height >=
-               consensus::kCoinbaseMaturity;
+               coinbase_maturity;
 }
 
 } // namespace
@@ -2036,13 +2038,17 @@ WalletSyncResult Wallet::sync(
 
         if (mature_at_height(
                 coin.coin,
-                spend_height)) {
+                spend_height,
+                params_.monetary.
+                    coinbase_maturity)) {
             if (!add_amount(
                     next_balance.confirmed,
-                    coin.coin.output.value) ||
+                    coin.coin.output.value,
+                    params_.monetary.max_money) ||
                 !add_amount(
                     next_balance.available,
-                    coin.coin.output.value)) {
+                    coin.coin.output.value,
+                    params_.monetary.max_money)) {
                 out.error =
                     WalletSyncError::
                         amount_overflow;
@@ -2056,7 +2062,8 @@ WalletSyncResult Wallet::sync(
         } else {
             if (!add_amount(
                     next_balance.immature,
-                    coin.coin.output.value)) {
+                    coin.coin.output.value,
+                    params_.monetary.max_money)) {
                 out.error =
                     WalletSyncError::
                         amount_overflow;
@@ -2154,7 +2161,8 @@ WalletSyncResult Wallet::sync(
 
                 if (!add_amount(
                         spent,
-                        value) ||
+                        value,
+                        params_.monetary.max_money) ||
                     value >
                         next_balance.available) {
                     out.error =
@@ -2183,7 +2191,8 @@ WalletSyncResult Wallet::sync(
 
                 if (!add_amount(
                         spent,
-                        value) ||
+                        value,
+                        params_.monetary.max_money) ||
                     value >
                         next_balance.pending) {
                     out.error =
@@ -2232,7 +2241,8 @@ WalletSyncResult Wallet::sync(
 
             if (!add_amount(
                     received,
-                    tx.outputs[index].value)) {
+                    tx.outputs[index].value,
+                    params_.monetary.max_money)) {
                 out.error =
                     WalletSyncError::
                         amount_overflow;
@@ -2271,7 +2281,8 @@ WalletSyncResult Wallet::sync(
 
             if (!add_amount(
                     next_balance.pending,
-                    owned.coin.output.value)) {
+                    owned.coin.output.value,
+                    params_.monetary.max_money)) {
                 out.error =
                     WalletSyncError::
                         amount_overflow;
@@ -3007,7 +3018,8 @@ WalletCreateResult Wallet::create_transaction(
         const auto applied =
             view.apply_transaction(
                 existing,
-                next_height
+                next_height,
+                params_.monetary
             );
 
         if (!applied.ok()) {
@@ -3023,7 +3035,8 @@ WalletCreateResult Wallet::create_transaction(
     const auto applied =
         view.apply_transaction(
             tx,
-            next_height
+            next_height,
+            params_.monetary
         );
 
     if (!applied.ok() ||

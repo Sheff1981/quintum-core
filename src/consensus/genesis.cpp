@@ -61,7 +61,11 @@ Transaction create_genesis_coinbase(
     tx.inputs.push_back(std::move(input));
 
     TxOutput output;
-    output.value = block_subsidy(0U);
+    output.value =
+        block_subsidy(
+            0U,
+            params.monetary
+        );
     output.locking_script =
         genesis_locking_script();
     tx.outputs.push_back(std::move(output));
@@ -169,7 +173,8 @@ bool verify_genesis(
     if (!coinbase_reward_is_valid(
             block.transactions.front(),
             0U,
-            0U)) {
+            0U,
+            params.monetary)) {
         return false;
     }
 

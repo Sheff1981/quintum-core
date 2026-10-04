@@ -22,6 +22,7 @@ enum class BlockTemplateError {
     transaction_failed,
     fee_sum_overflow,
     reward_overflow,
+    founder_payout_unavailable,
     resource_limits_exceeded,
 };
 

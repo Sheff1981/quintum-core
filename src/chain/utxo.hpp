@@ -1,6 +1,7 @@
 #pragma once
 
 #include "primitives/transaction.hpp"
+#include "consensus/monetary.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -71,6 +72,12 @@ public:
     [[nodiscard]] UtxoApplyResult apply_transaction(
         const Transaction& tx,
         std::uint32_t height
+    );
+
+    [[nodiscard]] UtxoApplyResult apply_transaction(
+        const Transaction& tx,
+        std::uint32_t height,
+        const consensus::MonetaryParams& monetary
     );
 
     [[nodiscard]] bool undo_transaction(const UtxoUndo& undo);

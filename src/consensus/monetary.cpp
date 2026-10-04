@@ -1,12 +1,31 @@
 #include "consensus/monetary.hpp"
 
-#include <limits>
+#include "consensus/tx_auth.hpp"
 
 namespace quintum::consensus {
 
+namespace {
+
+constexpr MonetaryParams legacy_params() noexcept
+{
+    return MonetaryParams{};
+}
+
+} // namespace
+
 bool money_range(Amount value) noexcept
 {
-    return value <= kMaxMoney;
+    return money_range(
+        value,
+        legacy_params()
+    );
+}
+
+bool money_range(
+    Amount value,
+    const MonetaryParams& params) noexcept
+{
+    return value <= params.max_money;
 }
 
 Amount block_subsidy(std::uint32_t height) noexcept
@@ -68,17 +87,60 @@ Amount randomx_miner_subsidy(
            randomx_founder_subsidy(height);
 }
 
+Amount block_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params) noexcept
+{
+    return params.schedule ==
+                   MonetarySchedule::randomx_v1
+        ? randomx_total_subsidy(height)
+        : block_subsidy(height);
+}
+
+Amount founder_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params) noexcept
+{
+    return params.schedule ==
+                   MonetarySchedule::randomx_v1
+        ? randomx_founder_subsidy(height)
+        : 0U;
+}
+
+Amount miner_subsidy(
+    std::uint32_t height,
+    const MonetaryParams& params) noexcept
+{
+    return params.schedule ==
+                   MonetarySchedule::randomx_v1
+        ? randomx_miner_subsidy(height)
+        : block_subsidy(height);
+}
+
 std::optional<Amount> transaction_output_total(
     const Transaction& tx) noexcept
+{
+    return transaction_output_total(
+        tx,
+        legacy_params()
+    );
+}
+
+std::optional<Amount> transaction_output_total(
+    const Transaction& tx,
+    const MonetaryParams& params) noexcept
 {
     Amount total{0U};
 
     for (const auto& output : tx.outputs) {
-        if (!money_range(output.value)) {
+        if (!money_range(
+                output.value,
+                params)) {
             return std::nullopt;
         }
 
-        if (output.value > kMaxMoney - total) {
+        if (output.value >
+            params.max_money - total) {
             return std::nullopt;
         }
 
@@ -93,25 +155,85 @@ bool coinbase_reward_is_valid(
     std::uint32_t height,
     Amount fees) noexcept
 {
-    if (!coinbase.is_coinbase() || !money_range(fees)) {
+    return coinbase_reward_is_valid(
+        coinbase,
+        height,
+        fees,
+        legacy_params()
+    );
+}
+
+bool coinbase_reward_is_valid(
+    const Transaction& coinbase,
+    std::uint32_t height,
+    Amount fees,
+    const MonetaryParams& params) noexcept
+{
+    if (!coinbase.is_coinbase() ||
+        !money_range(fees, params)) {
         return false;
     }
 
     const auto output_total =
-        transaction_output_total(coinbase);
+        transaction_output_total(
+            coinbase,
+            params
+        );
 
     if (!output_total) {
         return false;
     }
 
-    const Amount subsidy = block_subsidy(height);
+    const Amount subsidy =
+        block_subsidy(
+            height,
+            params
+        );
 
-    if (fees > kMaxMoney - subsidy) {
+    if (!money_range(subsidy, params) ||
+        fees > params.max_money - subsidy) {
         return false;
     }
 
-    const Amount allowed = subsidy + fees;
-    return *output_total <= allowed;
+    const Amount allowed =
+        subsidy + fees;
+
+    if (*output_total > allowed) {
+        return false;
+    }
+
+    if (params.schedule !=
+        MonetarySchedule::randomx_v1) {
+        return true;
+    }
+
+    const Amount founder =
+        founder_subsidy(
+            height,
+            params
+        );
+
+    if (founder == 0U) {
+        return true;
+    }
+
+    if (!params.founder_payout_enabled ||
+        coinbase.outputs.size() < 2U ||
+        coinbase.outputs[1].value != founder ||
+        !crypto::is_valid_public_key(
+            params.founder_public_key)) {
+        return false;
+    }
+
+    const auto founder_key =
+        parse_p2pk_locking_script(
+            coinbase.outputs[1].
+                locking_script
+        );
+
+    return founder_key.has_value() &&
+           *founder_key ==
+               params.founder_public_key;
 }
 
 } // namespace quintum::consensus

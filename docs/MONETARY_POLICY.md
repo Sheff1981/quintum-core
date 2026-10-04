@@ -86,7 +86,7 @@ Because tail emission is constant in QTM while circulating supply grows, percent
 
 ## Coinbase maturity
 
-Coinbase outputs become spendable only after **500 blocks**.
+Coinbase maturity is now a network-specific consensus parameter. The legacy SHA-256 networks retain their existing 100-block rule; the new RandomX network uses **500 blocks**.
 
 At the 120-second target:
 
@@ -106,8 +106,26 @@ There is no:
 - mechanism to increase the founder percentage after activation;
 - mechanism to re-enable the founder reward after height 6,000,000 without a network-breaking consensus fork.
 
+## Money-range safety bound
+
+The historical 21,000,000 QTM `kMaxMoney` value is retained only for the legacy SHA-256 networks. It is not reused as a lifetime-supply cap for RandomX because permanent tail emission would eventually conflict with that assumption.
+
+RandomX uses a separate **100,000,000,000 QTM per-transaction/value-sum safety range**. This is an arithmetic safety bound, not scheduled issuance and not a monetary supply cap. Actual new coins can still only be created by the block-subsidy rules above.
+
 ## Implementation status
 
-The exact RandomX monetary arithmetic is now present in consensus code and covered by tests, including all six era boundaries, the exact 5%/95% split, the 98,437,500 QTM primary total, the 4,921,875 QTM founder total, the 93,515,625 QTM miner total, the height-6,000,001 tail transition and the 500-block maturity constant.
+The RandomX monetary policy is now implemented as a network-selectable consensus policy while the legacy SHA-256 policy remains the default for every existing network identity.
 
-The currently running SHA-256 Testnet still uses the legacy monetary path. The new arithmetic is **not activated for a network yet**. Activation waits for the new RandomX ChainParams, founder payout script, ASERT rules and new Genesis so existing Testnet data remains readable and untouched.
+Implemented and tested:
+
+- six primary subsidy eras and permanent 1 QTM tail;
+- exact 95% miner / 5% founder arithmetic;
+- exact founder output at coinbase output index 1 for primary-era RandomX blocks;
+- founder payout must match the configured, valid compressed secp256k1 public key;
+- transaction fees remain on the miner output and are not included in the founder calculation;
+- founder output disappears after height 6,000,000;
+- RandomX coinbase maturity is 500 blocks while legacy networks remain at 100;
+- RandomX uses a separate money-range safety bound rather than the legacy 21M bound;
+- Genesis subsidy under RandomX policy is exactly 0 QTM.
+
+The public RandomX network is still **not activated** because the real founder payout public key/address has not yet been pinned and the new RandomX Testnet Genesis/network identity has not yet been generated. Existing SHA-256 Testnet chain and wallet data remain untouched.
