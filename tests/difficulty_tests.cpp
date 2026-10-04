@@ -5,6 +5,7 @@
 #include "consensus/pow.hpp"
 #include "primitives/block.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <vector>
@@ -60,6 +61,28 @@ quintum::Block make_block(
 
     assert(mined.found());
     return block;
+}
+
+quintum::consensus::ChainParams small_asert_params()
+{
+    return quintum::consensus::ChainParams{
+        .network = quintum::consensus::Network::regtest,
+        .name = "asert-test",
+        .message_start = {0xa1U, 0xb2U, 0xc3U, 0xd4U},
+        .p2p_port = 3U,
+        .rpc_port = 4U,
+        .pow = quintum::consensus::PowParams{
+            .target_spacing_seconds = 120U,
+            .retarget_interval = 1U,
+            .pow_limit_bits = 0x207fffffU,
+            .allow_min_difficulty_blocks = false,
+            .no_retargeting = false,
+            .difficulty_algorithm =
+                quintum::consensus::DifficultyAlgorithm::asert,
+            .asert_half_life_seconds = 34'560U,
+            .asert_anchor_height = 0U,
+        },
+    };
 }
 
 quintum::consensus::ChainParams small_retarget_params(
@@ -184,6 +207,136 @@ void test_retarget_vectors()
             params
         )
     );
+}
+
+void test_asert_vectors()
+{
+    using namespace quintum::consensus;
+
+    constexpr std::uint32_t reference_bits{0x1e00ffffU};
+    constexpr std::uint32_t pow_limit_bits{0x1e0ffff0U};
+
+    const auto steady =
+        calculate_asert_bits(
+            reference_bits, 120, 120, 0,
+            pow_limit_bits, 34'560
+        );
+    assert(steady.ok());
+    assert(steady.bits == reference_bits);
+
+    const auto slow =
+        calculate_asert_bits(
+            reference_bits, 120,
+            120 + 34'560, 0,
+            pow_limit_bits, 34'560
+        );
+    assert(slow.ok());
+    assert(slow.bits == 0x1e01fffeU);
+
+    const auto fast =
+        calculate_asert_bits(
+            reference_bits, 120,
+            120 - 34'560, 0,
+            pow_limit_bits, 34'560
+        );
+    assert(fast.ok());
+    assert(fast.bits == 0x1d7fff80U);
+
+    const auto early =
+        calculate_asert_bits(
+            reference_bits, 120, 0, 0,
+            pow_limit_bits, 34'560
+        );
+    assert(early.ok());
+    assert(early.bits == 0x1e00ff62U);
+
+    const auto late =
+        calculate_asert_bits(
+            reference_bits, 120, 240, 0,
+            pow_limit_bits, 34'560
+        );
+    assert(late.ok());
+    assert(late.bits == 0x1e01009cU);
+}
+
+void test_chainstate_asert_per_block()
+{
+    const auto params =
+        small_asert_params();
+
+    quintum::Chainstate chain{params};
+    quintum::Hash256 previous{};
+
+    const auto genesis = make_block(
+        previous,
+        0U,
+        1'000U,
+        params.pow.pow_limit_bits,
+        0x70U
+    );
+
+    const auto genesis_result =
+        chain.connect_block(genesis);
+    assert(genesis_result.ok());
+    assert(genesis_result.activated);
+
+    previous =
+        quintum::block_hash(genesis.header);
+
+    const auto block1_bits =
+        chain.next_work_required(1'120U);
+    assert(block1_bits);
+    assert(*block1_bits ==
+           params.pow.pow_limit_bits);
+
+    const auto block1 = make_block(
+        previous,
+        1U,
+        1'120U,
+        *block1_bits,
+        0x71U
+    );
+    assert(chain.connect_block(block1).ok());
+
+    previous =
+        quintum::block_hash(block1.header);
+
+    const auto block2_bits =
+        chain.next_work_required(1'180U);
+    assert(block2_bits);
+    assert(*block2_bits ==
+           params.pow.pow_limit_bits);
+
+    const auto block2 = make_block(
+        previous,
+        2U,
+        1'180U,
+        *block2_bits,
+        0x72U
+    );
+    assert(chain.connect_block(block2).ok());
+
+    const auto block3_bits =
+        chain.next_work_required(1'300U);
+    assert(block3_bits);
+    assert(*block3_bits !=
+           params.pow.pow_limit_bits);
+
+    const auto next_target =
+        decode_compact_target(*block3_bits);
+    const auto limit_target =
+        decode_compact_target(
+            params.pow.pow_limit_bits
+        );
+
+    assert(next_target.valid());
+    assert(limit_target.valid());
+    assert(std::lexicographical_compare(
+        next_target.target.begin(),
+        next_target.target.end(),
+        limit_target.target.begin(),
+        limit_target.target.end()
+    ));
 }
 
 void test_regtest_no_retargeting()
@@ -372,6 +525,8 @@ int main()
 {
     test_network_parameter_sets();
     test_retarget_vectors();
+    test_asert_vectors();
+    test_chainstate_asert_per_block();
     test_regtest_no_retargeting();
     test_chainstate_rejects_wrong_bits();
     test_testnet_min_difficulty_and_restore();
