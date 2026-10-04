@@ -323,9 +323,11 @@ void test_chainstate_asert_per_block()
            params.pow.pow_limit_bits);
 
     const auto next_target =
-        decode_compact_target(*block3_bits);
+        quintum::consensus::decode_compact_target(
+            *block3_bits
+        );
     const auto limit_target =
-        decode_compact_target(
+        quintum::consensus::decode_compact_target(
             params.pow.pow_limit_bits
         );
 
