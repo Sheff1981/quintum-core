@@ -77,6 +77,12 @@ Because tail emission is constant in QTM while circulating supply grows, percent
 
 - **100% of transaction fees go to the miner of the block.**
 - Founder reward is calculated only from scheduled subsidy, never from fees.
+- The fee is **not a percentage of the transferred amount**.
+- Fee calculation is based on serialized transaction size × fee rate.
+- Default wallet/minimum relay candidate: **1,000 atomic units per 1,000 bytes = 0.00001000 QTM/kB**.
+- The wallet Auto rate uses the maximum of its default rate, the node minimum relay rate and the median current mempool fee rate.
+- A common current 1-input/2-output P2PK transaction is about **202 bytes**, so at the default rate its fee is **202 atomic units = 0.00000202 QTM**.
+- Relay fee is node/mempool policy, not a consensus percentage tax.
 
 ## Coinbase maturity
 
