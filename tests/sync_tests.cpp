@@ -437,6 +437,173 @@ void test_heavier_remote_branch_reorg()
     std::filesystem::remove_all(client_dir, ec);
 }
 
+
+void test_known_full_header_batch_continues_to_extension()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("known-batch-server");
+    const auto client_dir =
+        unique_dir("known-batch-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 100'000U;
+    const std::uint32_t batch_size =
+        static_cast<std::uint32_t>(
+            kMaxHeadersPerMessage
+        );
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    const auto server_payout =
+        payout_script(5U);
+    const auto client_payout =
+        payout_script(6U);
+
+    mine_blocks(
+        client,
+        client_payout,
+        now,
+        batch_size
+    );
+
+    mine_blocks(
+        server,
+        server_payout,
+        now,
+        batch_size
+    );
+
+    for (std::uint32_t height = 1U;
+         height <= batch_size;
+         ++height) {
+        const auto hash =
+            server.chain().active_hash(height);
+        assert(hash.has_value());
+
+        const Block* block =
+            server.chain().block(*hash);
+        assert(block != nullptr);
+
+        const auto submitted =
+            client.submit_block_at(
+                *block,
+                now +
+                    static_cast<std::uint64_t>(
+                        batch_size
+                    ) +
+                    10'000U
+            );
+
+        assert(submitted.ok());
+    }
+
+    assert(client.chain().height() ==
+           std::optional<std::uint32_t>{
+               batch_size
+           });
+    assert(server.chain().height() ==
+           std::optional<std::uint32_t>{
+               batch_size
+           });
+    assert(client.chain().tip_hash() !=
+           server.chain().tip_hash());
+    assert(server.chain().tip_hash().has_value());
+    assert(client.chain().has_block(
+        *server.chain().tip_hash()
+    ));
+
+    mine_blocks(
+        server,
+        server_payout,
+        now +
+            static_cast<std::uint64_t>(
+                batch_size
+            ),
+        1U
+    );
+
+    assert(server.chain().height() ==
+           std::optional<std::uint32_t>{
+               batch_size + 1U
+           });
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        serve_requests(
+            listener,
+            server.chain(),
+            version(
+                0x1721U,
+                batch_size + 1U
+            ),
+            3U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(
+                0x1722U,
+                batch_size
+            ),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now +
+                static_cast<std::uint64_t>(
+                    batch_size
+                ) +
+                20'000U
+        );
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error == SyncError::none);
+    assert(synced.ok());
+    assert(synced.headers_received ==
+           kMaxHeadersPerMessage + 1U);
+    assert(synced.blocks_requested == 1U);
+    assert(synced.blocks_accepted == 1U);
+    assert(synced.reorganized);
+    assert(client.chain().height() ==
+           server.chain().height());
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(client_dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -444,5 +611,6 @@ int main()
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
     test_heavier_remote_branch_reorg();
+    test_known_full_header_batch_continues_to_extension();
     return 0;
 }
