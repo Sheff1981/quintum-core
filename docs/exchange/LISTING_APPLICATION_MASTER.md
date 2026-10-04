@@ -228,7 +228,7 @@ These fields must be filled with dated, reproducible evidence at application tim
 **Liquidity:** N/A before trading  
 **Number of holders:** N/A before Mainnet distribution  
 **TVL:** N/A unless QUINTUM later has an applicable on-chain ecosystem metric  
-**Community size:** [TBD with dated platform-specific evidence]
+**Community size:** Early-stage / founder-led; public external Testnet tester recruitment is open. Dated quantitative metrics must be supplied at application time.
 
 Never substitute Testnet statistics for Mainnet adoption statistics without clearly labeling them as Testnet.
 
