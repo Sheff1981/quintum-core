@@ -1,4 +1,5 @@
 #include "crypto/randomx.hpp"
+#include "core/serialize.hpp"
 
 #include <array>
 #include <cassert>
