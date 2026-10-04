@@ -1,8 +1,112 @@
 #include "net/discovery.hpp"
 
+#include <algorithm>
+#include <string>
 #include <utility>
+#include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#endif
 
 namespace quintum::net {
+namespace {
+
+bool dns_runtime_ready() noexcept
+{
+#ifdef _WIN32
+    struct Runtime {
+        bool ok{false};
+
+        Runtime() noexcept
+        {
+            WSADATA data{};
+            ok = WSAStartup(
+                MAKEWORD(2, 2),
+                &data
+            ) == 0;
+        }
+
+        ~Runtime()
+        {
+            if (ok) {
+                WSACleanup();
+            }
+        }
+    };
+
+    static Runtime runtime;
+    return runtime.ok;
+#else
+    return true;
+#endif
+}
+
+std::vector<std::uint32_t> resolve_ipv4_addresses(
+    std::string_view host)
+{
+    std::vector<std::uint32_t> out;
+
+    if (host.empty() || !dns_runtime_ready()) {
+        return out;
+    }
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    addrinfo* resolved{nullptr};
+    const std::string name{host};
+
+    if (getaddrinfo(
+            name.c_str(),
+            nullptr,
+            &hints,
+            &resolved) != 0) {
+        return out;
+    }
+
+    for (addrinfo* item = resolved;
+         item != nullptr;
+         item = item->ai_next) {
+        if (item->ai_family != AF_INET ||
+            item->ai_addr == nullptr ||
+            item->ai_addrlen <
+                static_cast<socklen_t>(
+                    sizeof(sockaddr_in))) {
+            continue;
+        }
+
+        const auto* ipv4 =
+            reinterpret_cast<const sockaddr_in*>(
+                item->ai_addr
+            );
+
+        const std::uint32_t value =
+            ntohl(ipv4->sin_addr.s_addr);
+
+        if (std::find(
+                out.begin(),
+                out.end(),
+                value) == out.end()) {
+            out.push_back(value);
+        }
+    }
+
+    freeaddrinfo(resolved);
+    return out;
+}
+
+} // namespace
 
 PeerDiscovery::PeerDiscovery(
     AddrManager& addrman) noexcept
@@ -16,16 +120,26 @@ AddrStoreError PeerDiscovery::initialize(
 {
     const auto loaded = addrman_.load();
 
-    if (loaded == AddrStoreError::none) {
-        return AddrStoreError::none;
-    }
-
-    if (loaded != AddrStoreError::not_found) {
+    if (loaded != AddrStoreError::none &&
+        loaded != AddrStoreError::not_found) {
         return loaded;
     }
 
-    const auto added =
-        bootstrap_hardcoded(network, now);
+    if (loaded == AddrStoreError::none &&
+        addrman_.size() != 0U) {
+        return AddrStoreError::none;
+    }
+
+    std::size_t added{0U};
+
+    added += bootstrap_dns_seeds(
+        dns_seeds(network),
+        now
+    );
+    added += bootstrap_hardcoded(
+        network,
+        now
+    );
 
     if (added == 0U) {
         return AddrStoreError::none;
@@ -69,6 +183,36 @@ std::size_t PeerDiscovery::bootstrap_hardcoded(
         hardcoded_seeds(network),
         now
     );
+}
+
+std::size_t PeerDiscovery::bootstrap_dns_seeds(
+    std::span<const SeedEndpoint> seeds,
+    std::uint64_t now)
+{
+    std::size_t added{0U};
+
+    for (const auto& seed : seeds) {
+        if (seed.host.empty() ||
+            seed.port == 0U) {
+            continue;
+        }
+
+        for (const auto ipv4 :
+             resolve_ipv4_addresses(seed.host)) {
+            const PeerAddress address{
+                .ipv4 = ipv4,
+                .port = seed.port,
+                .services = 1U,
+                .last_seen = now,
+            };
+
+            if (addrman_.add(address)) {
+                ++added;
+            }
+        }
+    }
+
+    return added;
 }
 
 DiscoveryLearnResult

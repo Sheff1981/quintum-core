@@ -124,7 +124,7 @@ Mainnet and Regtest seed lists remain empty. The Testnet endpoint is imported in
 
 On 2026-10-03 this seed was verified from an external mobile network: TCP port 38444 was reachable, a fresh Windows desktop install started in Testnet mode, discovered the node without any manual IP entry, completed the QUINTUM version/verack handshake and showed one live peer.
 
-DNS seed resolution remains a later network-deployment step.
+DNS seed resolution is now implemented cross-platform. The built-in DNS seed lists intentionally remain empty until a real QUINTUM seed domain is deployed and verified; until then the pinned numeric Testnet seed remains the first-start fallback.
 
 ## Security boundary
 
@@ -137,7 +137,7 @@ Block and transaction bytes received from peers enter the same validated Chainst
 The first public Testnet seed node is deployed and externally verified. Remaining deployment/hardening items are:
 
 - additional independent/geographically separate seed nodes;
-- DNS seeds;
+- deployment of public DNS seed hostnames backed by multiple independently operated nodes;
 - UPnP/NAT-PMP automatic inbound port mapping;
 - production-grade peer reputation/eviction policy.
 

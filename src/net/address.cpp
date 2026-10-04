@@ -944,4 +944,24 @@ hardcoded_seeds(
     }
 }
 
+std::span<const SeedEndpoint>
+dns_seeds(
+    consensus::Network network) noexcept
+{
+    // DNS resolution is implemented, but no public QUINTUM DNS seed
+    // hostname is published yet. Keep these lists empty until a domain
+    // is deployed and independently verified. Numeric hardcoded seeds
+    // remain the bootstrap fallback in the meantime.
+    static constexpr std::array<SeedEndpoint, 0>
+        no_seeds{};
+
+    switch (network) {
+    case consensus::Network::mainnet:
+    case consensus::Network::testnet:
+    case consensus::Network::regtest:
+    default:
+        return no_seeds;
+    }
+}
+
 } // namespace quintum::net

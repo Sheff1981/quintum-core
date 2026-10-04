@@ -133,4 +133,9 @@ hardcoded_seeds(
     consensus::Network network
 ) noexcept;
 
+[[nodiscard]] std::span<const SeedEndpoint>
+dns_seeds(
+    consensus::Network network
+) noexcept;
+
 } // namespace quintum::net

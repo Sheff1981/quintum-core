@@ -240,6 +240,66 @@ void test_network_hardcoded_seeds()
     assert(testnet.front().port == 38444U);
 }
 
+void test_dns_seed_resolution()
+{
+    using namespace quintum::net;
+
+    const auto dir = unique_dir("dns-seed");
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    AddrManager manager{
+        params,
+        dir,
+        true
+    };
+    PeerDiscovery discovery{manager};
+
+    const std::array<SeedEndpoint, 1> seeds{
+        SeedEndpoint{"localhost", 49003U},
+    };
+
+    const auto added =
+        discovery.bootstrap_dns_seeds(
+            seeds,
+            5'000U
+        );
+
+    assert(added >= 1U);
+
+    const auto addresses =
+        manager.addresses();
+
+    assert(!addresses.empty());
+
+    for (const auto& address : addresses) {
+        assert(address.port == 49003U);
+        assert(address.services == 1U);
+        assert(address.last_seen == 5'000U);
+        assert(valid_peer_address(
+            address,
+            true
+        ));
+    }
+
+    assert(manager.save() ==
+           AddrStoreError::none);
+
+    AddrManager reloaded{
+        params,
+        dir,
+        true
+    };
+
+    assert(reloaded.load() ==
+           AddrStoreError::none);
+    assert(reloaded.size() ==
+           manager.size());
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 void test_retry_backoff_and_seed_bootstrap()
 {
     using namespace quintum::net;
@@ -560,6 +620,7 @@ int main()
     test_addrman_persistence_and_network_binding();
     test_addrman_corruption_detection();
     test_network_hardcoded_seeds();
+    test_dns_seed_resolution();
     test_retry_backoff_and_seed_bootstrap();
     test_real_peer_discovery_chain();
     test_connect_any_skips_failed_peer();

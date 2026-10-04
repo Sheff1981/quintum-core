@@ -62,6 +62,11 @@ public:
         std::uint64_t now
     );
 
+    [[nodiscard]] std::size_t bootstrap_dns_seeds(
+        std::span<const SeedEndpoint> seeds,
+        std::uint64_t now
+    );
+
     [[nodiscard]] DiscoveryLearnResult learn_from_peer(
         PeerSession& peer,
         bool allow_local
