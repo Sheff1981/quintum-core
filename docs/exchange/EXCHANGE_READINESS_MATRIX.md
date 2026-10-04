@@ -64,7 +64,7 @@ Legend:
 | CoinMarketCap / CoinGecko | N/A NOW | Apply when eligibility criteria are met |
 | Market-maker/liquidity plan | MISSING | Needed for many practical CEX launches, if used |
 | Private founder/team due-diligence pack | MISSING / PRIVATE | Prepare founder-only KYC/due-diligence pack off-repo; do not invent additional team members |
-| Legal entity documents | TBD / PRIVATE | Depends on final project structure |
+| Legal entity documents | MISSING / PRIVATE | No company, sole-trader or self-employed registration currently exists; required where a venue/jurisdiction requires a legal-person applicant |
 | Exchange master application | DONE | Public-safe draft exists; private fields pending |
 | Listing request templates | DONE | Draft templates exist |
 | Exchange-specific requirements register | DONE | Current major CEX requirements recorded |
