@@ -81,8 +81,7 @@ std::vector<std::uint32_t> resolve_ipv4_addresses(
         if (item->ai_family != AF_INET ||
             item->ai_addr == nullptr ||
             item->ai_addrlen <
-                static_cast<socklen_t>(
-                    sizeof(sockaddr_in))) {
+                sizeof(sockaddr_in)) {
             continue;
         }
 
