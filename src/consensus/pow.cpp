@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 
 namespace quintum::consensus {
 namespace {
@@ -95,6 +96,45 @@ bool is_max_hash(const Hash256& value) noexcept
         value.end(),
         [](Byte byte) { return byte == 0xffU; }
     );
+}
+
+crypto::RandomXLightHasher* cached_randomx_hasher(
+    const Hash256& seed_key)
+{
+    struct Cache {
+        bool initialized{false};
+        Hash256 seed{};
+        std::unique_ptr<
+            crypto::RandomXLightHasher
+        > hasher{};
+    };
+
+    thread_local Cache cache;
+
+    if (!cache.initialized ||
+        cache.seed != seed_key ||
+        cache.hasher == nullptr ||
+        !cache.hasher->valid()) {
+        auto replacement =
+            std::make_unique<
+                crypto::RandomXLightHasher
+            >(
+                std::span<const Byte>{
+                    seed_key
+                }
+            );
+
+        if (!replacement->valid()) {
+            return nullptr;
+        }
+
+        cache.seed = seed_key;
+        cache.hasher =
+            std::move(replacement);
+        cache.initialized = true;
+    }
+
+    return cache.hasher.get();
 }
 
 } // namespace
@@ -331,18 +371,19 @@ std::optional<Hash256> randomx_pow_hash(
     const BlockHeader& header,
     const Hash256& seed_key)
 {
-    crypto::RandomXLightHasher hasher{
-        std::span<const Byte>{seed_key}
-    };
+    auto* hasher =
+        cached_randomx_hasher(
+            seed_key
+        );
 
-    if (!hasher.valid()) {
+    if (hasher == nullptr) {
         return std::nullopt;
     }
 
     const auto input =
         serialize_block_header(header);
 
-    return hasher.hash(input);
+    return hasher->hash(input);
 }
 
 PowCheckError check_randomx_proof_of_work(
@@ -452,11 +493,12 @@ MiningResult mine_randomx_header(
         return result;
     }
 
-    crypto::RandomXLightHasher hasher{
-        std::span<const Byte>{seed_key}
-    };
+    auto* hasher =
+        cached_randomx_hasher(
+            seed_key
+        );
 
-    if (!hasher.valid()) {
+    if (hasher == nullptr) {
         result.status =
             MineStatus::hashing_failed;
         return result;
@@ -468,7 +510,7 @@ MiningResult mine_randomx_header(
         const auto input =
             serialize_block_header(header);
         const auto hash =
-            hasher.hash(input);
+            hasher->hash(input);
 
         if (!hash) {
             result.status =
