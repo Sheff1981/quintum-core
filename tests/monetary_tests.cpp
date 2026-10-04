@@ -175,7 +175,7 @@ void test_randomx_candidate_schedule()
             era * kRandomXEraBlocks + 1U;
 
         const quintum::Amount blocks =
-            static_cast<Amount>(
+            static_cast<quintum::Amount>(
                 kRandomXEraBlocks);
 
         primary_total +=
