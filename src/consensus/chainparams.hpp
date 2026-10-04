@@ -14,12 +14,22 @@ enum class Network {
     regtest,
 };
 
+enum class DifficultyAlgorithm {
+    periodic,
+    asert,
+};
+
 struct PowParams {
     std::uint64_t target_spacing_seconds{0U};
     std::uint32_t retarget_interval{0U};
     std::uint32_t pow_limit_bits{0U};
     bool allow_min_difficulty_blocks{false};
     bool no_retargeting{false};
+    DifficultyAlgorithm difficulty_algorithm{
+        DifficultyAlgorithm::periodic
+    };
+    std::uint64_t asert_half_life_seconds{0U};
+    std::uint32_t asert_anchor_height{0U};
 };
 
 struct TimeParams {
