@@ -3,6 +3,7 @@
 #include "consensus/block_limits.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/randomx_seed.hpp"
 #include "consensus/tx_auth.hpp"
 
 #include <algorithm>
@@ -133,9 +134,34 @@ bool verify_genesis(
         return false;
     }
 
-    if (check_proof_of_work(
-            block.header,
-            params.pow) !=
+    PowCheckError pow_error{
+        PowCheckError::none
+    };
+
+    if (params.pow.pow_algorithm ==
+        PowAlgorithm::randomx_v2) {
+        const Hash256 bootstrap_hash{};
+        const auto seed_key =
+            randomx_seed_key(
+                0U,
+                bootstrap_hash
+            );
+
+        pow_error =
+            check_randomx_proof_of_work(
+                block.header,
+                params.pow,
+                seed_key
+            );
+    } else {
+        pow_error =
+            check_proof_of_work(
+                block.header,
+                params.pow
+            );
+    }
+
+    if (pow_error !=
         PowCheckError::none) {
         return false;
     }
