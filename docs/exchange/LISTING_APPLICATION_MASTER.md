@@ -336,7 +336,7 @@ QUINTUM is experimental pre-Mainnet software. Mainnet has not launched. Candidat
 - [ ] Legal opinion(s), where required
 - [ ] MiCA/XBRL package, where required
 - [ ] Team/KYC pack, private
-- [ ] Corporate/legal-entity documents, private
+- [ ] Company/legal documents, private
 - [ ] Tokenomics/supply workbook
 - [ ] Circulating-supply methodology
 - [ ] Network statistics evidence
