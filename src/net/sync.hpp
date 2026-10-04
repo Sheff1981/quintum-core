@@ -18,6 +18,15 @@ inline constexpr std::size_t kMaxGetDataItems = 128U;
 inline constexpr std::uint32_t kInventoryTransaction = 1U;
 inline constexpr std::uint32_t kInventoryBlock = 2U;
 
+[[nodiscard]] constexpr bool header_batch_may_continue(
+    std::size_t header_count) noexcept
+{
+    // A full headers batch can contain only blocks already known on a
+    // side branch. That is still progress in the protocol: the next batch
+    // may contain the extension that makes that branch the best chain.
+    return header_count == kMaxHeadersPerMessage;
+}
+
 struct GetHeadersRequest {
     std::vector<Hash256> locator{};
     Hash256 stop{};

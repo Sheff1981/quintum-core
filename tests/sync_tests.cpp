@@ -437,6 +437,25 @@ void test_heavier_remote_branch_reorg()
     std::filesystem::remove_all(client_dir, ec);
 }
 
+
+void test_full_known_header_batch_is_not_treated_as_stalled()
+{
+    using namespace quintum::net;
+
+    assert(!header_batch_may_continue(0U));
+    assert(!header_batch_may_continue(
+        kMaxHeadersPerMessage - 1U
+    ));
+
+    // Regression: a full batch may be entirely composed of blocks already
+    // stored on a side branch. Sync must request the continuation instead
+    // of declaring the peer stalled merely because no block was accepted
+    // and the active tip did not change in this batch.
+    assert(header_batch_may_continue(
+        kMaxHeadersPerMessage
+    ));
+}
+
 } // namespace
 
 int main()
@@ -444,5 +463,6 @@ int main()
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
     test_heavier_remote_branch_reorg();
+    test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }

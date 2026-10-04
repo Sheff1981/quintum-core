@@ -896,7 +896,17 @@ SyncResult sync_from_peer(
         Hash256 previous =
             headers->front().previous_block;
 
-        if (!node.chain().has_block(previous)) {
+        const bool parent_was_requested =
+            std::find(
+                request.locator.begin(),
+                request.locator.end(),
+                previous
+            ) != request.locator.end();
+
+        if (!parent_was_requested ||
+            !node.chain().has_block(previous) ||
+            (continuation &&
+             previous != *continuation)) {
             out.error = SyncError::invalid_header_chain;
             return out;
         }
@@ -917,11 +927,6 @@ SyncResult sync_from_peer(
 
             previous = block_hash(header);
         }
-
-        const auto tip_before =
-            node.chain().tip_hash();
-        const std::size_t accepted_before =
-            out.blocks_accepted;
 
         for (const auto& header : *headers) {
             const Hash256 expected_hash =
@@ -1033,16 +1038,8 @@ SyncResult sync_from_peer(
         continuation =
             block_hash(headers->back());
 
-        if (headers->size() <
-            kMaxHeadersPerMessage) {
-            return out;
-        }
-
-        if (out.blocks_accepted ==
-                accepted_before &&
-            node.chain().tip_hash() ==
-                tip_before) {
-            out.error = SyncError::stalled;
+        if (!header_batch_may_continue(
+                headers->size())) {
             return out;
         }
     }
