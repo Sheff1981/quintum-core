@@ -19,15 +19,18 @@ RandomX v2.0.1 is now pinned in the build at upstream commit `aaafe71322df6602c2
 
 ## RandomX seed schedule
 
-Planned QUINTUM RandomX seed policy:
+The QUINTUM RandomX seed schedule is now implemented and covered by fixed vectors:
 
 - seed interval: **2,048 blocks**;
 - seed lag: **64 blocks**;
 - domain separation: **QUINTUM-RX-SEED-V1**;
-- seed material is derived deterministically from QUINTUM chain history;
-- all nodes must derive the identical seed for the same candidate height.
+- for candidate height `H`, seed height is `0` while `H <= 2112`; afterwards it is `(H - 64 - 1) & ~(2048 - 1)`;
+- seed key is exactly `double-SHA-256(ASCII("QUINTUM-RX-SEED-V1") || uint64_le(seed_height) || seed_block_hash[32])`;
+- the seed block hash is taken from the candidate block's own ancestor branch, so forks derive their seed from their own history;
+- Genesis alone uses the bootstrap seed key with seed height 0 and an all-zero 32-byte seed-block hash, avoiding a circular dependency on the Genesis hash;
+- blocks after Genesis use the real Genesis block ID while seed height remains 0.
 
-The exact byte-level seed preimage and genesis/bootstrap behavior must be covered by fixed consensus test vectors before activation.
+All nodes therefore derive the same 32-byte RandomX key for the same branch and candidate height.
 
 ## Difficulty adjustment
 
@@ -41,6 +44,16 @@ Target parameters:
 - chain selection: greatest cumulative valid chain work.
 
 Exact integer arithmetic, anchor rules and test vectors must be frozen before activation.
+
+## RandomX block input
+
+For RandomX mining and validation, the input is exactly the existing **88-byte serialized QUINTUM block header**:
+
+`version || previous_block || merkle_root || timestamp || bits || nonce`
+
+using the existing field serialization rules. The 32-byte RandomX output is compared to the compact target using QUINTUM's existing byte-order/target comparison convention. SHA-256 remains the block-ID hash; RandomX is the mining PoW only.
+
+The implementation includes real RandomX nonce search, independent RandomX verification, branch-derived seed selection and a per-thread seed cache so the ~256 MiB light cache is not rebuilt for every block.
 
 ## Proof validation
 
