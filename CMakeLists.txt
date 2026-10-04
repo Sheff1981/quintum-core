@@ -111,6 +111,7 @@ add_library(quintum_core STATIC
     src/consensus/pow.cpp
     src/consensus/chainparams.cpp
     src/consensus/difficulty.cpp
+    src/consensus/randomx_seed.cpp
     src/consensus/genesis.cpp
     src/consensus/block_limits.cpp
     src/consensus/time.cpp
@@ -246,6 +247,18 @@ quintum_strict_warnings(quintum_randomx_tests)
 quintum_test_assertions(quintum_randomx_tests)
 
 add_test(NAME randomx COMMAND quintum_randomx_tests)
+
+add_executable(quintum_randomx_seed_tests
+    tests/randomx_seed_tests.cpp
+)
+target_link_libraries(
+    quintum_randomx_seed_tests
+    PRIVATE quintum_core
+)
+quintum_strict_warnings(quintum_randomx_seed_tests)
+quintum_test_assertions(quintum_randomx_seed_tests)
+
+add_test(NAME randomx_seed COMMAND quintum_randomx_seed_tests)
 
 add_executable(quintum_monetary_tests
     tests/monetary_tests.cpp
