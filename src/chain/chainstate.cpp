@@ -5,6 +5,7 @@
 #include "consensus/genesis.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/randomx_seed.hpp"
 #include "consensus/time.hpp"
 
 #include <algorithm>
@@ -44,7 +45,8 @@ ApplyBlockResult apply_block_to_view(
     std::uint32_t height,
     const Hash256& parent_work,
     const consensus::PowParams& pow_params,
-    const consensus::ResourceLimits& limits)
+    const consensus::ResourceLimits& limits,
+    const std::optional<Hash256>& randomx_seed_key)
 {
     ApplyBlockResult out;
 
@@ -63,11 +65,25 @@ ApplyBlockResult apply_block_to_view(
         return out;
     }
 
-    if (consensus::check_proof_of_work(
-            block.header,
-            pow_params) !=
+    const auto pow_error =
+        pow_params.pow_algorithm ==
+                consensus::PowAlgorithm::randomx_v2
+            ? randomx_seed_key
+                  ? consensus::check_randomx_proof_of_work(
+                        block.header,
+                        pow_params,
+                        *randomx_seed_key
+                    )
+                  : consensus::PowCheckError::hashing_failed
+            : consensus::check_proof_of_work(
+                  block.header,
+                  pow_params
+              );
+
+    if (pow_error !=
         consensus::PowCheckError::none) {
-        out.result.error = ChainConnectError::invalid_proof_of_work;
+        out.result.error =
+            ChainConnectError::invalid_proof_of_work;
         return out;
     }
 
@@ -268,6 +284,93 @@ std::optional<std::uint32_t> Chainstate::next_work_required(
     }
 
     return expected_bits(candidate, &it->second);
+}
+
+std::optional<Hash256>
+Chainstate::randomx_seed_key_for(
+    const BlockIndexEntry* parent,
+    std::uint32_t candidate_height) const
+{
+    if (candidate_height == 0U) {
+        const Hash256 bootstrap_hash{};
+        return consensus::randomx_seed_key(
+            0U,
+            bootstrap_hash
+        );
+    }
+
+    if (parent == nullptr) {
+        return std::nullopt;
+    }
+
+    const std::uint64_t seed_height =
+        consensus::randomx_seed_height(
+            candidate_height
+        );
+
+    if (seed_height >
+        static_cast<std::uint64_t>(
+            parent->height)) {
+        return std::nullopt;
+    }
+
+    const BlockIndexEntry* cursor = parent;
+
+    while (static_cast<std::uint64_t>(
+               cursor->height) >
+           seed_height) {
+        const auto it =
+            block_index_.find(
+                cursor->parent
+            );
+
+        if (it == block_index_.end()) {
+            return std::nullopt;
+        }
+
+        cursor = &it->second;
+    }
+
+    if (static_cast<std::uint64_t>(
+            cursor->height) !=
+        seed_height) {
+        return std::nullopt;
+    }
+
+    return consensus::randomx_seed_key(
+        seed_height,
+        cursor->hash
+    );
+}
+
+std::optional<Hash256>
+Chainstate::next_randomx_seed_key() const
+{
+    if (chain_.empty()) {
+        return randomx_seed_key_for(
+            nullptr,
+            0U
+        );
+    }
+
+    if (chain_.back().height ==
+        std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+    }
+
+    const auto it =
+        block_index_.find(
+            chain_.back().hash
+        );
+
+    if (it == block_index_.end()) {
+        return std::nullopt;
+    }
+
+    return randomx_seed_key_for(
+        &it->second,
+        it->second.height + 1U
+    );
 }
 
 bool Chainstate::has_failed_ancestor(const Hash256& hash) const
@@ -665,11 +768,40 @@ ChainConnectResult Chainstate::connect_block(
         return result;
     }
 
-    if (consensus::check_proof_of_work(
-            block.header,
-            params_.pow) !=
+    std::optional<Hash256> randomx_seed;
+
+    if (params_.pow.pow_algorithm ==
+        consensus::PowAlgorithm::randomx_v2) {
+        randomx_seed =
+            randomx_seed_key_for(
+                parent_entry,
+                new_height
+            );
+
+        if (!randomx_seed) {
+            result.error =
+                ChainConnectError::invalid_ancestor;
+            return result;
+        }
+    }
+
+    const auto pow_error =
+        params_.pow.pow_algorithm ==
+                consensus::PowAlgorithm::randomx_v2
+            ? consensus::check_randomx_proof_of_work(
+                  block.header,
+                  params_.pow,
+                  *randomx_seed
+              )
+            : consensus::check_proof_of_work(
+                  block.header,
+                  params_.pow
+              );
+
+    if (pow_error !=
         consensus::PowCheckError::none) {
-        result.error = ChainConnectError::invalid_proof_of_work;
+        result.error =
+            ChainConnectError::invalid_proof_of_work;
         return result;
     }
 
@@ -812,13 +944,55 @@ ChainConnectResult Chainstate::connect_block(
                 ? 0U
                 : staged_chain.back().height + 1U;
 
+        const BlockIndexEntry* staged_parent{
+            nullptr
+        };
+
+        if (staged_height > 0U) {
+            const auto parent_it =
+                block_index_.find(
+                    index_it->second.parent
+                );
+
+            if (parent_it ==
+                block_index_.end()) {
+                index_it->second.failed = true;
+                result.error =
+                    ChainConnectError::invalid_ancestor;
+                return result;
+            }
+
+            staged_parent =
+                &parent_it->second;
+        }
+
+        std::optional<Hash256>
+            staged_randomx_seed;
+
+        if (params_.pow.pow_algorithm ==
+            consensus::PowAlgorithm::randomx_v2) {
+            staged_randomx_seed =
+                randomx_seed_key_for(
+                    staged_parent,
+                    staged_height
+                );
+
+            if (!staged_randomx_seed) {
+                index_it->second.failed = true;
+                result.error =
+                    ChainConnectError::invalid_ancestor;
+                return result;
+            }
+        }
+
         auto applied = apply_block_to_view(
             index_it->second.block,
             staged_utxos,
             staged_height,
             staged_parent_work,
             params_.pow,
-            params_.limits
+            params_.limits,
+            staged_randomx_seed
         );
 
         if (!applied.result.ok()) {
