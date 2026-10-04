@@ -599,3 +599,18 @@ This file preserves a one-line chronological ledger of every Git commit in the p
 | 589 | 2026-10-03T21:17:43Z | `946d8d7b3be37aee89feaae211da143285225ac1` | net: preserve equal-height fork discovery |
 | 590 | 2026-10-04T05:36:34Z | `ee006ca8fa126d8aab9625a78d5fc20774023e6e` | docs: record overnight height 139 maturity and reconnect test |
 | 591 | 2026-10-04T06:09:32Z | `c5e29dcf45375d227872dd1a21c9127b214b1c8d` | net: harden headers sync continuation |
+
+| 592 | 2026-10-04T06:30:10Z | `23ca0b413ab810cad6a155f69abcfa9fc9fed20d` | docs: add exchange due-diligence package index |
+| 593 | 2026-10-04T06:30:13Z | `4b4dc2a3cebb3e9c047380829fb86e241c6d2443` | docs: add exchange technical due diligence |
+| 594 | 2026-10-04T06:30:15Z | `324bbfd61b2da5358dcef441c4c8558a0f20b11f` | docs: add exchange integration guide |
+| 595 | 2026-10-04T06:30:17Z | `819d56ef65ea83486ba6e237b612dc3cc5a088f4` | docs: add exchange verification evidence log |
+| 596 | 2026-10-04T06:30:20Z | `a3391b8b2d6d4e47629ae420797b0537af6f851d` | docs: add complete public development commit ledger |
+| 597 | 2026-10-04T06:30:40Z | `7fc4781342286c18baf98e8bb70f6e7a2ce18dfa` | docs: link living exchange due-diligence pack |
+| 598 | 2026-10-04T10:38:59Z | `9bcd5f1787b3d53d708acd2253cdc67893689476` | docs: add QUINTUM trademark and brand policy |
+| 599 | 2026-10-04T10:39:10Z | `17c2a3e5ff8b02edb7d8e135e0fba321b969b8c3` | docs: clarify MIT license and QUINTUM brand rights |
+| 600 | 2026-10-04 | `30d52b9a4104a75e999a482cf62580cccda0de12` | docs: add exchange listing requirements register |
+| 601 | 2026-10-04 | `00c7187a34e86b9efe594006ff17c69cb1b250e2` | docs: add master exchange listing application |
+| 602 | 2026-10-04 | `d6d65f1ec0918b4a42951f07e4a8829cf54c86b1` | docs: add exchange listing request templates |
+| 603 | 2026-10-04 | `325e8e01a268ba87c07c123bdb1c448a5582ee0a` | docs: add exchange readiness matrix |
+| 604 | 2026-10-04 | `92c6592fe29e5bac46a76ce25dd8139343b45647` | docs: add MiCA and EEA listing preparation checklist |
+| 605 | 2026-10-04 | `7742217a23c13cd75fab52f7174195c0df134e39` | docs: expand exchange listing and compliance pack index |
