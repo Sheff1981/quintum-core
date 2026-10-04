@@ -146,6 +146,74 @@ void test_real_nonce_mining()
     );
 }
 
+void test_randomx_block_pow()
+{
+    auto header = make_header(0x2100ffffU);
+
+    quintum::Hash256 seed_a{};
+    quintum::Hash256 seed_b{};
+    seed_a.back() = 0x11U;
+    seed_b.back() = 0x22U;
+
+    const auto hash_a =
+        quintum::consensus::randomx_pow_hash(
+            header,
+            seed_a
+        );
+    const auto hash_b =
+        quintum::consensus::randomx_pow_hash(
+            header,
+            seed_b
+        );
+
+    assert(hash_a.has_value());
+    assert(hash_b.has_value());
+    assert(*hash_a != *hash_b);
+
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    auto randomx_params = params.pow;
+    randomx_params.pow_limit_bits =
+        0x2100ffffU;
+
+    const auto mined =
+        quintum::consensus::mine_randomx_header(
+            header,
+            seed_a,
+            16U
+        );
+
+    assert(mined.found());
+    assert(mined.attempts >= 1U);
+    assert(mined.attempts <= 16U);
+    assert(header.nonce == mined.nonce);
+
+    assert(
+        quintum::consensus::
+            check_randomx_proof_of_work(
+                header,
+                randomx_params,
+                seed_a
+            ) ==
+        quintum::consensus::PowCheckError::none
+    );
+
+    auto invalid = header;
+    invalid.bits = 0U;
+
+    assert(
+        quintum::consensus::
+            check_randomx_proof_of_work(
+                invalid,
+                randomx_params,
+                seed_a
+            ) ==
+        quintum::consensus::PowCheckError::
+            invalid_target
+    );
+}
+
 void test_hash_above_target_is_rejected()
 {
     auto header = make_header(0x1d00ffffU);
@@ -164,6 +232,7 @@ int main()
     test_invalid_targets();
     test_chain_work();
     test_real_nonce_mining();
+    test_randomx_block_pow();
     test_hash_above_target_is_rejected();
     return 0;
 }
