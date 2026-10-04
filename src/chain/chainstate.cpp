@@ -343,8 +343,129 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
         return parent->block.header.bits;
     }
 
-    if (pow.retarget_interval == 0U ||
-        pow.target_spacing_seconds == 0U) {
+    if (pow.target_spacing_seconds == 0U) {
+        return std::nullopt;
+    }
+
+    if (pow.difficulty_algorithm ==
+        consensus::DifficultyAlgorithm::asert) {
+        if (pow.asert_half_life_seconds == 0U ||
+            pow.target_spacing_seconds >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()) ||
+            pow.asert_half_life_seconds >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()) ||
+            parent->height <
+                pow.asert_anchor_height) {
+            return std::nullopt;
+        }
+
+        if (pow.allow_min_difficulty_blocks) {
+            const std::uint64_t delay =
+                pow.target_spacing_seconds >
+                        std::numeric_limits<std::uint64_t>::max() / 2U
+                    ? std::numeric_limits<std::uint64_t>::max()
+                    : pow.target_spacing_seconds * 2U;
+
+            const std::uint64_t threshold =
+                parent->block.header.timestamp >
+                        std::numeric_limits<std::uint64_t>::max() - delay
+                    ? std::numeric_limits<std::uint64_t>::max()
+                    : parent->block.header.timestamp + delay;
+
+            if (block.header.timestamp > threshold) {
+                return pow.pow_limit_bits;
+            }
+        }
+
+        const BlockIndexEntry* anchor = parent;
+
+        while (anchor->height >
+               pow.asert_anchor_height) {
+            const auto it =
+                block_index_.find(anchor->parent);
+
+            if (it == block_index_.end()) {
+                return std::nullopt;
+            }
+
+            anchor = &it->second;
+        }
+
+        if (anchor->height !=
+            pow.asert_anchor_height) {
+            return std::nullopt;
+        }
+
+        std::uint64_t anchor_parent_time{0U};
+
+        if (anchor->height == 0U) {
+            if (anchor->block.header.timestamp <
+                pow.target_spacing_seconds) {
+                return std::nullopt;
+            }
+
+            anchor_parent_time =
+                anchor->block.header.timestamp -
+                pow.target_spacing_seconds;
+        } else {
+            const auto anchor_parent =
+                block_index_.find(anchor->parent);
+
+            if (anchor_parent ==
+                block_index_.end()) {
+                return std::nullopt;
+            }
+
+            anchor_parent_time =
+                anchor_parent->second.
+                    block.header.timestamp;
+        }
+
+        if (parent->block.header.timestamp >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max()) ||
+            anchor_parent_time >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::int64_t>::max())) {
+            return std::nullopt;
+        }
+
+        const std::int64_t time_diff =
+            static_cast<std::int64_t>(
+                parent->block.header.timestamp
+            ) -
+            static_cast<std::int64_t>(
+                anchor_parent_time
+            );
+
+        const std::int64_t height_diff =
+            static_cast<std::int64_t>(
+                parent->height -
+                anchor->height
+            );
+
+        const auto asert =
+            consensus::calculate_asert_bits(
+                anchor->block.header.bits,
+                static_cast<std::int64_t>(
+                    pow.target_spacing_seconds
+                ),
+                time_diff,
+                height_diff,
+                pow.pow_limit_bits,
+                static_cast<std::int64_t>(
+                    pow.asert_half_life_seconds
+                )
+            );
+
+        return asert.ok()
+            ? std::optional<std::uint32_t>{asert.bits}
+            : std::nullopt;
+    }
+
+    if (pow.retarget_interval == 0U) {
         return std::nullopt;
     }
 
