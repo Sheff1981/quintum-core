@@ -17,6 +17,7 @@ Download `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe` and `SHA256SUMS.txt`, then 
 The installer is currently **unsigned pre-alpha software**. Windows may display a SmartScreen warning.
 
 Testing instructions: [docs/TESTNET_TESTING.md](docs/TESTNET_TESTING.md)  
+Community / first testers: [COMMUNITY.md](COMMUNITY.md)  
 Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Principles
@@ -51,6 +52,7 @@ Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 - `TRADEMARKS.md` — QUINTUM trademark and brand-use policy
 - `CONTRIBUTING.md` — contribution guidelines
 - `docs/TESTNET_TESTING.md` — public testnet download and testing guide
+- `COMMUNITY.md` — community bootstrap, first-tester goals and fair-launch principles
 
 ## Development rule
 
