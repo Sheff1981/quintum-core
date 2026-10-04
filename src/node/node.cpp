@@ -305,22 +305,60 @@ NodeMineResult NodeRuntime::mine_block_at(
     out.total_fees = block_template.value.total_fees;
     out.block.header.nonce = start_nonce;
 
-    out.mining =
-        consensus::mine_header(
-            out.block.header,
-            max_attempts
-        );
+    std::optional<Hash256> randomx_seed;
+
+    if (params_.pow.pow_algorithm ==
+        consensus::PowAlgorithm::randomx_v2) {
+        randomx_seed =
+            persistent_.chain().
+                next_randomx_seed_key();
+
+        if (!randomx_seed) {
+            out.error =
+                NodeMineError::proof_of_work_invalid;
+            return out;
+        }
+
+        out.mining =
+            consensus::mine_randomx_header(
+                out.block.header,
+                *randomx_seed,
+                max_attempts
+            );
+    } else {
+        out.mining =
+            consensus::mine_header(
+                out.block.header,
+                max_attempts
+            );
+    }
 
     if (!out.mining.found()) {
-        out.error = NodeMineError::proof_of_work_exhausted;
+        out.error =
+            out.mining.status ==
+                    consensus::MineStatus::hashing_failed
+                ? NodeMineError::proof_of_work_invalid
+                : NodeMineError::proof_of_work_exhausted;
         return out;
     }
 
-    if (consensus::check_proof_of_work(
-            out.block.header,
-            params_.pow) !=
+    const auto pow_error =
+        params_.pow.pow_algorithm ==
+                consensus::PowAlgorithm::randomx_v2
+            ? consensus::check_randomx_proof_of_work(
+                  out.block.header,
+                  params_.pow,
+                  *randomx_seed
+              )
+            : consensus::check_proof_of_work(
+                  out.block.header,
+                  params_.pow
+              );
+
+    if (pow_error !=
         consensus::PowCheckError::none) {
-        out.error = NodeMineError::proof_of_work_invalid;
+        out.error =
+            NodeMineError::proof_of_work_invalid;
         return out;
     }
 
