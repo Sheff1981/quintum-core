@@ -63,7 +63,7 @@ Legend:
 | Existing market/liquidity evidence | N/A NOW | No production market yet |
 | CoinMarketCap / CoinGecko | N/A NOW | Apply when eligibility criteria are met |
 | Market-maker/liquidity plan | MISSING | Needed for many practical CEX launches, if used |
-| Private founder/team due-diligence pack | MISSING / PRIVATE | Prepare off-repo |
+| Private founder/team due-diligence pack | MISSING / PRIVATE | Prepare founder-only KYC/due-diligence pack off-repo; do not invent additional team members |
 | Legal entity documents | TBD / PRIVATE | Depends on final project structure |
 | Exchange master application | DONE | Public-safe draft exists; private fields pending |
 | Listing request templates | DONE | Draft templates exist |
