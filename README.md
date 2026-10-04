@@ -33,6 +33,7 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - `docs/` — protocol and architecture documentation
 - `docs/ru/START_HERE.md` — plain-language Russian project guide
 - `.github/workflows/` — reproducible CI builds
+- `TRADEMARKS.md` — QUINTUM trademark and brand-use policy
 
 ## Development rule
 
@@ -62,3 +63,12 @@ Next: **Stage 29 — public testnet readiness:** seed/bootstrap infrastructure, 
 ## Exchange listing / due diligence
 
 A continuously maintained English exchange-facing documentation pack is available at [docs/exchange/README.md](docs/exchange/README.md). It covers technical due diligence, integration requirements, verification evidence and public development history. The package is pre-Mainnet and must be updated whenever consensus, networking, wallet, security, release or public-network behavior changes.
+
+
+## License and brand
+
+QUINTUM Core source code is distributed under the [MIT License](LICENSE).
+
+The MIT License grants broad rights to use and modify the software, but it does **not** grant trademark rights or permission to present another project, network, product or service as official QUINTUM. Forks and modified versions should use their own distinct name and branding.
+
+See [TRADEMARKS.md](TRADEMARKS.md) for the QUINTUM trademark and brand-use policy.
