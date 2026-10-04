@@ -4,6 +4,23 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 
 > Status: **pre-alpha / protocol design**. No mainnet exists yet. Coins created in development networks have no monetary value.
 
+
+## Public testnet — Windows testers wanted
+
+External testers are welcome.
+
+**Current pre-alpha Windows builds:**  
+https://github.com/Sheff1981/quintum-core/actions/workflows/gui.yml?query=branch%3Amain+is%3Asuccess
+
+Open the latest successful **gui** run on `main`, download the `quintum-windows-x64` artifact, extract it, and run:
+
+`installer/QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe`
+
+The build is currently **unsigned pre-alpha software**. Verify the included `SHA256SUMS.txt` before running it.
+
+Testing instructions: [docs/TESTNET_TESTING.md](docs/TESTNET_TESTING.md)  
+Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
+
 ## Principles
 
 - Independent network and genesis block
@@ -34,6 +51,8 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 - `docs/ru/START_HERE.md` — plain-language Russian project guide
 - `.github/workflows/` — reproducible CI builds
 - `TRADEMARKS.md` — QUINTUM trademark and brand-use policy
+- `CONTRIBUTING.md` — contribution guidelines
+- `docs/TESTNET_TESTING.md` — public testnet download and testing guide
 
 ## Development rule
 
