@@ -19,6 +19,11 @@ enum class DifficultyAlgorithm {
     asert,
 };
 
+enum class PowAlgorithm {
+    sha256d,
+    randomx_v2,
+};
+
 struct PowParams {
     std::uint64_t target_spacing_seconds{0U};
     std::uint32_t retarget_interval{0U};
@@ -30,6 +35,9 @@ struct PowParams {
     };
     std::uint64_t asert_half_life_seconds{0U};
     std::uint32_t asert_anchor_height{0U};
+    PowAlgorithm pow_algorithm{
+        PowAlgorithm::sha256d
+    };
 };
 
 struct TimeParams {
