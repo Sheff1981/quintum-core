@@ -1038,8 +1038,8 @@ SyncResult sync_from_peer(
         continuation =
             block_hash(headers->back());
 
-        if (headers->size() <
-            kMaxHeadersPerMessage) {
+        if (!header_batch_may_continue(
+                headers->size())) {
             return out;
         }
     }
