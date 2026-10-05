@@ -1,7 +1,7 @@
 # QUINTUM Exchange Listing Requirements Register
 
 Status: **LIVE DOCUMENT — PRE-MAINNET**  
-Last external-source review: **2026-10-04**  
+Last external-source review: **2026-10-05**  
 Purpose: maintain a current, exchange-by-exchange record of what major centralized exchanges publicly request before listing review.
 
 This file records public requirements and review signals only. It does **not** claim that QUINTUM is currently eligible for listing. Mainnet is not launched and production deposits/withdrawals must not be enabled.
@@ -146,7 +146,7 @@ Kraken states that evaluation/listing itself is not charged; optional services m
 
 ### Kraken EEA / MiCA
 
-Kraken states that EEA listings require a MiCA-compliant whitepaper. Its current guidance states that, under the applicable implementation timeline, the whitepaper must be produced in XBRL and submitted to a National Competent Authority in advance of the intended listing date.
+Kraken states that EEA listings require a MiCA-compliant whitepaper and accompanying explanatory notes. Its official whitepaper guidance, updated 2026-10-01, states that the whitepaper must be produced in XBRL under the MiCA taxonomy and ESMA guidance, submitted to a National Competent Authority at least 20 business days before the target listing date, and published on the ESMA interim register and Kraken's website. Failure to submit a compliant whitepaper can affect the target listing date.
 
 QUINTUM package items to have ready:
 
@@ -156,7 +156,9 @@ QUINTUM package items to have ready:
 - launch and distribution history;
 - community/on-chain metrics;
 - legal/compliance package;
-- MiCA XBRL whitepaper + explanatory notes for an EEA route.
+- MiCA XBRL whitepaper + explanatory notes for an EEA route;
+- evidence of NCA submission at least 20 business days before the target listing date;
+- publication/registry evidence for the ESMA interim register and Kraken website when applicable.
 
 Current QUINTUM state: **NOT READY TO SUBMIT.**
 
