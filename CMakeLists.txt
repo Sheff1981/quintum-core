@@ -159,6 +159,7 @@ quintum_strict_warnings(quintumd)
 if(QUINTUM_BUILD_GUI)
     find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets)
     qt_standard_project_setup()
+    set(CMAKE_AUTORCC ON)
 
     qt_add_executable(
         quintum_qt
