@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(quintum_core
-    VERSION 0.0.2
+    VERSION 0.0.3
     DESCRIPTION "QUINTUM Core"
     LANGUAGES C CXX
 )
