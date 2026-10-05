@@ -226,8 +226,10 @@ compact_keys(
         nonce
     );
 
+    // BIP152 key derivation: SHA256(header || nonce),
+    // then the first two little-endian 64-bit words.
     const Hash256 digest =
-        crypto::double_sha256(material);
+        crypto::sha256(material);
 
     return {
         load64_le(digest.data()),
