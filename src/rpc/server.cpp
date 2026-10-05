@@ -49,8 +49,10 @@ std::string base64_encode(
     std::uint32_t accumulator{0U};
     unsigned bits{0U};
 
-    for (const unsigned char ch :
-         input) {
+    for (const char raw : input) {
+        const auto ch =
+            static_cast<unsigned char>(raw);
+
         accumulator =
             (accumulator << 8U) |
             static_cast<std::uint32_t>(ch);
@@ -173,7 +175,9 @@ RpcServer::start(
         "__cookie__:" +
         hex_encode(random);
 
-    crypto::secure_erase(random);
+    crypto::secure_erase(
+        std::span<Byte>{random}
+    );
 
     const std::filesystem::path
         temporary_path =
