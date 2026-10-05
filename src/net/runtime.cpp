@@ -1318,6 +1318,164 @@ NetworkRuntime::mine_mempool_block_at(
     return out;
 }
 
+NodeSubmitResult
+NetworkRuntime::submit_block(
+    const Block& block)
+{
+    NodeSubmitResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+        out = node_.submit_block(block);
+
+        if (out.ok()) {
+            (void)sync_wallet_locked();
+        }
+    }
+
+    if (out.ok()) {
+        queue_announcement(
+            kInventoryBlock,
+            block_hash(block.header)
+        );
+    }
+
+    return out;
+}
+
+std::optional<Block>
+NetworkRuntime::block(
+    const Hash256& hash) const
+{
+    std::scoped_lock lock(state_mutex_);
+
+    const Block* value =
+        node_.chain().block(hash);
+
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+
+    return *value;
+}
+
+std::optional<Hash256>
+NetworkRuntime::active_hash(
+    std::uint32_t height) const
+{
+    std::scoped_lock lock(state_mutex_);
+    return node_.chain().active_hash(height);
+}
+
+std::optional<std::uint32_t>
+NetworkRuntime::active_height(
+    const Hash256& hash) const
+{
+    std::scoped_lock lock(state_mutex_);
+    return node_.chain().active_height(hash);
+}
+
+Hash256 NetworkRuntime::cumulative_work() const
+{
+    std::scoped_lock lock(state_mutex_);
+    return node_.chain().cumulative_work();
+}
+
+std::vector<Hash256>
+NetworkRuntime::mempool_transaction_ids(
+    std::size_t limit) const
+{
+    std::scoped_lock lock(state_mutex_);
+    return node_.mempool().transaction_ids(limit);
+}
+
+std::size_t NetworkRuntime::mempool_bytes() const
+{
+    std::scoped_lock lock(state_mutex_);
+    return node_.mempool().total_bytes();
+}
+
+NetworkMiningTemplateResult
+NetworkRuntime::mining_template(
+    const Bytes& payout_script,
+    std::uint64_t adjusted_time)
+{
+    NetworkMiningTemplateResult out;
+
+    std::scoped_lock lock(state_mutex_);
+
+    const std::size_t block_transaction_limit =
+        params_.limits.max_block_transactions > 0U
+            ? static_cast<std::size_t>(
+                  params_.limits.max_block_transactions - 1U)
+            : 0U;
+
+    const auto transactions =
+        node_.mempool().transactions(
+            block_transaction_limit
+        );
+
+    std::size_t low{0U};
+    std::size_t high{transactions.size()};
+    std::size_t best{0U};
+
+    while (low <= high) {
+        const std::size_t mid =
+            low + (high - low) / 2U;
+
+        const auto candidate =
+            mining::create_block_template(
+                node_.chain(),
+                payout_script,
+                adjusted_time,
+                std::span<const Transaction>(
+                    transactions.data(),
+                    mid
+                )
+            );
+
+        if (candidate.ok()) {
+            best = mid;
+            low = mid + 1U;
+            continue;
+        }
+
+        if (candidate.error ==
+            mining::BlockTemplateError::
+                resource_limits_exceeded) {
+            if (mid == 0U) {
+                break;
+            }
+
+            high = mid - 1U;
+            continue;
+        }
+
+        out.block_template = candidate;
+        return out;
+    }
+
+    out.block_template =
+        mining::create_block_template(
+            node_.chain(),
+            payout_script,
+            adjusted_time,
+            std::span<const Transaction>(
+                transactions.data(),
+                best
+            )
+        );
+
+    if (out.block_template.ok() &&
+        params_.pow.pow_algorithm ==
+            consensus::PowAlgorithm::randomx_v2) {
+        out.randomx_seed =
+            node_.chain().next_randomx_seed_key();
+    }
+
+    return out;
+}
+
 bool NetworkRuntime::has_mempool_transaction(
     const Hash256& txid) const
 {
