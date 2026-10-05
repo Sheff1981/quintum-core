@@ -111,6 +111,7 @@ add_library(quintum_core STATIC
     src/consensus/pow.cpp
     src/consensus/chainparams.cpp
     src/consensus/difficulty.cpp
+    src/consensus/deployment.cpp
     src/consensus/randomx_seed.cpp
     src/consensus/genesis.cpp
     src/consensus/block_limits.cpp
@@ -328,6 +329,25 @@ quintum_strict_warnings(quintum_difficulty_tests)
 quintum_test_assertions(quintum_difficulty_tests)
 
 add_test(NAME difficulty COMMAND quintum_difficulty_tests)
+
+add_executable(quintum_deployment_tests
+    tests/deployment_tests.cpp
+)
+target_link_libraries(
+    quintum_deployment_tests
+    PRIVATE quintum_core
+)
+quintum_strict_warnings(
+    quintum_deployment_tests
+)
+quintum_test_assertions(
+    quintum_deployment_tests
+)
+
+add_test(
+    NAME deployment
+    COMMAND quintum_deployment_tests
+)
 
 add_executable(quintum_timestamp_limits_tests
     tests/timestamp_limits_tests.cpp
