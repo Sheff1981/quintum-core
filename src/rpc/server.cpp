@@ -323,12 +323,22 @@ RpcServer::start(
         }
     );
 
-    const int bound =
+    int bound{-1};
+
+    if (requested_port == 0U) {
+        bound =
+            server_->bind_to_any_port(
+                "127.0.0.1"
+            );
+    } else if (
         server_->bind_to_port(
             "127.0.0.1",
             static_cast<int>(
-                requested_port)
-        );
+                requested_port))) {
+        bound =
+            static_cast<int>(
+                requested_port);
+    }
 
     if (bound <= 0 ||
         bound >
