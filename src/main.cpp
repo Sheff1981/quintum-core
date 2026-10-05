@@ -3,6 +3,7 @@
 #include "crypto/secp256k1.hpp"
 #include "crypto/random.hpp"
 #include "net/runtime.hpp"
+#include "rpc/server.hpp"
 
 #include <array>
 #include <charconv>
@@ -14,6 +15,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -202,6 +204,7 @@ void print_usage()
         << "Usage: quintumd [--regtest|--testnet|--randomx-testnet|--mainnet]"
         << " [--datadir PATH]"
         << " [--listen-port N]"
+        << " [--rpc [--rpc-port N]]"
         << " [--disable-wallet]"
         << " [--new-address]"
         << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
@@ -229,6 +232,8 @@ int main(int argc, char* argv[])
     std::uint64_t mine_blocks{0U};
     std::uint64_t max_attempts{5'000'000U};
     std::optional<std::uint16_t> listen_port;
+    bool rpc_requested{false};
+    std::optional<std::uint16_t> rpc_port;
     std::optional<crypto::PublicKey> miner_public_key;
     bool new_address_requested{false};
     std::optional<std::string> send_to;
@@ -292,6 +297,28 @@ int main(int argc, char* argv[])
             }
 
             listen_port = parsed_port;
+            continue;
+        }
+
+        if (arg == "--rpc") {
+            rpc_requested = true;
+            continue;
+        }
+
+        if (arg == "--rpc-port") {
+            std::uint16_t parsed_port{0U};
+
+            if (i + 1 >= argc ||
+                !parse_u16(
+                    argv[++i],
+                    parsed_port)) {
+                std::cerr
+                    << "Invalid --rpc-port value\n";
+                return 2;
+            }
+
+            rpc_port = parsed_port;
+            rpc_requested = true;
             continue;
         }
 
@@ -810,6 +837,43 @@ int main(int argc, char* argv[])
             << '\n';
     }
 
+    std::unique_ptr<rpc::RpcServer>
+        rpc_server;
+
+    if (rpc_requested) {
+        rpc_server =
+            std::make_unique<
+                rpc::RpcServer>(
+                    params,
+                    runtime,
+                    network_directory
+                );
+
+        const auto rpc_started =
+            rpc_server->start(
+                rpc_port.value_or(
+                    params.rpc_port)
+            );
+
+        if (!rpc_started.ok()) {
+            std::cerr
+                << "RPC startup failed: "
+                << static_cast<int>(
+                       rpc_started.error)
+                << '\n';
+            runtime.stop();
+            return 1;
+        }
+
+        std::cout
+            << "RPC listen: 127.0.0.1:"
+            << rpc_started.port
+            << '\n'
+            << "RPC cookie: "
+            << rpc_started.cookie_path.string()
+            << '\n';
+    }
+
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
@@ -817,7 +881,9 @@ int main(int argc, char* argv[])
         << "P2P runtime active. Press Ctrl+C to stop.\n";
 
     while (g_stop_requested == 0 &&
-           runtime.running()) {
+           runtime.running() &&
+           (!rpc_server ||
+            rpc_server->running())) {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(250)
         );
@@ -825,13 +891,19 @@ int main(int argc, char* argv[])
 
     const bool unexpected_stop =
         g_stop_requested == 0 &&
-        !runtime.running();
+        (!runtime.running() ||
+         (rpc_server &&
+          !rpc_server->running()));
+
+    if (rpc_server) {
+        rpc_server->stop();
+    }
 
     runtime.stop();
 
     if (unexpected_stop) {
         std::cerr
-            << "P2P runtime stopped unexpectedly\n";
+            << "Runtime stopped unexpectedly\n";
         return 1;
     }
 
