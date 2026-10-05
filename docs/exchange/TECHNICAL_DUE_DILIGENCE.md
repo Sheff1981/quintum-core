@@ -116,7 +116,7 @@ The height-0 subsidy is 50 QUINTUM but is paid to permanently reserved unspendab
 
 There is no developer mint, administrator balance override or privileged coin-generation path.
 
-The working GUI abbreviation is **QTM**. The final Mainnet exchange ticker remains a pre-launch decision and must not be treated as formally frozen yet.
+The working GUI abbreviation is **QMU**. The final Mainnet exchange ticker remains a pre-launch decision and must not be treated as formally frozen yet.
 
 ## 7. Proof of Work and difficulty
 
@@ -198,9 +198,9 @@ Stage 20 implements network-separated Bech32m wallet addresses carrying address 
 
 Current HRPs:
 
-- Mainnet candidate: `qtm`
+- Mainnet candidate: `qmu`
 - Testnet: `tqtm`
-- Regtest: `rqtm`
+- Regtest: `rqmu`
 
 The format is implemented and regression-tested but remains a pre-Mainnet candidate until final freeze.
 
@@ -370,15 +370,15 @@ On 2026-10-03 a fresh Windows install connected automatically to the public Test
 
 Observed end-to-end path:
 
-Windows installer -> encrypted wallet -> automatic Testnet bootstrap -> version/verack -> real PoW -> valid 50-QTM coinbase -> block inventory relay -> VPS validation -> durable VPS blockchain storage -> restart recovery.
+Windows installer -> encrypted wallet -> automatic Testnet bootstrap -> version/verack -> real PoW -> valid 50-QMU coinbase -> block inventory relay -> VPS validation -> durable VPS blockchain storage -> restart recovery.
 
 Two initial blocks were independently confirmed on the remote VPS. Later live runs confirmed relay through height 7, automatic reconnect, and an overnight synchronized run through height 139 with coinbase maturity accounting.
 
 At height 139, the observed wallet accounting was:
 
-- Available/Confirmed: 2,000 QTM;
-- Immature: 4,950 QTM;
-- 40 matured 50-QTM rewards + 99 immature 50-QTM rewards = 6,950 QTM total.
+- Available/Confirmed: 2,000 QMU;
+- Immature: 4,950 QMU;
+- 40 matured 50-QMU rewards + 99 immature 50-QMU rewards = 6,950 QMU total.
 
 This is Testnet evidence only.
 
