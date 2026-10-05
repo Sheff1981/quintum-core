@@ -214,6 +214,46 @@ void test_randomx_block_pow()
     );
 }
 
+void test_parallel_randomx_mining()
+{
+    auto header = make_header(0x2100ffffU);
+
+    quintum::Hash256 seed{};
+    seed.back() = 0x33U;
+
+    const auto mined =
+        quintum::consensus::
+            mine_randomx_header_parallel(
+                header,
+                seed,
+                32U,
+                2U,
+                false
+            );
+
+    assert(mined.found());
+    assert(mined.attempts >= 1U);
+    assert(mined.attempts <= 32U);
+    assert(header.nonce == mined.nonce);
+
+    auto params =
+        quintum::consensus::
+            regtest_params().pow;
+    params.pow_limit_bits =
+        0x2100ffffU;
+
+    assert(
+        quintum::consensus::
+            check_randomx_proof_of_work(
+                header,
+                params,
+                seed
+            ) ==
+        quintum::consensus::
+            PowCheckError::none
+    );
+}
+
 void test_hash_above_target_is_rejected()
 {
     auto header = make_header(0x1d00ffffU);
@@ -233,6 +273,7 @@ int main()
     test_chain_work();
     test_real_nonce_mining();
     test_randomx_block_pow();
+    test_parallel_randomx_mining();
     test_hash_above_target_is_rejected();
     return 0;
 }
