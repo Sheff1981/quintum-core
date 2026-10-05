@@ -4,6 +4,7 @@
 #include "core/types.hpp"
 #include "primitives/block.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
@@ -88,6 +89,14 @@ struct MiningResult {
     BlockHeader& header,
     const Hash256& seed_key,
     std::uint64_t max_attempts
+);
+
+[[nodiscard]] MiningResult mine_randomx_header_parallel(
+    BlockHeader& header,
+    const Hash256& seed_key,
+    std::uint64_t max_attempts,
+    std::size_t worker_count,
+    bool full_memory = false
 );
 
 } // namespace quintum::consensus
