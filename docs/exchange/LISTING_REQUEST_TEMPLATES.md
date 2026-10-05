@@ -10,7 +10,7 @@ These templates are deliberately factual and non-promotional. They must never be
 
 ## 1. Standard initial listing request
 
-**Subject:** QUINTUM (QTM) — Native Layer-1 Asset Listing Review Request
+**Subject:** QUINTUM (QMU) — Native Layer-1 Asset Listing Review Request
 
 Dear Listings Team,
 
