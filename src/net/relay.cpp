@@ -682,6 +682,13 @@ RelayResult serve_relay_message(
                 );
         } else if (item.type == kInventoryBlock ||
                    item.type == kInventoryCompactBlock) {
+            if (item.type == kInventoryCompactBlock &&
+                (peer.remote_version().services &
+                 kServiceCompactBlocks) == 0U) {
+                missing.push_back(item);
+                continue;
+            }
+
             const Block* block =
                 node.chain().block(
                     item.hash
