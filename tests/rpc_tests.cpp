@@ -464,18 +464,23 @@ void test_cookie_authenticated_http_server()
     assert(unauthorized_result->status ==
            401);
 
-    std::ifstream cookie_file{
-        started.cookie_path,
-        std::ios::binary
-    };
-
-    assert(cookie_file.is_open());
-
     std::string cookie;
-    std::getline(
-        cookie_file,
-        cookie
-    );
+
+    {
+        std::ifstream cookie_file{
+            started.cookie_path,
+            std::ios::binary
+        };
+
+        assert(cookie_file.is_open());
+
+        std::getline(
+            cookie_file,
+            cookie
+        );
+        assert(cookie_file.good() ||
+               cookie_file.eof());
+    }
 
     constexpr std::string_view prefix{
         "__cookie__:"
