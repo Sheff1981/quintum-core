@@ -1810,6 +1810,27 @@ void NetworkRuntime::service_peers(
 
         peer.last_activity = now;
 
+        if (peer.message_window_started == 0U ||
+            elapsed(
+                now,
+                peer.message_window_started,
+                1U)) {
+            peer.message_window_started = now;
+            peer.messages_in_window = 0U;
+        }
+
+        if (peer.messages_in_window <
+            std::numeric_limits<std::uint32_t>::max()) {
+            ++peer.messages_in_window;
+        }
+
+        if (config_.max_messages_per_second > 0U &&
+            peer.messages_in_window >
+                config_.max_messages_per_second) {
+            peer.session.close();
+            continue;
+        }
+
         if (!process_message(
                 peer,
                 message,
