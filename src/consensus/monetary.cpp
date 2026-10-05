@@ -117,6 +117,52 @@ Amount miner_subsidy(
         : block_subsidy(height);
 }
 
+
+std::optional<Bytes>
+founder_payout_script(
+    const MonetaryParams& params)
+{
+    if (!params.founder_payout_enabled) {
+        return std::nullopt;
+    }
+
+    if (!params.founder_multisig_enabled) {
+        if (!crypto::is_valid_public_key(
+                params.founder_public_key)) {
+            return std::nullopt;
+        }
+
+        return make_p2pk_locking_script(
+            params.founder_public_key
+        );
+    }
+
+    const std::size_t count =
+        params.founder_multisig_key_count;
+
+    if (count == 0U ||
+        count >
+            params.
+                founder_multisig_public_keys.
+                size() ||
+        params.founder_multisig_threshold ==
+            0U ||
+        params.founder_multisig_threshold >
+            count) {
+        return std::nullopt;
+    }
+
+    return make_multisig_locking_script(
+        params.founder_multisig_threshold,
+        std::span<const crypto::PublicKey>{
+            params.
+                founder_multisig_public_keys.
+                data(),
+            count
+        }
+    );
+}
+
 std::optional<Amount> transaction_output_total(
     const Transaction& tx) noexcept
 {
@@ -219,21 +265,17 @@ bool coinbase_reward_is_valid(
 
     if (!params.founder_payout_enabled ||
         coinbase.outputs.size() < 2U ||
-        coinbase.outputs[1].value != founder ||
-        !crypto::is_valid_public_key(
-            params.founder_public_key)) {
+        coinbase.outputs[1].value != founder) {
         return false;
     }
 
-    const auto founder_key =
-        parse_p2pk_locking_script(
-            coinbase.outputs[1].
-                locking_script
-        );
+    const auto expected_script =
+        founder_payout_script(params);
 
-    return founder_key.has_value() &&
-           *founder_key ==
-               params.founder_public_key;
+    return expected_script.has_value() &&
+           coinbase.outputs[1].
+                   locking_script ==
+               *expected_script;
 }
 
 } // namespace quintum::consensus
