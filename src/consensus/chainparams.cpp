@@ -83,6 +83,50 @@ constexpr ChainParams kTestnet{
     },
 };
 
+constexpr ChainParams kRandomXTestnet{
+    .network = Network::randomx_testnet,
+    .name = "randomx-testnet",
+    .message_start = {0x3bU, 0xbfU, 0xb9U, 0xf0U},
+    .p2p_port = 39444U,
+    .rpc_port = 39445U,
+    .pow = PowParams{
+        .target_spacing_seconds = 120U,
+        .retarget_interval = 1U,
+        .pow_limit_bits = 0x1f7fffffU,
+        .allow_min_difficulty_blocks = false,
+        .no_retargeting = false,
+        .difficulty_algorithm = DifficultyAlgorithm::asert,
+        .asert_half_life_seconds = 34'560U,
+        .asert_anchor_height = 0U,
+        .pow_algorithm = PowAlgorithm::randomx_v2,
+    },
+    .monetary = MonetaryParams{
+        .schedule = MonetarySchedule::randomx_v1,
+        .max_money = kRandomXMoneyRange,
+        .coinbase_maturity = kRandomXCoinbaseMaturity,
+        .founder_payout_enabled = true,
+        // TESTNET ONLY. Mainnet must use a separately generated custody key.
+        .founder_public_key = crypto::PublicKey{
+            0x03U, 0x01U, 0x26U, 0x2eU, 0x10U, 0xa8U, 0x41U, 0xefU,
+            0x12U, 0xa9U, 0xe5U, 0x76U, 0x86U, 0x19U, 0xafU, 0x8dU,
+            0xc1U, 0xdeU, 0xe9U, 0x1aU, 0x22U, 0xeeU, 0x01U, 0xf4U,
+            0x89U, 0x9cU, 0x7dU, 0xcdU, 0xb9U, 0x69U, 0xe6U, 0x8aU,
+            0x33U,
+        },
+    },
+    .time = TimeParams{},
+    .limits = ResourceLimits{},
+    .genesis = GenesisParams{
+        .enforce = true,
+        .message = "QUINTUM 05/Oct/2026 RandomX public testnet v1 | CPU PoW",
+        .timestamp = 1'791'158'400ULL,
+        .bits = 0x1f7fffffU,
+        .nonce = 80ULL,
+        .merkle_root = hash256("1e11ac64fba90f543acd87018ec0d9da7ce11d56892026037728688b8c15cd0a"),
+        .hash = hash256("89477dab8594e000e155b2a1e020ce8a73a3b03fa32568ac8773900794dca360"),
+    },
+};
+
 constexpr ChainParams kRegtest{
     .network = Network::regtest,
     .name = "regtest",
@@ -126,6 +170,11 @@ const ChainParams& regtest_params() noexcept
     return kRegtest;
 }
 
+const ChainParams& randomx_testnet_params() noexcept
+{
+    return kRandomXTestnet;
+}
+
 const ChainParams& chain_params(Network network) noexcept
 {
     switch (network) {
@@ -133,6 +182,8 @@ const ChainParams& chain_params(Network network) noexcept
         return kMainnet;
     case Network::testnet:
         return kTestnet;
+    case Network::randomx_testnet:
+        return kRandomXTestnet;
     case Network::regtest:
     default:
         return kRegtest;
