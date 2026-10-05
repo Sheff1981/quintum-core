@@ -117,6 +117,132 @@ parse_p2pk_unlocking_script(const Bytes& script)
 }
 
 
+Bytes make_p2pkh256_locking_script(
+    const crypto::PublicKey& public_key)
+{
+    if (!crypto::is_valid_public_key(
+            public_key)) {
+        return {};
+    }
+
+    const Hash256 key_hash =
+        crypto::sha256(
+            std::span<const Byte>{
+                public_key
+            }
+        );
+
+    Bytes script;
+    script.reserve(
+        1U + key_hash.size()
+    );
+    script.push_back(
+        kP2pkh256LockVersion
+    );
+    script.insert(
+        script.end(),
+        key_hash.begin(),
+        key_hash.end()
+    );
+
+    return script;
+}
+
+std::optional<Hash256>
+parse_p2pkh256_locking_script(
+    const Bytes& script)
+{
+    if (script.size() != 33U ||
+        script.front() !=
+            kP2pkh256LockVersion) {
+        return std::nullopt;
+    }
+
+    Hash256 key_hash{};
+    std::copy(
+        script.begin() + 1,
+        script.end(),
+        key_hash.begin()
+    );
+
+    return key_hash;
+}
+
+Bytes make_p2pkh256_unlocking_script(
+    const crypto::PublicKey& public_key,
+    const crypto::CompactSignature& signature)
+{
+    if (!crypto::is_valid_public_key(
+            public_key)) {
+        return {};
+    }
+
+    Bytes script;
+    script.reserve(
+        1U +
+        public_key.size() +
+        signature.size()
+    );
+    script.push_back(
+        kP2pkh256UnlockVersion
+    );
+    script.insert(
+        script.end(),
+        public_key.begin(),
+        public_key.end()
+    );
+    script.insert(
+        script.end(),
+        signature.begin(),
+        signature.end()
+    );
+
+    return script;
+}
+
+std::optional<P2pkh256Unlock>
+parse_p2pkh256_unlocking_script(
+    const Bytes& script)
+{
+    constexpr std::size_t key_size =
+        crypto::PublicKey{}.size();
+    constexpr std::size_t signature_size =
+        crypto::CompactSignature{}.size();
+
+    if (script.size() !=
+            1U +
+            key_size +
+            signature_size ||
+        script.front() !=
+            kP2pkh256UnlockVersion) {
+        return std::nullopt;
+    }
+
+    P2pkh256Unlock out;
+
+    std::copy_n(
+        script.begin() + 1,
+        key_size,
+        out.public_key.begin()
+    );
+
+    std::copy_n(
+        script.begin() +
+            static_cast<std::ptrdiff_t>(
+                1U + key_size),
+        signature_size,
+        out.signature.begin()
+    );
+
+    if (!crypto::is_valid_public_key(
+            out.public_key)) {
+        return std::nullopt;
+    }
+
+    return out;
+}
+
+
 bool MultisigPolicy::valid() const noexcept
 {
     if (threshold == 0U ||
@@ -683,6 +809,157 @@ InputAuthError verify_multisig_authorization(
             return InputAuthError::
                 invalid_signature;
         }
+    }
+
+    return InputAuthError::none;
+}
+
+InputAuthError sign_p2pkh256_input(
+    Transaction& tx,
+    std::size_t input_index,
+    const TxOutput& previous_output,
+    const crypto::PrivateKey& private_key)
+{
+    if (input_index >=
+        tx.inputs.size()) {
+        return InputAuthError::
+            input_index_out_of_range;
+    }
+
+    const auto expected_hash =
+        parse_p2pkh256_locking_script(
+            previous_output.locking_script
+        );
+
+    if (!expected_hash) {
+        return InputAuthError::
+            malformed_locking_script;
+    }
+
+    const auto public_key =
+        crypto::derive_public_key(
+            private_key
+        );
+
+    if (!public_key) {
+        return InputAuthError::
+            wrong_private_key;
+    }
+
+    const Hash256 actual_hash =
+        crypto::sha256(
+            std::span<const Byte>{
+                *public_key
+            }
+        );
+
+    if (actual_hash != *expected_hash) {
+        return InputAuthError::
+            wrong_private_key;
+    }
+
+    const auto digest =
+        signature_hash(
+            tx,
+            input_index,
+            previous_output
+        );
+
+    if (!digest) {
+        return InputAuthError::
+            input_index_out_of_range;
+    }
+
+    const auto signature =
+        crypto::sign_ecdsa(
+            *digest,
+            private_key
+        );
+
+    if (!signature) {
+        return InputAuthError::
+            invalid_signature;
+    }
+
+    tx.inputs[input_index].
+        unlocking_script =
+            make_p2pkh256_unlocking_script(
+                *public_key,
+                *signature
+            );
+
+    if (tx.inputs[input_index].
+            unlocking_script.empty()) {
+        return InputAuthError::
+            malformed_unlocking_script;
+    }
+
+    return InputAuthError::none;
+}
+
+InputAuthError
+verify_p2pkh256_authorization(
+    const Transaction& tx,
+    std::size_t input_index,
+    const TxOutput& previous_output)
+{
+    if (input_index >=
+        tx.inputs.size()) {
+        return InputAuthError::
+            input_index_out_of_range;
+    }
+
+    const auto expected_hash =
+        parse_p2pkh256_locking_script(
+            previous_output.locking_script
+        );
+
+    if (!expected_hash) {
+        return InputAuthError::
+            malformed_locking_script;
+    }
+
+    const auto unlock =
+        parse_p2pkh256_unlocking_script(
+            tx.inputs[input_index].
+                unlocking_script
+        );
+
+    if (!unlock) {
+        return InputAuthError::
+            malformed_unlocking_script;
+    }
+
+    const Hash256 actual_hash =
+        crypto::sha256(
+            std::span<const Byte>{
+                unlock->public_key
+            }
+        );
+
+    if (actual_hash != *expected_hash) {
+        return InputAuthError::
+            wrong_private_key;
+    }
+
+    const auto digest =
+        signature_hash(
+            tx,
+            input_index,
+            previous_output
+        );
+
+    if (!digest) {
+        return InputAuthError::
+            input_index_out_of_range;
+    }
+
+    if (!crypto::verify_ecdsa(
+            *digest,
+            unlock->signature,
+            unlock->public_key)) {
+        return InputAuthError::
+            invalid_signature;
     }
 
     return InputAuthError::none;
