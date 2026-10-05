@@ -33,6 +33,8 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
     std::uint32_t max_messages_per_second{256U};
+    std::size_t randomx_mining_threads{0U};
+    bool randomx_full_memory_mining{false};
     std::vector<PeerAddress> bootstrap_peers{};
     bool wallet_enabled{true};
     std::string wallet_passphrase{};
