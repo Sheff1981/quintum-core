@@ -16,9 +16,9 @@ The current purpose of this document is to define what an exchange will need and
 - ledger: UTXO;
 - consensus: PoW;
 - precision candidate: 8 decimals;
-- current working GUI symbol: QMU;
-- final Mainnet exchange ticker: not yet frozen;
-- Mainnet address HRP candidate: `qmu`;
+- native coin ticker: QMU;
+- final Mainnet exchange ticker: QMU (branding-frozen 2026-10-05);
+- Mainnet address HRP: `qmu`;
 - Testnet address HRP: `tqtm`;
 - Regtest address HRP: `rqmu`.
 
