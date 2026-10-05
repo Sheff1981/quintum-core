@@ -24,9 +24,9 @@ The current development address format is Bech32m.
 
 Human-readable prefixes:
 
-- Mainnet candidate: `qtm`;
+- Mainnet candidate: `qmu`;
 - Testnet: `tqtm`;
-- Regtest: `rqtm`.
+- Regtest: `rqmu`.
 
 The address payload is:
 
@@ -39,9 +39,9 @@ Address type `0x01` maps directly to the already-existing QUINTUM P2PK v1 lockin
 
 Pinned private-key-1 address vectors:
 
-- Mainnet: `qtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqq3mxt2`
+- Mainnet: `qmu1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqm0ec0k`
 - Testnet: `tqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqfj98rp`
-- Regtest: `rqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqc3rzan`
+- Regtest: `rqmu1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqr0pue0`
 
 The address format is implemented and tested but remains a **pre-mainnet candidate** until the public network specification is frozen.
 
