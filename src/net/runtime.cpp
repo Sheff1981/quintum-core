@@ -1225,13 +1225,39 @@ NetworkRuntime::mine_wallet_block(
     {
         std::scoped_lock lock(state_mutex_);
 
-        out =
-            node_.mine_mempool_block_at(
-                payout_script,
-                unix_time_now(),
-                max_attempts,
-                wallet_mining_nonce_
+        std::size_t mining_threads =
+            config_.randomx_mining_threads;
+
+        if (mining_threads == 0U) {
+            const unsigned hardware =
+                std::thread::
+                    hardware_concurrency();
+
+            mining_threads =
+                hardware > 1U
+                    ? static_cast<std::size_t>(
+                          hardware - 1U)
+                    : 1U;
+        }
+
+        mining_threads =
+            std::clamp<std::size_t>(
+                mining_threads,
+                1U,
+                64U
             );
+
+        out =
+            node_.
+                mine_mempool_block_parallel_at(
+                    payout_script,
+                    unix_time_now(),
+                    max_attempts,
+                    mining_threads,
+                    config_.
+                        randomx_full_memory_mining,
+                    wallet_mining_nonce_
+                );
 
         if (out.ok()) {
             wallet_mining_nonce_ = 0U;
