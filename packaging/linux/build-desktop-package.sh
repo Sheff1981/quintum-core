@@ -25,11 +25,15 @@ install -m 0644 "$repo_root/docs/TESTNET_TESTING.md" "$portable_root/TESTNET_TES
 
 shopt -s nullglob
 qt_libs=("$qt_root"/lib/libQt6*.so*)
+runtime_libs=("$qt_root"/lib/*.so*)
 if (( ${#qt_libs[@]} == 0 )); then
     echo "Qt runtime libraries were not found under $qt_root/lib" >&2
     exit 1
 fi
-cp -a "${qt_libs[@]}" "$portable_root/lib/"
+# Qt's official Linux package also carries ABI-matched ICU and helper
+# libraries. Copy the complete shared-runtime set so the portable package
+# is actually portable instead of depending on the CI host's ICU version.
+cp -a "${runtime_libs[@]}" "$portable_root/lib/"
 
 for plugin_dir in platforms imageformats iconengines networkinformation tls; do
     if [[ -d "$qt_root/plugins/$plugin_dir" ]]; then
