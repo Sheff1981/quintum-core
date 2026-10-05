@@ -259,6 +259,98 @@ NodeMineResult NodeRuntime::mine_mempool_block_at(
     );
 }
 
+NodeMineResult
+NodeRuntime::mine_mempool_block_parallel_at(
+    const Bytes& payout_script,
+    std::uint64_t adjusted_time,
+    std::uint64_t max_attempts,
+    std::size_t worker_count,
+    bool full_memory,
+    std::uint64_t start_nonce)
+{
+    if (!started_) {
+        NodeMineResult out;
+        out.error =
+            NodeMineError::not_started;
+        return out;
+    }
+
+    mempool_.reconcile(
+        persistent_.chain()
+    );
+
+    const std::size_t block_transaction_limit =
+        params_.limits.max_block_transactions > 0U
+            ? static_cast<std::size_t>(
+                  params_.limits.
+                      max_block_transactions -
+                  1U)
+            : 0U;
+
+    auto transactions =
+        mempool_.transactions(
+            block_transaction_limit
+        );
+
+    std::size_t low{0U};
+    std::size_t high{
+        transactions.size()
+    };
+    std::size_t best{0U};
+
+    while (low <= high) {
+        const std::size_t mid =
+            low + (high - low) / 2U;
+
+        const auto candidate =
+            mining::create_block_template(
+                persistent_.chain(),
+                payout_script,
+                adjusted_time,
+                std::span<const Transaction>(
+                    transactions.data(),
+                    mid
+                )
+            );
+
+        if (candidate.ok()) {
+            best = mid;
+            low = mid + 1U;
+            continue;
+        }
+
+        if (candidate.error ==
+            mining::BlockTemplateError::
+                resource_limits_exceeded) {
+            if (mid == 0U) {
+                break;
+            }
+            high = mid - 1U;
+            continue;
+        }
+
+        NodeMineResult out;
+        out.error =
+            NodeMineError::template_failed;
+        out.template_error =
+            candidate.error;
+        return out;
+    }
+
+    return mine_block_parallel_at(
+        payout_script,
+        adjusted_time,
+        max_attempts,
+        worker_count,
+        full_memory,
+        std::span<const Transaction>(
+            transactions.data(),
+            best
+        ),
+        start_nonce
+    );
+}
+
 NodeMineResult NodeRuntime::mine_block(
     const Bytes& payout_script,
     std::uint64_t max_attempts,
@@ -379,6 +471,132 @@ NodeMineResult NodeRuntime::mine_block_at(
     }
 
     mempool_.reconcile(persistent_.chain());
+    return out;
+}
+
+NodeMineResult NodeRuntime::mine_block_parallel_at(
+    const Bytes& payout_script,
+    std::uint64_t adjusted_time,
+    std::uint64_t max_attempts,
+    std::size_t worker_count,
+    bool full_memory,
+    std::span<const Transaction> transactions,
+    std::uint64_t start_nonce)
+{
+    if (params_.pow.pow_algorithm !=
+            consensus::PowAlgorithm::randomx_v2 ||
+        worker_count <= 1U) {
+        return mine_block_at(
+            payout_script,
+            adjusted_time,
+            max_attempts,
+            transactions,
+            start_nonce
+        );
+    }
+
+    NodeMineResult out;
+
+    if (!started_) {
+        out.error =
+            NodeMineError::not_started;
+        return out;
+    }
+
+    auto block_template =
+        mining::create_block_template(
+            persistent_.chain(),
+            payout_script,
+            adjusted_time,
+            transactions
+        );
+
+    if (!block_template.ok()) {
+        out.error =
+            NodeMineError::template_failed;
+        out.template_error =
+            block_template.error;
+        return out;
+    }
+
+    out.block =
+        std::move(
+            block_template.value.block);
+    out.height =
+        block_template.value.height;
+    out.total_fees =
+        block_template.value.total_fees;
+    out.block.header.nonce =
+        start_nonce;
+
+    const auto randomx_seed =
+        persistent_.chain().
+            next_randomx_seed_key();
+
+    if (!randomx_seed) {
+        out.error =
+            NodeMineError::
+                proof_of_work_invalid;
+        return out;
+    }
+
+    out.mining =
+        consensus::
+            mine_randomx_header_parallel(
+                out.block.header,
+                *randomx_seed,
+                max_attempts,
+                worker_count,
+                full_memory
+            );
+
+    if (!out.mining.found()) {
+        out.error =
+            out.mining.status ==
+                    consensus::MineStatus::
+                        hashing_failed
+                ? NodeMineError::
+                      proof_of_work_invalid
+                : NodeMineError::
+                      proof_of_work_exhausted;
+        return out;
+    }
+
+    if (consensus::
+            check_randomx_proof_of_work(
+                out.block.header,
+                params_.pow,
+                *randomx_seed
+            ) !=
+        consensus::PowCheckError::none) {
+        out.error =
+            NodeMineError::
+                proof_of_work_invalid;
+        return out;
+    }
+
+    out.connect =
+        persistent_.connect_block(
+            out.block,
+            adjusted_time
+        );
+
+    if (!out.connect.chain.ok()) {
+        out.error =
+            NodeMineError::chain_rejected;
+        return out;
+    }
+
+    if (out.connect.storage_error !=
+        StorageError::none) {
+        out.error =
+            NodeMineError::storage_failed;
+        return out;
+    }
+
+    mempool_.reconcile(
+        persistent_.chain()
+    );
     return out;
 }
 
