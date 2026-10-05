@@ -2,6 +2,7 @@
 
 #include "core/serialize.hpp"
 #include "crypto/sha256.hpp"
+#include "net/protocol.hpp"
 #include "net/relay.hpp"
 #include "primitives/transaction.hpp"
 
@@ -706,8 +707,8 @@ parse_compact_block(
     const consensus::ResourceLimits& limits)
 {
     if (payload.size() >
-        static_cast<std::size_t>(
-            limits.max_block_serialized_bytes) ||
+            static_cast<std::size_t>(
+                kMaxMessagePayload) ||
         payload.size() <
             kHeaderSize + sizeof(std::uint64_t) +
                 3U) {
