@@ -1,6 +1,6 @@
 # QUINTUM RandomX Public Testnet Testing
 
-QUINTUM is **pre-alpha testnet software**. There is no Mainnet yet and Testnet QTM has no monetary value.
+QUINTUM is **pre-alpha testnet software**. There is no Mainnet yet and Testnet QMU has no monetary value.
 
 ## Download
 
@@ -55,7 +55,7 @@ Never publish recovery words, private keys or wallet passwords.
 
 ## Testnet notice
 
-- Testnet QTM is for testing only.
+- Testnet QMU is for testing only.
 - Testnet balances are not promised to transfer to Mainnet.
 - Testnet participation does not guarantee future rewards, allocations, listings or monetary value.
 - Primary subsidy uses a transparent consensus-enforced 95% miner / 5% founder split; transaction fees go 100% to miners.
