@@ -83,7 +83,10 @@ Stage 16 adds Bitcoin-style peer address exchange and durable address management
 - duplicate endpoints are collapsed;
 - non-routable/private addresses are rejected on public networks;
 - loopback/private addresses may be enabled explicitly for Regtest and local QA;
-- the persistent address manager is capped at 50,000 entries.
+- the persistent address manager is capped at 50,000 entries;
+- public addrman admission caps one IPv4 /16 group at 64 entries, preventing one hosting/ISP subnet from filling the entire peer database;
+- outbound selection prefers a different /16 from already-connected public peers and falls back only when the network is too small;
+- `addr` responses advertise diverse network groups first before filling any remaining slots.
 
 Each address record stores:
 
