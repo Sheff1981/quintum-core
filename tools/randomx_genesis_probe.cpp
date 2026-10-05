@@ -47,7 +47,7 @@ int main()
 
     params.pow.target_spacing_seconds = 120U;
     params.pow.retarget_interval = 1U;
-    params.pow.pow_limit_bits = 0x1f0ffff0U;
+    params.pow.pow_limit_bits = 0x1f7fffffU;
     params.pow.allow_min_difficulty_blocks = false;
     params.pow.no_retargeting = false;
     params.pow.difficulty_algorithm =
