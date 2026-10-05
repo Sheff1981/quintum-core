@@ -67,7 +67,7 @@ Lists persistent address labels from `wallet_meta.dat`. Entries can be added, up
 
 The desktop mining control calls `NetworkRuntime::mine_wallet_block()` in bounded PoW batches. Payout is constructed from a wallet-owned receive key. The displayed hash rate is measured from real attempted hashes. A found block must pass normal local chain validation/storage before it counts and is then announced through the existing P2P block relay path.
 
-The current desktop miner is intentionally simple and single-process; it is a correctness/reference miner, not yet an optimized multi-threaded production miner.
+The desktop miner now uses a shared-cache multi-thread RandomX path. By default it auto-selects the machine's hardware concurrency minus one worker (bounded to 64), leaving one logical CPU available for the desktop and node. Worker VMs share one initialized RandomX cache in light mode instead of allocating a separate ~256 MiB cache per worker. An optional full-memory mode is implemented: one RandomX Dataset is initialized once and shared by the worker VMs. Full-memory mode remains opt-in because it requires roughly 2 GiB of RAM. Every found nonce is still independently checked by the normal consensus RandomX verifier before the block can be connected, persisted or announced.
 
 ### Settings
 
