@@ -52,7 +52,7 @@ Historical documents are retained because they provide provenance; they are not 
 - Genesis subsidy: **50 QUINTUM, provably unspendable**
 - Transaction signatures: **ECDSA/secp256k1**
 - Block/transaction hashing: **SHA-256 family; transaction/block identifiers use double-SHA-256**
-- Current working desktop symbol: **QTM**
+- Current working desktop symbol: **QMU**
 - Final Mainnet ticker: **not yet frozen**
 - Public Testnet P2P port: **38444**
 - Current public Testnet bootstrap node: **212.193.15.139:38444**
