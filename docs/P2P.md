@@ -156,6 +156,8 @@ The first public Testnet seed node is deployed and externally verified. Remainin
 - UPnP/NAT-PMP automatic inbound port mapping;
 - production-grade peer reputation/eviction policy.
 
+The runtime now also enforces a per-peer message-rate ceiling (256 messages/second by default). A peer that floods the node beyond this policy is disconnected before its messages can monopolize validation/service work. This limit is networking policy, not consensus, and can be tuned without changing block validity.
+
 These are deployment/hardening layers and do not replace the completed TCP, discovery, synchronization or relay mechanisms.
 
 
