@@ -273,6 +273,25 @@ quintum_test_assertions(quintum_randomx_chain_tests)
 
 add_test(NAME randomx_chain COMMAND quintum_randomx_chain_tests)
 
+add_executable(quintum_randomx_network_tests
+    tests/randomx_network_tests.cpp
+)
+target_link_libraries(
+    quintum_randomx_network_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(
+    quintum_randomx_network_tests
+)
+quintum_test_assertions(
+    quintum_randomx_network_tests
+)
+
+add_test(
+    NAME randomx_network
+    COMMAND quintum_randomx_network_tests
+)
+
 add_executable(quintum_monetary_tests
     tests/monetary_tests.cpp
 )
