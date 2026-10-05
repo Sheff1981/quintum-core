@@ -323,6 +323,93 @@ void test_walletless_seed_runtime_creates_no_wallet()
     );
 }
 
+void test_peer_message_flood_is_disconnected()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto directory =
+        unique_dir("message-rate");
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 5U;
+    config.io_timeout_ms = 2'000U;
+    config.max_messages_per_second = 3U;
+
+    assert(runtime.start(config).ok());
+
+    const auto port =
+        runtime.status().listen_port;
+    assert(port != 0U);
+
+    const VersionMessage local{
+        .protocol_version =
+            params.p2p_protocol_version,
+        .services = 1U,
+        .timestamp =
+            params.genesis.timestamp + 10U,
+        .nonce = 0x55aa55aaU,
+        .start_height = 0U,
+    };
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            port,
+            local,
+            2'000U
+        );
+    assert(connected.ok());
+
+    assert(wait_until(
+        std::chrono::seconds(3),
+        [&] {
+            return runtime.status().peers == 1U;
+        }
+    ));
+
+    const Bytes empty;
+    for (std::uint32_t i = 0U;
+         i < 8U;
+         ++i) {
+        if (connected.session->send_command(
+                "unknown",
+                empty) !=
+            PeerError::none) {
+            break;
+        }
+    }
+
+    assert(wait_until(
+        std::chrono::seconds(3),
+        [&] {
+            return runtime.status().peers == 0U;
+        }
+    ));
+
+    connected.session->close();
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 void test_continuous_runtime_sync_relay_reconnect()
 {
     using namespace quintum;
@@ -737,6 +824,7 @@ int main()
 {
     test_default_listener_port_fallback();
     test_walletless_seed_runtime_creates_no_wallet();
+    test_peer_message_flood_is_disconnected();
     test_continuous_runtime_sync_relay_reconnect();
     test_higher_outbound_peer_updates_lower_inbound();
     return 0;
