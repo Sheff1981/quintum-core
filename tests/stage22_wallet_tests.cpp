@@ -767,8 +767,11 @@ void test_wallet_index_rebuilds_after_reorg()
 
     assert(indexed.ok());
     assert(indexed.index_rebuilt);
+    const auto indexed_history =
+        wallet.history();
+
     assert(find_history(
-               wallet.history(),
+               indexed_history,
                abandoned_txid) != nullptr);
 
     std::vector<Block> stronger_branch;
