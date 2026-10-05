@@ -50,6 +50,7 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/quintum-rpc-smoke"
           log="$RUNNER_TEMP/quintum-rpc-smoke.log"
+          response="$RUNNER_TEMP/quintum-rpc-smoke.json"
           rm -rf "$root"
           ./build/quintumd \
             --regtest \
@@ -60,11 +61,52 @@ jobs:
             --datadir "$root" \
             >"$log" 2>&1 &
           pid=$!
-          sleep 2
-          grep -q "RPC listen: 127.0.0.1:" "$log"
-          test -f "$root/regtest/.cookie"
+
+          cleanup() {
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -TERM "$pid" || true
+              wait "$pid" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in {1..40}; do
+            if grep -q "RPC listen: 127.0.0.1:" "$log" &&
+               test -f "$root/regtest/.cookie"; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat "$log"
+              exit 1
+            fi
+            sleep 0.25
+          done
+          test "$ready" -eq 1
+
+          port="$(sed -n 's/.*RPC listen: 127\.0\.0\.1:\([0-9][0-9]*\).*/\1/p' "$log" | tail -n 1)"
+          test -n "$port"
+
+          unauth_code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"getblockchaininfo","params":[]}' \
+            "http://127.0.0.1:$port/")"
+          test "$unauth_code" = "401"
+
+          cookie="$(tr -d '\r\n' < "$root/regtest/.cookie")"
+          curl --fail --silent --show-error \
+            --user "$cookie" \
+            --header 'Content-Type: application/json' \
+            --data '{"jsonrpc":"2.0","id":2,"method":"getblockchaininfo","params":[]}' \
+            "http://127.0.0.1:$port/" >"$response"
+          grep -q '"result"' "$response"
+          grep -q '"chain"' "$response"
+          grep -q '"regtest"' "$response"
+
           kill -TERM "$pid"
           wait "$pid"
+          trap - EXIT
           test ! -e "$root/regtest/.cookie"
 
       - name: Stage Linux RandomX seed package
