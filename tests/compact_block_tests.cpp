@@ -123,6 +123,10 @@ void test_compact_roundtrip_and_missing_fallback()
     assert(compact.has_value());
     assert(compact->nonce == nonce);
     assert(compact->short_ids.size() == 1U);
+    // Deterministic BIP152-style vector for this fixed
+    // header, nonce and transaction serialization.
+    assert(compact->short_ids.front() ==
+           0x7abd1ff4a05fULL);
     assert(compact->prefilled.size() == 1U);
     assert(compact->prefilled.front().index == 0U);
     assert(transaction_id(
