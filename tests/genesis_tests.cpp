@@ -3,6 +3,7 @@
 #include "consensus/genesis.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/randomx_seed.hpp"
 #include "consensus/tx_auth.hpp"
 #include "primitives/block.hpp"
 #include "primitives/transaction.hpp"
@@ -79,7 +80,10 @@ void verify_network_genesis(
 
     assert(
         coinbase.outputs.front().value ==
-        quintum::consensus::block_subsidy(0U)
+        quintum::consensus::block_subsidy(
+            0U,
+            params.monetary
+        )
     );
 
     assert(
@@ -93,12 +97,32 @@ void verify_network_genesis(
         params.genesis.merkle_root
     );
 
-    assert(
-        quintum::consensus::check_proof_of_work(
-            block.header,
-            params.pow) ==
-        quintum::consensus::PowCheckError::none
-    );
+    if (params.pow.pow_algorithm ==
+        quintum::consensus::PowAlgorithm::randomx_v2) {
+        const quintum::Hash256 zero{};
+        const auto seed =
+            quintum::consensus::randomx_seed_key(
+                0U,
+                zero
+            );
+
+        assert(
+            quintum::consensus::
+                check_randomx_proof_of_work(
+                    block.header,
+                    params.pow,
+                    seed
+                ) ==
+            quintum::consensus::PowCheckError::none
+        );
+    } else {
+        assert(
+            quintum::consensus::check_proof_of_work(
+                block.header,
+                params.pow) ==
+            quintum::consensus::PowCheckError::none
+        );
+    }
 }
 
 void test_all_genesis_vectors()
@@ -122,6 +146,13 @@ void test_all_genesis_vectors()
         "211c0cdb97dfb8bc2f0190e40132d1eb3be5ab9a03c9717aa3b2e90a98b3fcd6",
         "01b9f141fff566d6d50e700ff0c59f07ff0a89123921340bd946f30386c09d89",
         0ULL
+    );
+
+    verify_network_genesis(
+        quintum::consensus::randomx_testnet_params(),
+        "89477dab8594e000e155b2a1e020ce8a73a3b03fa32568ac8773900794dca360",
+        "1e11ac64fba90f543acd87018ec0d9da7ce11d56892026037728688b8c15cd0a",
+        80ULL
     );
 }
 
