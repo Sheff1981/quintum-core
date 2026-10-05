@@ -212,6 +212,18 @@ RpcServer::start(
             return out;
         }
 
+        // Lock down the empty temporary file before any
+        // authentication secret is written to disk.
+        if (!wallet::restrict_file_permissions(
+                temporary_path)) {
+            output.close();
+            remove_file(temporary_path);
+            out.error =
+                RpcServerError::
+                    cookie_permission_failed;
+            return out;
+        }
+
         output.write(
             cookie.data(),
             static_cast<std::streamsize>(
@@ -230,15 +242,6 @@ RpcServer::start(
                     cookie_write_failed;
             return out;
         }
-    }
-
-    if (!wallet::restrict_file_permissions(
-            temporary_path)) {
-        remove_file(temporary_path);
-        out.error =
-            RpcServerError::
-                cookie_permission_failed;
-        return out;
     }
 
     remove_file(cookie_path_);
