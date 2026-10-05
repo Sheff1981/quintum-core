@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=QUINTUM Core
+Comment=QUINTUM RandomX Testnet wallet and node
+Exec=/usr/bin/quintum
+Icon=quintum
+Terminal=false
+Categories=Network;Finance;
+StartupNotify=true

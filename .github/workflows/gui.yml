@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+env:
+  APP_VERSION: 0.0.2-prealpha
+  QT_VERSION: 6.8.0
+
 jobs:
   gui-linux:
     runs-on: ubuntu-latest
@@ -18,13 +22,19 @@ jobs:
       - name: Install Linux GUI dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev
+          sudo apt-get install -y \
+            libgl1-mesa-dev \
+            libfontconfig1 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1
 
       - name: Install Qt 6.8
         shell: bash
         run: |
           python -m pip install --disable-pip-version-check aqtinstall==3.3.0
-          python -m aqt install-qt linux desktop 6.8.0 linux_gcc_64 -O "$GITHUB_WORKSPACE/Qt"
+          python -m aqt install-qt linux desktop "${QT_VERSION}" linux_gcc_64 -O "$GITHUB_WORKSPACE/Qt"
           config="$(find "$GITHUB_WORKSPACE/Qt" -name Qt6Config.cmake -print -quit)"
           test -n "$config"
           prefix="$(dirname "$(dirname "$(dirname "$(dirname "$config")")")")"
@@ -34,20 +44,54 @@ jobs:
         run: >
           cmake -S . -B build-gui
           -DQUINTUM_BUILD_GUI=ON
+          -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_PREFIX_PATH="${{ env.QT_ROOT }}"
 
       - name: Build GUI
-        run: cmake --build build-gui --config Release --target quintum_qt
+        run: cmake --build build-gui --target quintum_qt -j2
 
       - name: Smoke GUI runtime
         env:
           QT_QPA_PLATFORM: offscreen
         run: ./build-gui/QUINTUM --smoke-test
 
+      - name: Build Linux installers
+        shell: bash
+        run: |
+          chmod +x packaging/linux/build-desktop-package.sh packaging/linux/quintum-launcher.sh
+          mkdir -p dist/linux-release
+          packaging/linux/build-desktop-package.sh \
+            build-gui/QUINTUM \
+            "$QT_ROOT" \
+            "$APP_VERSION" \
+            dist/linux-release
+
+      - name: Smoke portable Linux package
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: dist/linux-release/QUINTUM/run-quintum.sh --smoke-test
+
+      - name: Smoke installed DEB
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          sudo dpkg -i "dist/linux-release/QUINTUM-Core-${APP_VERSION}-linux-x64.deb"
+          /usr/bin/quintum --smoke-test
+          sudo dpkg -r quintum-core
+
+      - name: Upload Linux desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-linux-desktop-x64
+          path: |
+            dist/linux-release/*.deb
+            dist/linux-release/*.tar.gz
+          if-no-files-found: error
+
   gui-windows:
     runs-on: windows-latest
-    permissions:
-      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +104,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check aqtinstall==3.3.0
-          python -m aqt install-qt windows desktop 6.8.0 win64_msvc2022_64 -O "$env:GITHUB_WORKSPACE\Qt"
+          python -m aqt install-qt windows desktop $env:QT_VERSION win64_msvc2022_64 -O "$env:GITHUB_WORKSPACE\Qt"
           $config = Get-ChildItem -Path "$env:GITHUB_WORKSPACE\Qt" -Filter Qt6Config.cmake -Recurse | Select-Object -First 1
           if (-not $config) { throw "Qt6Config.cmake not found" }
           $prefix = Split-Path (Split-Path (Split-Path (Split-Path $config.FullName -Parent) -Parent) -Parent) -Parent
@@ -91,7 +135,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item ".\build-gui\Release\QUINTUM.exe" (Join-Path $stage "QUINTUM.exe")
           Copy-Item ".\README.md" (Join-Path $stage "README.md")
-          Copy-Item ".\docs\DESKTOP.md" (Join-Path $stage "DESKTOP.md")
+          Copy-Item ".\docs\TESTNET_TESTING.md" (Join-Path $stage "TESTNET_TESTING.md")
 
           $deploy = Join-Path $env:QT_ROOT "bin\windeployqt.exe"
           if (-not (Test-Path $deploy)) { throw "windeployqt.exe not found" }
@@ -117,7 +161,6 @@ jobs:
         shell: pwsh
         run: |
           $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
-
           if (-not $iscc) {
             $candidates = @(
               "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -127,14 +170,13 @@ jobs:
             )
             $iscc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
           }
-
           if (-not $iscc) { throw "Inno Setup ISCC.exe not found" }
 
           $source = (Resolve-Path ".\dist\windows").Path
           $output = Join-Path $PWD "dist\installer"
           New-Item -ItemType Directory -Force -Path $output | Out-Null
 
-          & $iscc "/DSourceDir=$source" "/DOutputDir=$output" "/DAppVersion=0.0.1-prealpha" ".\packaging\windows\quintum.iss"
+          & $iscc "/DSourceDir=$source" "/DOutputDir=$output" "/DAppVersion=$env:APP_VERSION" ".\packaging\windows\quintum.iss"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $installer = Get-ChildItem $output -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1
@@ -146,8 +188,8 @@ jobs:
           $installer = (Get-ChildItem ".\dist\installer" -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1).FullName
           if (-not $installer) { throw "Installer missing" }
 
-          $installDir = Join-Path $env:RUNNER_TEMP "quintum-stage28-install"
-          $dataDir = Join-Path $env:APPDATA "QUINTUM\QUINTUM Core\regtest"
+          $installDir = Join-Path $env:RUNNER_TEMP "quintum-install"
+          $dataDir = Join-Path $env:APPDATA "QUINTUM\QUINTUM Core\randomx-testnet"
           $sentinel = Join-Path $dataDir "installer-preserve-sentinel.txt"
 
           New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
@@ -197,42 +239,122 @@ jobs:
 
           Remove-Item -Recurse -Force (Join-Path $env:APPDATA "QUINTUM") -ErrorAction SilentlyContinue
 
-      - name: Write release checksums
-        shell: pwsh
-        run: |
-          $installer = Get-ChildItem ".\dist\installer" -Filter "QUINTUM-Core-Setup-*.exe" | Select-Object -First 1
-          if (-not $installer) { throw "Installer missing for checksum" }
-
-          $portable = Get-Item ".\dist\windows\QUINTUM.exe"
-
-          $installerHash = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
-          $portableHash = (Get-FileHash -Algorithm SHA256 $portable.FullName).Hash.ToLowerInvariant()
-
-          @(
-            "$installerHash  $($installer.Name)"
-            "$portableHash  windows/QUINTUM.exe"
-          ) | Set-Content -Encoding ascii ".\dist\SHA256SUMS.txt"
-
-      - name: Upload Windows package
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v4
         with:
           name: quintum-windows-x64
-          path: |
-            dist/installer/*.exe
-            dist/windows/**
-            dist/SHA256SUMS.txt
+          path: dist/installer/*.exe
           if-no-files-found: error
 
-      - name: Publish first public pre-alpha release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  gui-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Qt 6.8
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check aqtinstall==3.3.0
+          python -m aqt install-qt mac desktop "$QT_VERSION" clang_64 -O "$GITHUB_WORKSPACE/Qt"
+          config="$(find "$GITHUB_WORKSPACE/Qt" -name Qt6Config.cmake -print -quit)"
+          test -n "$config"
+          prefix="$(dirname "$(dirname "$(dirname "$(dirname "$config")")")")"
+          echo "QT_ROOT=$prefix" >> "$GITHUB_ENV"
+          echo "Runner architecture: $(uname -m)"
+
+      - name: Configure GUI
+        shell: bash
+        run: >
+          cmake -S . -B build-gui
+          -DQUINTUM_BUILD_GUI=ON
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH="$QT_ROOT"
+
+      - name: Build GUI
+        shell: bash
+        run: cmake --build build-gui --target quintum_qt -j2
+
+      - name: Smoke GUI runtime
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ./build-gui/QUINTUM.app/Contents/MacOS/QUINTUM --smoke-test
+
+      - name: Build macOS DMG and ZIP
+        shell: bash
+        run: |
+          chmod +x packaging/macos/build-dmg.sh
+          mkdir -p dist/macos
+          packaging/macos/build-dmg.sh \
+            build-gui/QUINTUM.app \
+            "$QT_ROOT" \
+            "$APP_VERSION" \
+            "${{ matrix.arch }}" \
+            dist/macos
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-macos-${{ matrix.arch }}
+          path: |
+            dist/macos/*.dmg
+            dist/macos/*.zip
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - gui-linux
+      - gui-windows
+      - gui-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all desktop packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Build unified SHA256SUMS
+        shell: bash
+        run: |
+          cd release-assets
+          mapfile -t files < <(
+            find . -maxdepth 1 -type f \
+              \( -name '*.exe' -o -name '*.deb' -o -name '*.tar.gz' -o -name '*.dmg' -o -name '*.zip' \) \
+              -printf '%f\n' | sort
+          )
+          test "${#files[@]}" -ge 6
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish cross-platform RandomX pre-alpha release
         uses: ncipollo/release-action@v1
         with:
-          tag: v0.0.1-prealpha
+          tag: v0.0.2-prealpha
           commit: ${{ github.sha }}
-          name: QUINTUM Core Testnet v0.0.1-prealpha
-          bodyFile: docs/releases/v0.0.1-prealpha.md
+          name: QUINTUM Core RandomX Testnet v0.0.2-prealpha
+          bodyFile: docs/releases/v0.0.2-prealpha.md
           prerelease: true
           skipIfReleaseExists: true
           immutableCreate: true
           artifactErrorsFailBuild: true
-          artifacts: "dist/installer/*.exe,dist/SHA256SUMS.txt"
+          artifacts: "release-assets/*.exe,release-assets/*.deb,release-assets/*.tar.gz,release-assets/*.dmg,release-assets/*.zip,release-assets/SHA256SUMS.txt"

@@ -493,7 +493,10 @@ MainWindow::MainWindow(
       runtime_(runtime),
       params_(params)
 {
-    setWindowTitle("QUINTUM Core");
+    setWindowTitle(
+        QString("QUINTUM Core — %1")
+            .arg(QString::fromUtf8(params_.name))
+    );
     setWindowIcon(
         QIcon(":/branding/quintum_icon.png")
     );
