@@ -80,12 +80,14 @@ void test_addresses()
         consensus::Network::mainnet,
         consensus::Network::testnet,
         consensus::Network::regtest,
+        consensus::Network::randomx_testnet,
     };
 
-    const std::array<std::string_view, 3> expected{
+    const std::array<std::string_view, 4> expected{
         "qtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqq3mxt2",
         "tqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqfj98rp",
         "rqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqc3rzan",
+        "xqtm1qyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqz5fdkv",
     };
 
     for (std::size_t network_index = 0U;
