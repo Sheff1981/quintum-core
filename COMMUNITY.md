@@ -39,7 +39,7 @@ Contribution guide:
 - No promise that Testnet coins will become Mainnet coins.
 - No promise of profit, price or exchange listing.
 - No hidden premine or privileged developer mint.
-- Testnet QTM has no monetary value.
+- Testnet QMU has no monetary value.
 - Mainnet launch will be announced in advance if/when the network reaches the required technical and security readiness.
 - Mainnet participation should be open and verifiable, with final binaries, source, hashes, network parameters and launch time published before launch.
 
