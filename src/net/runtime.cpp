@@ -2399,6 +2399,11 @@ bool NetworkRuntime::process_compact_block(
     const WireMessage& message,
     std::uint64_t now)
 {
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
     const auto compact =
         parse_compact_block(
             message.payload,
@@ -2494,6 +2499,11 @@ bool NetworkRuntime::process_get_block_transactions(
     LivePeer& peer,
     const WireMessage& message)
 {
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
     const auto request =
         parse_getblocktxn(
             message.payload,
@@ -2501,7 +2511,12 @@ bool NetworkRuntime::process_get_block_transactions(
                 max_block_transactions
         );
 
-    if (!request) {
+    if (!request ||
+        std::find(
+            request->indexes.begin(),
+            request->indexes.end(),
+            0U
+        ) != request->indexes.end()) {
         return false;
     }
 
@@ -2568,6 +2583,11 @@ bool NetworkRuntime::process_block_transactions(
     const WireMessage& message,
     std::uint64_t now)
 {
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
     const auto response =
         parse_blocktxn(
             message.payload,
