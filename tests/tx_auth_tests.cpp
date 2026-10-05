@@ -138,6 +138,100 @@ void test_wrong_key_and_malformed_scripts()
     );
 }
 
+void test_p2pkh256_sign_and_verify()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+
+    const auto owner =
+        private_key(8U);
+    const auto receiver =
+        private_key(9U);
+
+    const auto owner_public =
+        crypto::derive_public_key(
+            owner
+        );
+    assert(owner_public.has_value());
+
+    const Bytes locking_script =
+        make_p2pkh256_locking_script(
+            *owner_public
+        );
+    assert(!locking_script.empty());
+
+    const TxOutput previous_output{
+        .value = 2'000U,
+        .locking_script =
+            locking_script,
+    };
+
+    OutPoint previous;
+    previous.txid[0] = 0x66U;
+    previous.index = 2U;
+
+    auto tx = unsigned_spend(
+        previous,
+        locked_output(
+            1'900U,
+            receiver
+        )
+    );
+
+    assert(
+        sign_p2pkh256_input(
+            tx,
+            0U,
+            previous_output,
+            owner
+        ) ==
+        InputAuthError::none
+    );
+
+    assert(
+        verify_p2pkh256_authorization(
+            tx,
+            0U,
+            previous_output
+        ) ==
+        InputAuthError::none
+    );
+
+    auto tampered = tx;
+    tampered.outputs[0].value =
+        1'899U;
+
+    assert(
+        verify_p2pkh256_authorization(
+            tampered,
+            0U,
+            previous_output
+        ) ==
+        InputAuthError::
+            invalid_signature
+    );
+
+    auto wrong_key_tx =
+        unsigned_spend(
+            previous,
+            locked_output(
+                1'900U,
+                receiver
+            )
+        );
+
+    assert(
+        sign_p2pkh256_input(
+            wrong_key_tx,
+            0U,
+            previous_output,
+            receiver
+        ) ==
+        InputAuthError::
+            wrong_private_key
+    );
+}
+
 void test_two_of_three_multisig_primitives()
 {
     using namespace quintum;
@@ -282,6 +376,7 @@ int main()
 {
     test_p2pk_sign_and_verify();
     test_wrong_key_and_malformed_scripts();
+    test_p2pkh256_sign_and_verify();
     test_two_of_three_multisig_primitives();
     return 0;
 }
