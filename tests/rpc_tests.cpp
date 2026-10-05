@@ -342,6 +342,67 @@ void test_dispatcher_and_mining_roundtrip()
     );
 }
 
+void test_randomx_template_metadata()
+{
+    using namespace quintum;
+
+    const auto& params =
+        consensus::randomx_testnet_params();
+    const auto directory =
+        unique_dir("randomx-template");
+
+    net::NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    net::NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.target_outbound = 0U;
+    config.allow_local_peers = true;
+    config.wallet_enabled = false;
+
+    assert(runtime.start(config).ok());
+
+    rpc::RpcDispatcher dispatcher{
+        params,
+        runtime
+    };
+
+    const Json response =
+        call(
+            dispatcher,
+            "getblocktemplate",
+            Json::array({
+                Json{
+                    {"payout_address",
+                     payout_address(params)}
+                }
+            })
+        );
+
+    assert(response["result"]["height"] ==
+           1U);
+    assert(response["result"]
+                   ["powalgorithm"] ==
+           "randomx-v2");
+    assert(response["result"].
+               contains("randomxseed"));
+    assert(response["result"]
+                   ["randomxseed"].
+               get<std::string>().
+               size() == 64U);
+
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 void test_cookie_authenticated_http_server()
 {
     using namespace quintum;
@@ -470,6 +531,7 @@ void test_cookie_authenticated_http_server()
 int main()
 {
     test_dispatcher_and_mining_roundtrip();
+    test_randomx_template_metadata();
     test_cookie_authenticated_http_server();
     return 0;
 }
