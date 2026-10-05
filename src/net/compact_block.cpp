@@ -216,7 +216,7 @@ void sip_round(
     std::uint64_t>
 compact_keys(
     const BlockHeader& header,
-    std::uint64_t nonce) noexcept
+    std::uint64_t nonce)
 {
     Bytes material =
         serialize_block_header(header);
@@ -387,7 +387,8 @@ read_transaction(
 
     for (const auto& entry :
          compact.prefilled) {
-        if (entry.index >= total) {
+        if (static_cast<std::size_t>(
+                entry.index) >= total) {
             return false;
         }
 
@@ -636,7 +637,7 @@ finish_slots(
 std::uint64_t compact_short_id(
     const BlockHeader& header,
     std::uint64_t nonce,
-    const Hash256& txid) noexcept
+    const Hash256& txid)
 {
     const auto [key0, key1] =
         compact_keys(
@@ -963,12 +964,6 @@ parse_blocktxn(
     std::span<const Byte> payload,
     const consensus::ResourceLimits& limits)
 {
-    if (payload.size() >
-        static_cast<std::size_t>(
-            limits.max_block_serialized_bytes)) {
-        return std::nullopt;
-    }
-
     Reader reader{payload};
     BlockTransactions out;
 
