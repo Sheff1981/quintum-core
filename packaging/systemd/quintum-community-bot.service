@@ -1,0 +1,20 @@
+[Unit]
+Description=QUINTUM Community Telegram Bot
+After=network-online.target quintumd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quintum
+WorkingDirectory=/opt/quintum
+EnvironmentFile=/etc/quintum/community-bot.env
+ExecStart=/usr/bin/python3 /opt/quintum/tools/community_bot/bot.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
