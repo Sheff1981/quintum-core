@@ -128,4 +128,4 @@ Implemented and tested:
 - RandomX uses a separate money-range safety bound rather than the legacy 21M bound;
 - Genesis subsidy under RandomX policy is exactly 0 QTM.
 
-The public RandomX network is still **not activated** because the real founder payout public key/address has not yet been pinned and the new RandomX Testnet Genesis/network identity has not yet been generated. Existing SHA-256 Testnet chain and wallet data remain untouched.
+The RandomX Testnet consensus identity is now implemented. Its **TESTNET-ONLY** founder payout public key is `0301262e10a841ef12a9e5768619af8dc1dee91a22ee01f4899c7dcdb969e68a33`, encoded as `xqtm1qypszf3wzz5yrmcj48jhdpse47xurhhfrg3wuq053xw8mnded8ng5vc90pczn`. This is a test-network accounting key and must **not** be reused for Mainnet custody. Existing SHA-256 Testnet data remains untouched.
