@@ -13,6 +13,7 @@ enum class Network {
     mainnet,
     testnet,
     regtest,
+    randomx_testnet,
 };
 
 enum class DifficultyAlgorithm {
@@ -79,6 +80,7 @@ struct ChainParams {
 [[nodiscard]] const ChainParams& mainnet_params() noexcept;
 [[nodiscard]] const ChainParams& testnet_params() noexcept;
 [[nodiscard]] const ChainParams& regtest_params() noexcept;
+[[nodiscard]] const ChainParams& randomx_testnet_params() noexcept;
 [[nodiscard]] const ChainParams& chain_params(Network network) noexcept;
 
 } // namespace quintum::consensus
