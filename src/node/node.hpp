@@ -5,6 +5,7 @@
 #include "mining/block_template.hpp"
 #include "node/mempool.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -131,6 +132,16 @@ public:
         std::uint64_t start_nonce = 0U
     );
 
+    [[nodiscard]] NodeMineResult
+    mine_mempool_block_parallel_at(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time,
+        std::uint64_t max_attempts,
+        std::size_t worker_count,
+        bool full_memory,
+        std::uint64_t start_nonce = 0U
+    );
+
     [[nodiscard]] NodeMineResult mine_block(
         const Bytes& payout_script,
         std::uint64_t max_attempts,
@@ -141,6 +152,17 @@ public:
         const Bytes& payout_script,
         std::uint64_t adjusted_time,
         std::uint64_t max_attempts,
+        std::span<const Transaction> transactions = {},
+        std::uint64_t start_nonce = 0U
+    );
+
+    [[nodiscard]] NodeMineResult
+    mine_block_parallel_at(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time,
+        std::uint64_t max_attempts,
+        std::size_t worker_count,
+        bool full_memory,
         std::span<const Transaction> transactions = {},
         std::uint64_t start_nonce = 0U
     );
