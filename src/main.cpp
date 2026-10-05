@@ -199,7 +199,7 @@ void print_usage()
 {
     std::cout
         << "QUINTUM Core development node\n"
-        << "Usage: quintumd [--regtest|--testnet|--mainnet]"
+        << "Usage: quintumd [--regtest|--testnet|--randomx-testnet|--mainnet]"
         << " [--datadir PATH]"
         << " [--listen-port N]"
         << " [--new-address]"
@@ -254,6 +254,12 @@ int main(int argc, char* argv[])
 
         if (arg == "--testnet") {
             network = consensus::Network::testnet;
+            continue;
+        }
+
+        if (arg == "--randomx-testnet") {
+            network =
+                consensus::Network::randomx_testnet;
             continue;
         }
 
