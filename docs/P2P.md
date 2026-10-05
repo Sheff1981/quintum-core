@@ -128,6 +128,8 @@ DNS seed resolution is now implemented cross-platform. The built-in DNS seed lis
 
 ## Security boundary
 
+Public seed nodes can run `quintumd --disable-wallet`. In node-only mode QUINTUM does not create or open `wallet.dat`, `wallet_state.dat` or `wallet_meta.dat`; block/transaction validation, P2P relay, synchronization and an optional explicitly-addressed miner remain available. A public bootstrap server therefore does not need to hold wallet private keys.
+
 P2P does not bypass consensus.
 
 Block and transaction bytes received from peers enter the same validated Chainstate/UTXO/mempool paths used by local node operations. A remote peer cannot directly set height, UTXO, chain work, reward, difficulty or active tip.

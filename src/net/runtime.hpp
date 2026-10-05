@@ -33,6 +33,7 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
     std::vector<PeerAddress> bootstrap_peers{};
+    bool wallet_enabled{true};
     std::string wallet_passphrase{};
     std::string wallet_recovery_mnemonic{};
     std::uint32_t wallet_recovery_gap_limit{
@@ -43,6 +44,7 @@ struct NetworkRuntimeConfig {
 enum class NetworkRuntimeStartError {
     none,
     already_running,
+    invalid_configuration,
     node_failed,
     wallet_failed,
     address_store_failed,
@@ -75,6 +77,7 @@ struct NetworkRuntimeStartResult {
 
 struct NetworkRuntimeStatus {
     bool running{false};
+    bool wallet_enabled{true};
     std::uint16_t listen_port{0U};
     std::size_t peers{0U};
     std::size_t outbound_peers{0U};
@@ -358,6 +361,7 @@ private:
     consensus::ChainParams params_{};
     std::filesystem::path directory_{};
     NetworkRuntimeConfig config_{};
+    bool wallet_enabled_{true};
 
     mutable std::mutex state_mutex_{};
     NodeRuntime node_;

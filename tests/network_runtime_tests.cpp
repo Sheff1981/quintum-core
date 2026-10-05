@@ -243,6 +243,86 @@ void test_default_listener_port_fallback()
     );
 }
 
+void test_walletless_seed_runtime_creates_no_wallet()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const auto directory =
+        unique_dir("walletless-seed");
+
+    NetworkRuntime runtime{
+        params,
+        directory
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address =
+        "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+
+    const auto started =
+        runtime.start(
+            std::move(config)
+        );
+
+    assert(started.ok());
+
+    const auto status =
+        runtime.status();
+
+    assert(status.running);
+    assert(!status.wallet_enabled);
+    assert(status.receive_address.empty());
+    assert(status.wallet_balance ==
+           wallet::WalletBalance{});
+
+    assert(!std::filesystem::exists(
+        directory / "wallet.dat"
+    ));
+    assert(!std::filesystem::exists(
+        directory / "wallet_state.dat"
+    ));
+    assert(!std::filesystem::exists(
+        directory / "wallet_meta.dat"
+    ));
+
+    const auto mined =
+        runtime.mine_mempool_block_at(
+            payout_script(19U),
+            params.genesis.timestamp + 1'000U,
+            4'096U
+        );
+
+    assert(mined.ok());
+    assert(runtime.status().height ==
+           std::optional<std::uint32_t>{1U});
+
+    runtime.stop();
+
+    assert(!std::filesystem::exists(
+        directory / "wallet.dat"
+    ));
+    assert(!std::filesystem::exists(
+        directory / "wallet_state.dat"
+    ));
+    assert(!std::filesystem::exists(
+        directory / "wallet_meta.dat"
+    ));
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        directory,
+        ec
+    );
+}
+
 void test_continuous_runtime_sync_relay_reconnect()
 {
     using namespace quintum;
@@ -656,6 +736,7 @@ void test_higher_outbound_peer_updates_lower_inbound()
 int main()
 {
     test_default_listener_port_fallback();
+    test_walletless_seed_runtime_creates_no_wallet();
     test_continuous_runtime_sync_relay_reconnect();
     test_higher_outbound_peer_updates_lower_inbound();
     return 0;

@@ -236,6 +236,40 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     }
 
     config_ = std::move(config);
+    wallet_enabled_ = config_.wallet_enabled;
+
+    if (!wallet_enabled_ &&
+        (!config_.wallet_passphrase.empty() ||
+         !config_.wallet_recovery_mnemonic.empty())) {
+        if (!config_.wallet_passphrase.empty()) {
+            crypto::secure_erase(
+                std::span<Byte>{
+                    reinterpret_cast<Byte*>(
+                        config_.wallet_passphrase.data()),
+                    config_.wallet_passphrase.size()
+                }
+            );
+            config_.wallet_passphrase.clear();
+            config_.wallet_passphrase.shrink_to_fit();
+        }
+
+        if (!config_.wallet_recovery_mnemonic.empty()) {
+            crypto::secure_erase(
+                std::span<Byte>{
+                    reinterpret_cast<Byte*>(
+                        config_.wallet_recovery_mnemonic.data()),
+                    config_.wallet_recovery_mnemonic.size()
+                }
+            );
+            config_.wallet_recovery_mnemonic.clear();
+            config_.wallet_recovery_mnemonic.shrink_to_fit();
+        }
+
+        out.error =
+            NetworkRuntimeStartError::
+                invalid_configuration;
+        return out;
+    }
 
     const bool allow_local =
         config_.allow_local_peers ||
@@ -249,7 +283,8 @@ NetworkRuntimeStartResult NetworkRuntime::start(
 
         out.node = node_.start();
 
-        if (out.node.ok()) {
+        if (out.node.ok() &&
+            wallet_enabled_) {
             if (!config_.wallet_recovery_mnemonic.empty()) {
                 out.wallet_recovery =
                     wallet_.recover_from_mnemonic(
@@ -336,9 +371,10 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         return out;
     }
 
-    if (!out.wallet.ok() ||
-        out.wallet_sync !=
-            wallet::WalletSyncError::none) {
+    if (wallet_enabled_ &&
+        (!out.wallet.ok() ||
+         out.wallet_sync !=
+             wallet::WalletSyncError::none)) {
         out.error =
             NetworkRuntimeStartError::wallet_failed;
         return out;
@@ -484,6 +520,7 @@ NetworkRuntimeStatus NetworkRuntime::status() const
 {
     NetworkRuntimeStatus out;
     out.running = running_.load();
+    out.wallet_enabled = wallet_enabled_;
     out.listen_port = listen_port_.load();
     out.peers = peer_count_.load();
     out.outbound_peers =
@@ -517,8 +554,6 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     out.tip = node_.chain().tip_hash();
     out.mempool_transactions =
         node_.mempool().size();
-    out.wallet_balance =
-        wallet_.balance();
     out.min_relay_fee_rate_per_kb =
         node_.mempool()
             .min_relay_fee_rate_per_kb();
@@ -527,12 +562,17 @@ NetworkRuntimeStatus NetworkRuntime::status() const
             node_.mempool()
         );
 
-    const auto wallet_addresses =
-        wallet_.addresses();
+    if (wallet_enabled_) {
+        out.wallet_balance =
+            wallet_.balance();
 
-    if (!wallet_addresses.empty()) {
-        out.receive_address =
-            wallet_addresses.back();
+        const auto wallet_addresses =
+            wallet_.addresses();
+
+        if (!wallet_addresses.empty()) {
+            out.receive_address =
+                wallet_addresses.back();
+        }
     }
 
     return out;
@@ -542,6 +582,11 @@ std::vector<wallet::WalletTransactionRecord>
 NetworkRuntime::wallet_history() const
 {
     std::scoped_lock lock(state_mutex_);
+
+    if (!wallet_enabled_) {
+        return {};
+    }
+
     return wallet_.history();
 }
 
@@ -552,6 +597,8 @@ NetworkRuntime::desktop_snapshot() const
 
     out.status.running =
         running_.load();
+    out.status.wallet_enabled =
+        wallet_enabled_;
     out.status.listen_port =
         listen_port_.load();
     out.status.peers =
@@ -592,8 +639,6 @@ NetworkRuntime::desktop_snapshot() const
         node_.chain().tip_hash();
     out.status.mempool_transactions =
         node_.mempool().size();
-    out.status.wallet_balance =
-        wallet_.balance();
     out.status.min_relay_fee_rate_per_kb =
         node_.mempool()
             .min_relay_fee_rate_per_kb();
@@ -602,34 +647,39 @@ NetworkRuntime::desktop_snapshot() const
             node_.mempool()
         );
 
-    const auto addresses =
-        wallet_.addresses();
+    if (wallet_enabled_) {
+        out.status.wallet_balance =
+            wallet_.balance();
 
-    if (!addresses.empty()) {
-        out.status.receive_address =
-            addresses.back();
-    }
+        const auto addresses =
+            wallet_.addresses();
 
-    out.address_book =
-        wallet_.address_book();
+        if (!addresses.empty()) {
+            out.status.receive_address =
+                addresses.back();
+        }
 
-    const auto history =
-        wallet_.history();
+        out.address_book =
+            wallet_.address_book();
 
-    out.transactions.reserve(
-        history.size()
-    );
+        const auto history =
+            wallet_.history();
 
-    for (const auto& record : history) {
-        out.transactions.push_back(
-            WalletTransactionView{
-                .record = record,
-                .label =
-                    wallet_.transaction_label(
-                        record.txid
-                    ),
-            }
+        out.transactions.reserve(
+            history.size()
         );
+
+        for (const auto& record : history) {
+            out.transactions.push_back(
+                WalletTransactionView{
+                    .record = record,
+                    .label =
+                        wallet_.transaction_label(
+                            record.txid
+                        ),
+                }
+            );
+        }
     }
 
     return out;
@@ -2322,6 +2372,10 @@ void NetworkRuntime::update_peer_counts() noexcept
 
 bool NetworkRuntime::sync_wallet_locked()
 {
+    if (!wallet_enabled_) {
+        return true;
+    }
+
     const auto synced =
         wallet_.sync(
             node_.chain(),
