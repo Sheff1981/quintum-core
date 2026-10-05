@@ -361,3 +361,11 @@ This confirms the live reconnect/backoff path and the desktop peer-height/synchr
 The isolated RandomX Testnet uses P2P port **39444** and currently carries `212.193.15.139:39444` as its first hardcoded bootstrap candidate. This does not make that VPS a consensus dependency: after peers learn addresses through `addr/getaddr` and persist them in `peers.dat`, nodes connect directly. Public DNS seed hostnames remain a deployment step.
 
 The Linux CI now publishes a `quintum-linux-x64` artifact containing `quintumd`, SHA-256 checksums, a hardened `quintumd-randomx-testnet.service`, and `install-randomx-testnet.sh`. The service runs with `--disable-wallet` and stores the new chain under `/var/lib/quintum-randomx/randomx-testnet`. It uses a separate executable and service name, so the historical SHA-256 Testnet service and data are not overwritten. The installer can open host UFW port 39444 when UFW is already active; provider-side firewall/NAT rules remain deployment infrastructure.
+## Stage 31 compact block relay
+
+New nodes advertise the \`kServiceCompactBlocks\` service bit during the existing version handshake. Block announcements remain ordinary \`inv\` entries, so legacy peers stay compatible.
+
+When both peers support compact relay, the receiver requests inventory type \`kInventoryCompactBlock\`. The sender replies with \`cmpctblock\`: the normal block header, a per-announcement nonce, 48-bit SipHash transaction short IDs, and the coinbase transaction prefilled in full. The receiver reconstructs known transactions from its mempool. Missing or colliding entries are requested by exact block index with \`getblocktxn\` and returned with \`blocktxn\`.
+
+A reconstructed block is accepted only after short-ID checks, index/order checks and Merkle-root reconstruction, then it is submitted through the same \`NodeRuntime::submit_block_at\` consensus/storage path as a full \`block\` message. If a peer does not advertise compact support, QUINTUM keeps the existing \`inv -> getdata -> block\` path.
+\n
