@@ -18,7 +18,7 @@ namespace quintum::rpc {
 
 inline constexpr std::size_t
     kDefaultRpcMaxRequestBytes =
-        1U * 1024U * 1024U;
+        4U * 1024U * 1024U;
 
 enum class RpcServerError {
     none,
