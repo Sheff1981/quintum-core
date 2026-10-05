@@ -31,7 +31,7 @@ set(SECP256K1_ENABLE_MODULE_RECOVERY OFF CACHE BOOL "" FORCE)
 set(SECP256K1_ENABLE_MODULE_EXTRAKEYS OFF CACHE BOOL "" FORCE)
 set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE BOOL "" FORCE)
 set(SECP256K1_ENABLE_MODULE_MUSIG OFF CACHE BOOL "" FORCE)
-set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF CACHE BOOL "" FORCE)
+set(SECP256K1_ENABLE_MODULE_ELLSWIFT ON CACHE BOOL "" FORCE)
 set(SECP256K1_ENABLE_MODULE_SILENTPAYMENTS OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
@@ -168,6 +168,7 @@ add_library(quintum_core STATIC
     src/node/mempool.cpp
     src/policy/fees.cpp
     src/net/protocol.cpp
+    src/net/v2_transport.cpp
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
@@ -451,6 +452,18 @@ quintum_strict_warnings(quintum_node_runtime_tests)
 quintum_test_assertions(quintum_node_runtime_tests)
 
 add_test(NAME node_runtime COMMAND quintum_node_runtime_tests)
+
+add_executable(quintum_v2_transport_tests
+    tests/v2_transport_tests.cpp
+)
+target_link_libraries(
+    quintum_v2_transport_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_v2_transport_tests)
+quintum_test_assertions(quintum_v2_transport_tests)
+
+add_test(NAME v2_transport COMMAND quintum_v2_transport_tests)
 
 add_executable(quintum_p2p_tests
     tests/p2p_tests.cpp

@@ -1,6 +1,7 @@
 #include "crypto/secp256k1.hpp"
 
 #include <secp256k1.h>
+#include <secp256k1_ellswift.h>
 
 #include <cstddef>
 #include <memory>
@@ -97,6 +98,55 @@ tweak_add_private_key(
     }
 
     return output;
+}
+
+
+std::optional<EllSwiftPublicKey> ellswift_public_key(
+    const PrivateKey& key,
+    const std::array<Byte, 32>& aux_random) noexcept
+{
+    if (!is_valid_private_key(key) ||
+        context() == nullptr) {
+        return std::nullopt;
+    }
+
+    EllSwiftPublicKey encoded{};
+    if (secp256k1_ellswift_create(
+            context(),
+            encoded.data(),
+            key.data(),
+            aux_random.data()) != 1) {
+        return std::nullopt;
+    }
+
+    return encoded;
+}
+
+std::optional<Hash256> ellswift_xdh_bip324(
+    const PrivateKey& key,
+    const EllSwiftPublicKey& initiator_public,
+    const EllSwiftPublicKey& responder_public,
+    bool initiating) noexcept
+{
+    if (!is_valid_private_key(key) ||
+        context() == nullptr) {
+        return std::nullopt;
+    }
+
+    Hash256 shared{};
+    if (secp256k1_ellswift_xdh(
+            context(),
+            shared.data(),
+            initiator_public.data(),
+            responder_public.data(),
+            key.data(),
+            initiating ? 0 : 1,
+            secp256k1_ellswift_xdh_hash_function_bip324,
+            nullptr) != 1) {
+        return std::nullopt;
+    }
+
+    return shared;
 }
 
 std::optional<CompactSignature> sign_ecdsa(
