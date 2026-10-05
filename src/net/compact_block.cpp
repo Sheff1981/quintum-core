@@ -1060,48 +1060,31 @@ complete_compact_block(
         return out;
     }
 
-    auto initial =
+    auto completed =
         build_slots(
             compact,
             mempool,
-            nullptr
+            &response
         );
 
-    if (initial.error !=
+    if (completed.error !=
         CompactBlockError::none) {
         return finish_slots(
             compact,
-            std::move(initial)
+            std::move(completed)
         );
     }
 
-    if (initial.missing.size() !=
-        response.transactions.size()) {
+    if (!completed.missing.empty()) {
         out.error =
             CompactBlockError::
                 response_mismatch;
         return out;
     }
 
-    for (std::size_t i = 0U;
-         i < initial.missing.size();
-         ++i) {
-        if (response.transactions[i].first !=
-            initial.missing[i]) {
-            out.error =
-                CompactBlockError::
-                    response_mismatch;
-            return out;
-        }
-    }
-
     return finish_slots(
         compact,
-        build_slots(
-            compact,
-            mempool,
-            &response
-        )
+        std::move(completed)
     );
 }
 
