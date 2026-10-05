@@ -10,14 +10,14 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 External testers are welcome on Windows, Linux and macOS.
 
 **Official cross-platform pre-alpha release:**  
-https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.2-prealpha
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.3-prealpha
 
 Downloads:
-- Windows x64: `QUINTUM-Core-Setup-0.0.2-prealpha-x64.exe`
-- Linux x64 (Debian/Ubuntu): `QUINTUM-Core-0.0.2-prealpha-linux-x64.deb`
-- Linux x64 portable: `QUINTUM-Core-0.0.2-prealpha-linux-x64.tar.gz`
-- macOS Apple Silicon: `QUINTUM-Core-0.0.2-prealpha-macos-arm64.dmg`
-- macOS Intel: `QUINTUM-Core-0.0.2-prealpha-macos-x64.dmg`
+- Windows x64: `QUINTUM-Core-Setup-0.0.3-prealpha-x64.exe`
+- Linux x64 (Debian/Ubuntu): `QUINTUM-Core-0.0.3-prealpha-linux-x64.deb`
+- Linux x64 portable: `QUINTUM-Core-0.0.3-prealpha-linux-x64.tar.gz`
+- macOS Apple Silicon: `QUINTUM-Core-0.0.3-prealpha-macos-arm64.dmg`
+- macOS Intel: `QUINTUM-Core-0.0.3-prealpha-macos-x64.dmg`
 
 Download `SHA256SUMS.txt` from the same release and verify the package before running it.
 
