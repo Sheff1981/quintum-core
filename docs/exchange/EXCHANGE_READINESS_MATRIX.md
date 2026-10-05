@@ -34,7 +34,7 @@ Legend:
 | Reproducible release/build evidence | PARTIAL | CI exists; production release process not frozen |
 | Signed production binaries | MISSING | Code-signing/release-signing required |
 | Final Mainnet Genesis | PARTIAL | Candidate exists; not frozen/launched |
-| Final Mainnet ticker | MISSING | QMU is working ticker only |
+| Final Mainnet ticker | DONE | QMU selected and branding-frozen before Mainnet |
 | Final monetary-policy freeze | PARTIAL | Candidate documented; must freeze before launch |
 | No-premine evidence | DONE | Current architecture/Genesis has no spendable creator allocation |
 | Final circulating-supply methodology | PARTIAL | Method defined conceptually; Mainnet evidence pending |
