@@ -1,6 +1,7 @@
 #include "consensus/monetary.hpp"
 #include "consensus/tx_auth.hpp"
 
+#include <array>
 #include <cassert>
 #include <limits>
 
@@ -340,6 +341,106 @@ void test_randomx_consensus_policy()
     ) == 0U);
 }
 
+void test_randomx_founder_multisig_custody()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+
+    MonetaryParams params{
+        .schedule =
+            MonetarySchedule::randomx_v1,
+        .max_money =
+            kRandomXMoneyRange,
+        .coinbase_maturity =
+            kRandomXCoinbaseMaturity,
+        .founder_payout_enabled = true,
+        .founder_multisig_enabled = true,
+        .founder_multisig_threshold = 2U,
+        .founder_multisig_key_count = 3U,
+    };
+
+    for (std::size_t i = 0U;
+         i < 3U;
+         ++i) {
+        crypto::PrivateKey key{};
+        key.back() =
+            static_cast<Byte>(i + 3U);
+
+        const auto public_key =
+            crypto::derive_public_key(
+                key
+            );
+        assert(public_key.has_value());
+
+        params.
+            founder_multisig_public_keys[i] =
+                *public_key;
+    }
+
+    const auto script =
+        founder_payout_script(params);
+
+    assert(script.has_value());
+
+    const auto policy =
+        parse_multisig_locking_script(
+            *script
+        );
+
+    assert(policy.has_value());
+    assert(policy->threshold == 2U);
+    assert(policy->public_keys.size() == 3U);
+
+    constexpr Amount fee{123U};
+
+    Transaction coinbase;
+    TxInput input;
+    input.unlocking_script = {0x01U};
+    coinbase.inputs.push_back(input);
+    coinbase.outputs.push_back(
+        TxOutput{
+            .value =
+                randomx_miner_subsidy(1U) +
+                fee,
+            .locking_script = {0x51U},
+        }
+    );
+    coinbase.outputs.push_back(
+        TxOutput{
+            .value =
+                randomx_founder_subsidy(1U),
+            .locking_script = *script,
+        }
+    );
+
+    assert(coinbase_reward_is_valid(
+        coinbase,
+        1U,
+        fee,
+        params
+    ));
+
+    auto tampered = coinbase;
+    tampered.outputs[1].
+        locking_script.back() ^= 0x01U;
+
+    assert(!coinbase_reward_is_valid(
+        tampered,
+        1U,
+        fee,
+        params
+    ));
+
+    params.founder_multisig_threshold =
+        4U;
+
+    assert(
+        !founder_payout_script(
+            params
+        ).has_value()
+    );
+}
+
 int main()
 {
     test_money_constants();
@@ -348,5 +449,6 @@ int main()
     test_output_money_range();
     test_randomx_candidate_schedule();
     test_randomx_consensus_policy();
+    test_randomx_founder_multisig_custody();
     return 0;
 }
