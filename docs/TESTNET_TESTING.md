@@ -6,15 +6,15 @@ QUINTUM is **pre-alpha testnet software**. There is no Mainnet yet and Testnet Q
 
 Official release:
 
-https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.2-prealpha
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.3-prealpha
 
 Choose the package for your system:
 
-- **Windows x64:** `QUINTUM-Core-Setup-0.0.2-prealpha-x64.exe`
-- **Ubuntu/Debian Linux x64:** `QUINTUM-Core-0.0.2-prealpha-linux-x64.deb`
-- **Other Linux x64 / portable:** `QUINTUM-Core-0.0.2-prealpha-linux-x64.tar.gz`
-- **macOS Apple Silicon:** `QUINTUM-Core-0.0.2-prealpha-macos-arm64.dmg`
-- **macOS Intel:** `QUINTUM-Core-0.0.2-prealpha-macos-x64.dmg`
+- **Windows x64:** `QUINTUM-Core-Setup-0.0.3-prealpha-x64.exe`
+- **Ubuntu/Debian Linux x64:** `QUINTUM-Core-0.0.3-prealpha-linux-x64.deb`
+- **Other Linux x64 / portable:** `QUINTUM-Core-0.0.3-prealpha-linux-x64.tar.gz`
+- **macOS Apple Silicon:** `QUINTUM-Core-0.0.3-prealpha-macos-arm64.dmg`
+- **macOS Intel:** `QUINTUM-Core-0.0.3-prealpha-macos-x64.dmg`
 
 Also download `SHA256SUMS.txt` and verify the selected package.
 
