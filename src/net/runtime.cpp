@@ -83,7 +83,9 @@ void append_text(
         )
     );
 
-    for (const unsigned char ch : value) {
+    for (const char raw : value) {
+        const auto ch =
+            static_cast<unsigned char>(raw);
         out.push_back(
             static_cast<Byte>(ch)
         );
@@ -1318,10 +1320,12 @@ VersionMessage NetworkRuntime::local_version(
         .nonce = runtime_nonce_,
         .start_height = height,
         .listen_port =
-            params_.p2p_protocol_version >=
-                    kPeerAddressProtocolVersion
-                ? listen_port_.load()
-                : 0U,
+            static_cast<std::uint16_t>(
+                params_.p2p_protocol_version >=
+                        kPeerAddressProtocolVersion
+                    ? listen_port_.load()
+                    : std::uint16_t{0U}
+            ),
     };
 }
 
