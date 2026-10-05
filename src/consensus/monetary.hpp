@@ -3,6 +3,7 @@
 #include "crypto/secp256k1.hpp"
 #include "primitives/transaction.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -71,6 +72,15 @@ struct MonetaryParams {
     };
     bool founder_payout_enabled{false};
     crypto::PublicKey founder_public_key{};
+
+    // Mainnet custody can use a consensus-pinned m-of-n payout without
+    // changing the legacy/testnet single-key format. Disabled by default so
+    // all existing chains retain byte-for-byte founder output scripts.
+    bool founder_multisig_enabled{false};
+    std::uint8_t founder_multisig_threshold{0U};
+    std::uint8_t founder_multisig_key_count{0U};
+    std::array<crypto::PublicKey, 5>
+        founder_multisig_public_keys{};
 };
 
 [[nodiscard]] bool money_range(
@@ -112,6 +122,11 @@ struct MonetaryParams {
     std::uint32_t height,
     const MonetaryParams& params
 ) noexcept;
+
+[[nodiscard]] std::optional<Bytes>
+founder_payout_script(
+    const MonetaryParams& params
+);
 
 [[nodiscard]] std::optional<Amount>
 transaction_output_total(
