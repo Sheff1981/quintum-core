@@ -641,6 +641,15 @@ MiningResult mine_randomx_header_parallel(
         attempts_done{0U};
     std::mutex result_mutex;
 
+    auto* const mining_context =
+        cache.context.get();
+
+    if (mining_context == nullptr) {
+        result.status =
+            MineStatus::hashing_failed;
+        return result;
+    }
+
     std::vector<std::thread> workers;
     workers.reserve(bounded_workers);
 
@@ -676,7 +685,7 @@ MiningResult mine_randomx_header_parallel(
                         );
 
                     const auto hash =
-                        cache.context->hash(
+                        mining_context->hash(
                             worker,
                             input
                         );
