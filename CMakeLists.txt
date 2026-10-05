@@ -45,7 +45,7 @@ FetchContent_MakeAvailable(secp256k1)
 FetchContent_Declare(
     nlohmann_json_source
     GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.12.0
+    GIT_TAG 55f93686c01528224f448c19128836e7df245f72
     GIT_SHALLOW TRUE
 )
 FetchContent_GetProperties(nlohmann_json_source)
@@ -56,7 +56,7 @@ endif()
 FetchContent_Declare(
     cpp_httplib_source
     GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-    GIT_TAG v0.58.0
+    GIT_TAG 4f3f9ef19be83ae97a5d9a059432dc00e445b7ab
     GIT_SHALLOW TRUE
 )
 FetchContent_GetProperties(cpp_httplib_source)
