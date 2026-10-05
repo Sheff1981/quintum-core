@@ -29,6 +29,7 @@ enum class RpcServerError {
     cookie_permission_failed,
     bind_failed,
     thread_start_failed,
+    listen_failed,
 };
 
 struct RpcServerStartResult {
