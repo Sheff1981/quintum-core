@@ -337,3 +337,8 @@ A real Windows laptop temporarily showed `Peers: 0` while the public Testnet pee
 - `Progress: 100%`.
 
 This confirms the live reconnect/backoff path and the desktop peer-height/synchronization presentation on a real Windows install.
+
+
+## RandomX Testnet bootstrap
+
+The isolated RandomX Testnet uses P2P port **39444** and currently carries `212.193.15.139:39444` as its first hardcoded bootstrap candidate. This does not make that VPS a consensus dependency: after peers learn addresses through `addr/getaddr` and persist them in `peers.dat`, nodes connect directly. Public DNS seed hostnames remain a deployment step.
