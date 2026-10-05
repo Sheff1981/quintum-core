@@ -99,6 +99,37 @@ void test_upstream_v2_vector_b()
     ));
 }
 
+void test_shared_light_mining_context()
+{
+    const auto key =
+        bytes("test key 000");
+    const auto input =
+        bytes("This is a test");
+
+    quintum::crypto::RandomXMiningContext
+        context{
+            key,
+            2U,
+            false
+        };
+
+    assert(context.valid());
+    assert(context.workers() == 2U);
+    assert(!context.full_memory());
+
+    const auto first =
+        context.hash(0U, input);
+    const auto second =
+        context.hash(1U, input);
+
+    assert(first.has_value());
+    assert(second.has_value());
+    assert(*first == *second);
+    assert(*first == hash_from_hex(
+        "22ec6b861b3eb23686b2efbad69513c967ecfce80983df66c9c5b4fbfb4cdb6f"
+    ));
+}
+
 void test_empty_key_is_rejected()
 {
     const std::array<quintum::Byte, 0> empty{};
@@ -116,6 +147,7 @@ int main()
 {
     test_upstream_v2_vector_a();
     test_upstream_v2_vector_b();
+    test_shared_light_mining_context();
     test_empty_key_is_rejected();
     return 0;
 }
