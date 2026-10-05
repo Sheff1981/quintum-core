@@ -23,18 +23,18 @@ A transparent founder subsidy is permitted only because it is explicitly specifi
 **State:** DECIDED FOR IMPLEMENTATION; not Mainnet frozen.
 
 - 8 decimals;
-- Genesis spendable issuance: 0 QTM;
+- Genesis spendable issuance: 0 QMU;
 - target spacing: 120 seconds;
 - six primary eras of 1,000,000 mineable blocks each;
-- starting subsidy: 50 QTM/block;
+- starting subsidy: 50 QMU/block;
 - subsidy halves at each 1,000,000-block era boundary for six eras;
-- primary issuance through height 6,000,000: exactly 98,437,500 QTM;
+- primary issuance through height 6,000,000: exactly 98,437,500 QMU;
 - founder subsidy: exactly 5% of scheduled primary subsidy;
-- founder primary total: exactly 4,921,875 QTM;
-- miner primary total: exactly 93,515,625 QTM;
+- founder primary total: exactly 4,921,875 QMU;
+- miner primary total: exactly 93,515,625 QMU;
 - transaction fees: 100% to miner;
-- from height 6,000,001: permanent 1 QTM/block tail subsidy, 100% to miner;
-- founder subsidy from height 6,000,001 onward: 0 QTM;
+- from height 6,000,001: permanent 1 QMU/block tail subsidy, 100% to miner;
+- founder subsidy from height 6,000,001 onward: 0 QMU;
 - coinbase maturity: 500 blocks, about 16 h 40 min at target spacing.
 
 Detailed arithmetic is normative in `MONETARY_POLICY.md`.
@@ -95,7 +95,7 @@ QUINTUM keeps the existing Bitcoin/Litecoin-style size-based fee model:
 - the founder receives 0% of transaction fees;
 - fee policy remains separate from consensus: an otherwise valid lower-fee transaction is not made consensus-invalid merely because a node would normally refuse to relay it.
 
-At the current P2PK transaction shape, a common 1-input/2-output transaction is about 202 bytes and therefore costs 202 atomic units = 0.00000202 QTM at the default rate.
+At the current P2PK transaction shape, a common 1-input/2-output transaction is about 202 bytes and therefore costs 202 atomic units = 0.00000202 QMU at the default rate.
 
 ## Freeze states
 
