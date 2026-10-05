@@ -41,8 +41,10 @@ Hash256 randomx_seed_key(
         seed_block_hash.size()
     );
 
-    for (const unsigned char ch :
+    for (const char raw :
          kRandomXSeedDomain) {
+        const auto ch =
+            static_cast<unsigned char>(raw);
         preimage.push_back(
             static_cast<Byte>(ch)
         );
