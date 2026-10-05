@@ -43,6 +43,30 @@ jobs:
           test ! -e "$root/regtest/wallet_meta.dat"
           grep -q "Wallet: disabled (node-only mode)" "$log"
 
+      - name: Smoke authenticated Linux JSON-RPC
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/quintum-rpc-smoke"
+          log="$RUNNER_TEMP/quintum-rpc-smoke.log"
+          rm -rf "$root"
+          ./build/quintumd \
+            --regtest \
+            --disable-wallet \
+            --listen-port 0 \
+            --rpc \
+            --rpc-port 0 \
+            --datadir "$root" \
+            >"$log" 2>&1 &
+          pid=$!
+          sleep 2
+          grep -q "RPC listen: 127.0.0.1:" "$log"
+          test -f "$root/regtest/.cookie"
+          kill -TERM "$pid"
+          wait "$pid"
+          test ! -e "$root/regtest/.cookie"
+
       - name: Stage Linux RandomX seed package
         if: runner.os == 'Linux'
         shell: bash
