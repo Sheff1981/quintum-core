@@ -333,7 +333,7 @@ QFrame* make_balance_card(
     value = new QLabel("0.00000000");
     value->setObjectName("metricValue");
 
-    auto* unit = new QLabel("QTM");
+    auto* unit = new QLabel("QMU");
     unit->setObjectName("metricUnit");
 
     layout->addWidget(caption);
@@ -833,7 +833,7 @@ QWidget* MainWindow::build_send_page()
     layout->addWidget(
         make_page_header(
             "Send",
-            "Send QTM to another wallet address."
+            "Send QMU to another wallet address."
         )
     );
 
@@ -877,7 +877,7 @@ QWidget* MainWindow::build_send_page()
 
     send_address_ = new QLineEdit;
     send_address_->setPlaceholderText(
-        "Enter a QTM address"
+        "Enter a QMU address"
     );
 
     send_label_ = new QLineEdit;
@@ -915,7 +915,7 @@ QWidget* MainWindow::build_send_page()
         2
     );
     form->addWidget(
-        new QLabel("Amount (QTM)"),
+        new QLabel("Amount (QMU)"),
         2,
         0
     );
@@ -925,7 +925,7 @@ QWidget* MainWindow::build_send_page()
         1
     );
 
-    auto* unit = new QLabel("QTM");
+    auto* unit = new QLabel("QMU");
     unit->setObjectName("metricCaption");
     form->addWidget(
         unit,
@@ -1088,7 +1088,7 @@ QWidget* MainWindow::build_receive_page()
     layout->addWidget(
         make_page_header(
             "Receive",
-            "Receive QTM to your wallet using the address below."
+            "Receive QMU to your wallet using the address below."
         )
     );
 
@@ -1109,7 +1109,7 @@ QWidget* MainWindow::build_receive_page()
     address_layout->addWidget(
         make_section_heading(
             "Your receive address",
-            "Share this address to receive QTM payments."
+            "Share this address to receive QMU payments."
         )
     );
 
@@ -1171,7 +1171,7 @@ QWidget* MainWindow::build_receive_page()
 
     auto* qr_note =
         new QLabel(
-            "QTM address\nQR after payment-URI freeze"
+            "QMU address\nQR after payment-URI freeze"
         );
     qr_note->setAlignment(
         Qt::AlignCenter
@@ -1294,7 +1294,7 @@ QWidget* MainWindow::build_receive_page()
             );
             value =
                 new QLabel(
-                    "0.00000000 QTM"
+                    "0.00000000 QMU"
                 );
             value->setObjectName(
                 "metricValue"
@@ -2163,11 +2163,11 @@ void MainWindow::apply_snapshot(
 
     receive_confirmed_->setText(
         format_amount(balance.confirmed) +
-        " QTM"
+        " QMU"
     );
     receive_pending_->setText(
         format_amount(balance.pending) +
-        " QTM"
+        " QMU"
     );
 
     Amount received_total{0U};
@@ -2184,7 +2184,7 @@ void MainWindow::apply_snapshot(
 
     receive_total_->setText(
         format_amount(received_total) +
-        " QTM"
+        " QMU"
     );
 
     const QString height =
@@ -2327,7 +2327,7 @@ void MainWindow::apply_snapshot(
         format_amount(
             status.recommended_fee_rate_per_kb
         ) +
-        " QTM/kB"
+        " QMU/kB"
     );
 
     transactions_->setRowCount(
@@ -2408,7 +2408,7 @@ void MainWindow::apply_snapshot(
                         format_amount(
                             tx.received
                         ) +
-                        " QTM"
+                        " QMU"
                     : "-"
             );
 
@@ -2433,7 +2433,7 @@ void MainWindow::apply_snapshot(
                         format_amount(
                             tx.spent
                         ) +
-                        " QTM"
+                        " QMU"
                     : "-"
             )
         );
@@ -2649,11 +2649,11 @@ void MainWindow::preview_and_send()
         destination +
         "\n\nAmount: " +
         format_amount(preview.amount) +
-        " QTM\nFee: " +
+        " QMU\nFee: " +
         format_amount(preview.quote.fee) +
-        " QTM\nTotal: " +
+        " QMU\nTotal: " +
         format_amount(total) +
-        " QTM";
+        " QMU";
 
     if (!label.isEmpty()) {
         message +=
@@ -3110,7 +3110,7 @@ void MainWindow::add_recent_mined_block(
         1,
         new QTableWidgetItem(
             format_amount(reward) +
-            " QTM"
+            " QMU"
         )
     );
     mining_recent_blocks_->setItem(
