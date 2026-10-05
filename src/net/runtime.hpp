@@ -32,6 +32,7 @@ struct NetworkRuntimeConfig {
     std::uint64_t reconnect_delay_seconds{5U};
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
+    std::uint32_t max_messages_per_second{256U};
     std::vector<PeerAddress> bootstrap_peers{};
     bool wallet_enabled{true};
     std::string wallet_passphrase{};
@@ -293,6 +294,8 @@ private:
         std::uint64_t ping_sent_at{0U};
         std::optional<std::uint64_t> pending_ping{};
         std::uint32_t reported_height{0U};
+        std::uint64_t message_window_started{0U};
+        std::uint32_t messages_in_window{0U};
         std::vector<Hash256> requested_transactions{};
         std::vector<Hash256> requested_blocks{};
     };
