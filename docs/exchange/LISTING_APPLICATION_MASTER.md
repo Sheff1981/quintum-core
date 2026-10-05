@@ -12,7 +12,7 @@ This document contains only public-safe project information and placeholders. Pe
 
 **Project name:** QUINTUM  
 **Asset type:** Native coin of an independent Layer-1 blockchain  
-**Current working ticker:** QTM  
+**Current working ticker:** QMU  
 **Final Mainnet ticker:** Not yet frozen  
 **Consensus:** Proof of Work  
 **Ledger model:** UTXO  
@@ -67,7 +67,7 @@ All social links must be verified before any application. Never invent or infer 
 **P2P:** Inbound/outbound peers, handshake, headers-first sync, block/transaction relay, persistent peers and seed bootstrap  
 **Mining:** Real nonce search and consensus-validated coinbase blocks  
 **Wallet:** Encrypted local wallet with deterministic recovery foundation  
-**Smart contract:** Not applicable; QTM is the native coin of the QUINTUM chain
+**Smart contract:** Not applicable; QMU is the native coin of the QUINTUM chain
 
 ### Mainnet technical values
 
@@ -86,9 +86,9 @@ The current candidate/testnet technical details are maintained in:
 Current Mainnet candidate policy:
 
 **Precision:** 8 decimal places  
-**Initial block subsidy:** 50 QTM candidate  
+**Initial block subsidy:** 50 QMU candidate  
 **Halving interval:** 210,000 blocks candidate  
-**Money-range ceiling:** 21,000,000 QTM candidate  
+**Money-range ceiling:** 21,000,000 QMU candidate  
 **Coinbase maturity:** 100 blocks candidate  
 **Genesis spendable allocation:** 0  
 **Premine:** 0  
@@ -102,7 +102,7 @@ The intended distribution model is permissionless proof-of-work issuance through
 
 ### Circulating-supply methodology
 
-Before Mainnet launch: **0 Mainnet QTM circulating.**  
+Before Mainnet launch: **0 Mainnet QMU circulating.**  
 Testnet balances are not Mainnet supply and have no monetary value.
 
 After Mainnet launch, circulating supply must be calculated from the validated Mainnet chain, excluding permanently unspendable Genesis output and any later provably burned outputs according to the final published methodology.
@@ -287,7 +287,7 @@ Current production exchange RPC/API is **not yet frozen**.
 
 ## M. Listing market proposal
 
-**Requested market pair(s):** [TBD — e.g. QTM/USDT only after ticker freeze]  
+**Requested market pair(s):** [TBD — e.g. QMU/USDT only after ticker freeze]  
 **Preferred listing date:** [TBD]  
 **Deposit opening date:** [TBD]  
 **Withdrawal opening date:** [TBD]  
