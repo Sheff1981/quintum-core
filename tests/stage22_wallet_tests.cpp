@@ -928,9 +928,12 @@ void test_imported_key_invalidates_live_index_immediately()
     assert(rescanned.index_rebuilt);
     assert(rescanned.blocks_scanned == 2U);
 
+    const auto imported_history =
+        wallet.history();
+
     const auto* record =
         find_history(
-            wallet.history(),
+            imported_history,
             historical_txid
         );
 
