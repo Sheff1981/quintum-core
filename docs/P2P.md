@@ -363,9 +363,18 @@ The isolated RandomX Testnet uses P2P port **39444** and currently carries `212.
 The Linux CI now publishes a `quintum-linux-x64` artifact containing `quintumd`, SHA-256 checksums, a hardened `quintumd-randomx-testnet.service`, and `install-randomx-testnet.sh`. The service runs with `--disable-wallet` and stores the new chain under `/var/lib/quintum-randomx/randomx-testnet`. It uses a separate executable and service name, so the historical SHA-256 Testnet service and data are not overwritten. The installer can open host UFW port 39444 when UFW is already active; provider-side firewall/NAT rules remain deployment infrastructure.
 ## Stage 31 compact block relay
 
-New nodes advertise the \`kServiceCompactBlocks\` service bit during the existing version handshake. Block announcements remain ordinary \`inv\` entries, so legacy peers stay compatible.
+New nodes advertise the `kServiceCompactBlocks` service bit during the existing version handshake. Block announcements remain ordinary `inv` entries, so legacy peers stay compatible.
 
-When both peers support compact relay, the receiver requests inventory type \`kInventoryCompactBlock\`. The sender replies with \`cmpctblock\`: the normal block header, a per-announcement nonce, 48-bit SipHash transaction short IDs, and the coinbase transaction prefilled in full. The receiver reconstructs known transactions from its mempool. Missing or colliding entries are requested by exact block index with \`getblocktxn\` and returned with \`blocktxn\`.
+When both peers support compact relay, the receiver requests inventory type `kInventoryCompactBlock`. The sender replies with `cmpctblock`: the normal block header, a per-announcement nonce, 48-bit SipHash transaction short IDs, and the coinbase transaction prefilled in full. The receiver reconstructs known transactions from its mempool. Missing or colliding entries are requested by exact block index with `getblocktxn` and returned with `blocktxn`.
 
-A reconstructed block is accepted only after short-ID checks, index/order checks and Merkle-root reconstruction, then it is submitted through the same \`NodeRuntime::submit_block_at\` consensus/storage path as a full \`block\` message. If a peer does not advertise compact support, QUINTUM keeps the existing \`inv -> getdata -> block\` path.
-\n
+A reconstructed block is accepted only after short-ID checks, index/order checks and Merkle-root reconstruction, then it is submitted through the same `NodeRuntime::submit_block_at` consensus/storage path as a full `block` message. If a peer does not advertise compact support, QUINTUM keeps the existing `inv -> getdata -> block` path.
+
+## Stage 32 encrypted authenticated P2P transport
+
+New nodes advertise the `kServiceEncryptedTransport` service bit in the existing `version` handshake. The initial `version/verack` exchange remains compatible with legacy QUINTUM peers. If either side lacks the service bit, the connection continues on the existing plaintext framing.
+
+When both peers advertise encrypted transport, the initiator sends a 64-byte secp256k1 ElligatorSwift ephemeral public encoding in `encinit`; the responder returns its 64-byte encoding in `encack`. Both sides derive the same forward-secret X-only ECDH result using libsecp256k1's BIP324 ElligatorSwift hash function. HKDF-SHA256, domain-separated by QUINTUM network magic, derives independent initiator/responder traffic keys and a session identifier.
+
+Before the peer session becomes active, both sides prove possession of the negotiated traffic keys with an AEAD-protected `encconf`. After confirmation, every normal QUINTUM wire message is carried inside a bounded ChaCha20-Poly1305 packet. The existing inner message header, command, checksum and payload are encrypted; packet length plus network magic are authenticated as additional data. Monocypher's incremental AEAD ratchets the directional key after each packet, so packet modification or reordering fails authentication and disconnects the peer.
+
+Ephemeral private keys, ECDH material, HKDF intermediates and live AEAD contexts are explicitly wiped when no longer needed. The transport is opportunistic and backward compatible: it authenticates the encrypted session/integrity, not a permanent real-world peer identity. It is BIP324-inspired but intentionally not Bitcoin-BIP324 wire-compatible because QUINTUM preserves its existing `version/verack` negotiation and framing.

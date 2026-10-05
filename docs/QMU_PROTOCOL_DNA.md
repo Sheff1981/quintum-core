@@ -110,11 +110,11 @@ Already implemented or now in-tree:
 - optional consensus-pinned founder multisig custody representation;
 - sanitizer CI mode;
 - loopback-only cookie-authenticated production JSON-RPC/mining API;
-- negotiated compact block relay with mempool reconstruction and missing-transaction fallback.
+- negotiated compact block relay with mempool reconstruction and missing-transaction fallback;
+- backward-compatible forward-secret AEAD P2P transport using secp256k1 ElligatorSwift key exchange and ChaCha20-Poly1305 packet authentication.
 
 Still required before Mainnet freeze:
 
-- encrypted P2P;
 - proxy/Tor/I2P and automatic NAT mapping;
 - Dandelion++ transaction relay;
 - pruning/fast-sync;

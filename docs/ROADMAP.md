@@ -12,7 +12,9 @@ Regtest and testnet parameters, unique genesis blocks, mining and restart/recove
 ## M3 — P2P
 Handshake, peer database, seeds, address relay, headers-first synchronization, block and transaction propagation.
 
-**Compact block relay implemented in Stage 31:** capable peers negotiate a dedicated service bit, keep normal block inventory announcements for backward compatibility, reconstruct announced blocks from 48-bit SipHash short transaction IDs plus a prefilled coinbase, and request only missing transactions through bounded \`getblocktxn/blocktxn\`. Legacy peers continue to receive full blocks, and every reconstructed block still enters the normal persistent consensus-validation path.
+**Compact block relay implemented in Stage 31:** capable peers negotiate a dedicated service bit, keep normal block inventory announcements for backward compatibility, reconstruct announced blocks from 48-bit SipHash short transaction IDs plus a prefilled coinbase, and request only missing transactions through bounded `getblocktxn/blocktxn`. Legacy peers continue to receive full blocks, and every reconstructed block still enters the normal persistent consensus-validation path.
+
+**Encrypted transport implemented in Stage 32:** capable peers upgrade after `version/verack` using ephemeral secp256k1 ElligatorSwift ECDH, network-domain-separated HKDF-SHA256 directional keys, encrypted key confirmation and ratcheted ChaCha20-Poly1305 AEAD packets. Legacy peers remain compatible; authentication protects the negotiated session and packet integrity rather than asserting a permanent peer identity.
 
 ## M4 — Wallet
 **Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery.

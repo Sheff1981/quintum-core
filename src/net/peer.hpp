@@ -2,10 +2,12 @@
 
 #include "net/address.hpp"
 #include "net/protocol.hpp"
+#include "net/v2_transport.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -32,6 +34,7 @@ enum class PeerError {
     self_connection,
     unexpected_message,
     malformed_ping,
+    encryption_failed,
 };
 
 class PeerSession {
@@ -48,6 +51,8 @@ public:
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool inbound() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
+    [[nodiscard]] bool encrypted() const noexcept;
+    [[nodiscard]] std::optional<Hash256> session_id() const noexcept;
 
     [[nodiscard]] bool wait_readable(
         std::uint32_t timeout_ms
@@ -82,7 +87,8 @@ public:
         const consensus::ChainParams& params,
         std::uintptr_t socket,
         bool inbound,
-        VersionMessage remote
+        VersionMessage remote,
+        std::unique_ptr<V2Transport> transport = nullptr
     ) noexcept;
 
 private:
@@ -103,6 +109,7 @@ private:
     std::uintptr_t socket_{kInvalidSocket};
     bool inbound_{false};
     VersionMessage remote_{};
+    std::unique_ptr<V2Transport> transport_{};
 };
 
 struct PeerHandshakeResult {

@@ -24,6 +24,16 @@ quintum::net::VersionMessage version(
     };
 }
 
+quintum::net::VersionMessage encrypted_version(
+    std::uint64_t nonce,
+    std::uint32_t height)
+{
+    auto value = version(nonce, height);
+    value.services |=
+        quintum::net::kServiceEncryptedTransport;
+    return value;
+}
+
 void test_wire_protocol()
 {
     using namespace quintum;
@@ -237,6 +247,79 @@ void test_two_peer_handshake_and_ping()
     assert(server_after_prune == 0U);
 }
 
+void test_encrypted_peer_handshake_and_ping()
+{
+    using namespace quintum::net;
+
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    PeerError server_error{
+        PeerError::accept_failed
+    };
+    std::optional<quintum::Hash256>
+        server_session_id;
+
+    std::thread server([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                encrypted_version(
+                    0xc001U,
+                    11U
+                ),
+                5'000U
+            );
+
+        server_error = accepted.error;
+        if (!accepted.ok()) {
+            return;
+        }
+
+        assert(accepted.session->encrypted());
+        server_session_id =
+            accepted.session->session_id();
+        server_error =
+            accepted.session->service_once();
+        accepted.session->close();
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            encrypted_version(
+                0xc002U,
+                12U
+            ),
+            5'000U
+        );
+
+    assert(connected.ok());
+    assert(connected.session->encrypted());
+    const auto client_session_id =
+        connected.session->session_id();
+    assert(client_session_id.has_value());
+
+    assert(connected.session->ping(
+               0xfeedfacecafebeefULL) ==
+           PeerError::none);
+
+    connected.session->close();
+    server.join();
+
+    assert(server_error == PeerError::none);
+    assert(server_session_id.has_value());
+    assert(*server_session_id ==
+           *client_session_id);
+}
+
 void test_wrong_network_rejected()
 {
     using namespace quintum::net;
@@ -403,6 +486,7 @@ int main()
 {
     test_wire_protocol();
     test_two_peer_handshake_and_ping();
+    test_encrypted_peer_handshake_and_ping();
     test_wrong_network_rejected();
     test_self_connection_rejected();
     test_disconnect_and_reconnect();

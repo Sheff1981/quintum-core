@@ -1,6 +1,7 @@
 #include "net/peer.hpp"
 
 #include "core/serialize.hpp"
+#include "net/v2_transport.hpp"
 
 #include <algorithm>
 #include <array>
@@ -326,7 +327,7 @@ bool receive_exact(
     return true;
 }
 
-PeerError send_message(
+PeerError send_plain_message(
     NativeSocket socket,
     const consensus::ChainParams& params,
     std::string_view command,
@@ -352,7 +353,7 @@ PeerError send_message(
     return PeerError::none;
 }
 
-PeerError receive_message(
+PeerError receive_plain_message(
     NativeSocket socket,
     const consensus::ChainParams& params,
     WireMessage& message,
@@ -420,6 +421,328 @@ PeerError receive_message(
     return PeerError::none;
 }
 
+
+bool supports_v2_transport(
+    const VersionMessage& local,
+    const VersionMessage& remote) noexcept
+{
+    return (local.services &
+                kServiceEncryptedTransport) != 0U &&
+           (remote.services &
+                kServiceEncryptedTransport) != 0U;
+}
+
+PeerError send_encrypted_message(
+    NativeSocket socket,
+    const consensus::ChainParams& params,
+    V2Transport& transport,
+    std::string_view command,
+    std::span<const Byte> payload,
+    WireError& wire_error)
+{
+    const auto encoded =
+        encode_message(params, command, payload);
+
+    if (!encoded.ok()) {
+        wire_error = encoded.error;
+        return PeerError::wire_error;
+    }
+
+    V2TransportError transport_error{};
+    const auto packet =
+        transport.encrypt(
+            encoded.bytes,
+            transport_error
+        );
+
+    if (transport_error !=
+        V2TransportError::none) {
+        return PeerError::encryption_failed;
+    }
+
+    if (!send_all(socket, packet)) {
+        return PeerError::send_failed;
+    }
+
+    return PeerError::none;
+}
+
+PeerError receive_encrypted_message(
+    NativeSocket socket,
+    const consensus::ChainParams& params,
+    V2Transport& transport,
+    WireMessage& message,
+    WireError& wire_error)
+{
+    std::array<Byte, kV2PacketLengthSize> prefix{};
+    if (!receive_exact(socket, prefix)) {
+        return PeerError::receive_failed;
+    }
+
+    const std::uint32_t plaintext_size =
+        static_cast<std::uint32_t>(prefix[0]) |
+        (static_cast<std::uint32_t>(prefix[1]) << 8U) |
+        (static_cast<std::uint32_t>(prefix[2]) << 16U) |
+        (static_cast<std::uint32_t>(prefix[3]) << 24U);
+
+    if (plaintext_size > kV2MaxPlaintext) {
+        wire_error = WireError::payload_too_large;
+        return PeerError::wire_error;
+    }
+
+    Bytes packet;
+    packet.resize(
+        kV2PacketLengthSize +
+        static_cast<std::size_t>(plaintext_size) +
+        kV2PacketTagSize
+    );
+    std::copy(
+        prefix.begin(),
+        prefix.end(),
+        packet.begin()
+    );
+
+    if (!receive_exact(
+            socket,
+            std::span<Byte>(
+                packet.data() + kV2PacketLengthSize,
+                packet.size() - kV2PacketLengthSize
+            ))) {
+        return PeerError::receive_failed;
+    }
+
+    V2TransportError transport_error{};
+    const auto plaintext =
+        transport.decrypt(
+            packet,
+            transport_error
+        );
+
+    if (!plaintext) {
+        if (transport_error ==
+            V2TransportError::payload_too_large) {
+            wire_error =
+                WireError::payload_too_large;
+            return PeerError::wire_error;
+        }
+        return PeerError::encryption_failed;
+    }
+
+    auto decoded =
+        decode_message(params, *plaintext);
+
+    if (!decoded.ok() ||
+        decoded.consumed != plaintext->size()) {
+        wire_error = decoded.ok()
+            ? WireError::malformed_payload
+            : decoded.error;
+        return PeerError::wire_error;
+    }
+
+    message = std::move(decoded.message);
+    return PeerError::none;
+}
+
+std::unique_ptr<V2Transport> outbound_v2_upgrade(
+    NativeSocket socket,
+    const consensus::ChainParams& params,
+    PeerError& error,
+    WireError& wire_error)
+{
+    error = PeerError::none;
+
+    auto local_key = create_v2_ephemeral();
+    if (!local_key) {
+        error = PeerError::encryption_failed;
+        return nullptr;
+    }
+
+    error = send_plain_message(
+        socket,
+        params,
+        "encinit",
+        local_key->public_key,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    WireMessage ack;
+    error = receive_plain_message(
+        socket,
+        params,
+        ack,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    if (ack.command != "encack" ||
+        ack.payload.size() !=
+            crypto::EllSwiftPublicKey{}.size()) {
+        error = PeerError::unexpected_message;
+        return nullptr;
+    }
+
+    crypto::EllSwiftPublicKey responder_public{};
+    std::copy(
+        ack.payload.begin(),
+        ack.payload.end(),
+        responder_public.begin()
+    );
+
+    auto derived = derive_v2_transport(
+        params,
+        *local_key,
+        local_key->public_key,
+        responder_public,
+        true
+    );
+    if (!derived) {
+        error = PeerError::encryption_failed;
+        return nullptr;
+    }
+
+    auto transport =
+        std::make_unique<V2Transport>(
+            std::move(*derived)
+        );
+
+    error = send_encrypted_message(
+        socket,
+        params,
+        *transport,
+        "encconf",
+        {},
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    WireMessage confirmation;
+    error = receive_encrypted_message(
+        socket,
+        params,
+        *transport,
+        confirmation,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    if (confirmation.command != "encconf" ||
+        !confirmation.payload.empty()) {
+        error = PeerError::unexpected_message;
+        return nullptr;
+    }
+
+    return transport;
+}
+
+std::unique_ptr<V2Transport> inbound_v2_upgrade(
+    NativeSocket socket,
+    const consensus::ChainParams& params,
+    PeerError& error,
+    WireError& wire_error)
+{
+    error = PeerError::none;
+
+    WireMessage init;
+    error = receive_plain_message(
+        socket,
+        params,
+        init,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    if (init.command != "encinit" ||
+        init.payload.size() !=
+            crypto::EllSwiftPublicKey{}.size()) {
+        error = PeerError::unexpected_message;
+        return nullptr;
+    }
+
+    crypto::EllSwiftPublicKey initiator_public{};
+    std::copy(
+        init.payload.begin(),
+        init.payload.end(),
+        initiator_public.begin()
+    );
+
+    auto local_key = create_v2_ephemeral();
+    if (!local_key) {
+        error = PeerError::encryption_failed;
+        return nullptr;
+    }
+
+    error = send_plain_message(
+        socket,
+        params,
+        "encack",
+        local_key->public_key,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    auto derived = derive_v2_transport(
+        params,
+        *local_key,
+        initiator_public,
+        local_key->public_key,
+        false
+    );
+    if (!derived) {
+        error = PeerError::encryption_failed;
+        return nullptr;
+    }
+
+    auto transport =
+        std::make_unique<V2Transport>(
+            std::move(*derived)
+        );
+
+    WireMessage confirmation;
+    error = receive_encrypted_message(
+        socket,
+        params,
+        *transport,
+        confirmation,
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    if (confirmation.command != "encconf" ||
+        !confirmation.payload.empty()) {
+        error = PeerError::unexpected_message;
+        return nullptr;
+    }
+
+    error = send_encrypted_message(
+        socket,
+        params,
+        *transport,
+        "encconf",
+        {},
+        wire_error
+    );
+    if (error != PeerError::none) {
+        return nullptr;
+    }
+
+    return transport;
+}
+
 PeerHandshakeResult outbound_handshake(
     const consensus::ChainParams& params,
     NativeSocket socket,
@@ -431,7 +754,7 @@ PeerHandshakeResult outbound_handshake(
     const auto version_payload =
         serialize_version(local);
 
-    auto error = send_message(
+    auto error = send_plain_message(
         socket,
         params,
         "version",
@@ -446,7 +769,7 @@ PeerHandshakeResult outbound_handshake(
     }
 
     WireMessage remote_message;
-    error = receive_message(
+    error = receive_plain_message(
         socket,
         params,
         remote_message,
@@ -483,7 +806,7 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
-    error = send_message(
+    error = send_plain_message(
         socket,
         params,
         "verack",
@@ -498,7 +821,7 @@ PeerHandshakeResult outbound_handshake(
     }
 
     WireMessage verack;
-    error = receive_message(
+    error = receive_plain_message(
         socket,
         params,
         verack,
@@ -517,11 +840,27 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+    std::unique_ptr<V2Transport> transport;
+    if (supports_v2_transport(local, *remote)) {
+        transport = outbound_v2_upgrade(
+            socket,
+            params,
+            error,
+            wire_error
+        );
+        if (!transport) {
+            out.error = error;
+            out.wire_error = wire_error;
+            return out;
+        }
+    }
+
     out.session.emplace(
         params,
         store_socket(socket),
         false,
-        *remote
+        *remote,
+        std::move(transport)
     );
     return out;
 }
@@ -535,7 +874,7 @@ PeerHandshakeResult inbound_handshake(
     WireError wire_error{WireError::none};
 
     WireMessage remote_message;
-    auto error = receive_message(
+    auto error = receive_plain_message(
         socket,
         params,
         remote_message,
@@ -575,7 +914,7 @@ PeerHandshakeResult inbound_handshake(
     const auto local_payload =
         serialize_version(local);
 
-    error = send_message(
+    error = send_plain_message(
         socket,
         params,
         "version",
@@ -590,7 +929,7 @@ PeerHandshakeResult inbound_handshake(
     }
 
     WireMessage verack;
-    error = receive_message(
+    error = receive_plain_message(
         socket,
         params,
         verack,
@@ -609,7 +948,7 @@ PeerHandshakeResult inbound_handshake(
         return out;
     }
 
-    error = send_message(
+    error = send_plain_message(
         socket,
         params,
         "verack",
@@ -623,11 +962,27 @@ PeerHandshakeResult inbound_handshake(
         return out;
     }
 
+    std::unique_ptr<V2Transport> transport;
+    if (supports_v2_transport(local, *remote)) {
+        transport = inbound_v2_upgrade(
+            socket,
+            params,
+            error,
+            wire_error
+        );
+        if (!transport) {
+            out.error = error;
+            out.wire_error = wire_error;
+            return out;
+        }
+    }
+
     out.session.emplace(
         params,
         store_socket(socket),
         true,
-        *remote
+        *remote,
+        std::move(transport)
     );
     return out;
 }
@@ -638,11 +993,13 @@ PeerSession::PeerSession(
     const consensus::ChainParams& params,
     std::uintptr_t socket,
     bool inbound,
-    VersionMessage remote) noexcept
+    VersionMessage remote,
+    std::unique_ptr<V2Transport> transport) noexcept
     : params_(params),
       socket_(socket),
       inbound_(inbound),
-      remote_(remote)
+      remote_(remote),
+      transport_(std::move(transport))
 {
 }
 
@@ -656,7 +1013,8 @@ PeerSession::PeerSession(
     : params_(other.params_),
       socket_(other.socket_),
       inbound_(other.inbound_),
-      remote_(other.remote_)
+      remote_(other.remote_),
+      transport_(std::move(other.transport_))
 {
     other.socket_ = kInvalidSocket;
 }
@@ -674,6 +1032,7 @@ PeerSession& PeerSession::operator=(
     socket_ = other.socket_;
     inbound_ = other.inbound_;
     remote_ = other.remote_;
+    transport_ = std::move(other.transport_);
 
     other.socket_ = kInvalidSocket;
     return *this;
@@ -693,6 +1052,20 @@ const VersionMessage&
 PeerSession::remote_version() const noexcept
 {
     return remote_;
+}
+
+bool PeerSession::encrypted() const noexcept
+{
+    return transport_ != nullptr;
+}
+
+std::optional<Hash256>
+PeerSession::session_id() const noexcept
+{
+    if (!transport_) {
+        return std::nullopt;
+    }
+    return transport_->session_id();
 }
 
 bool PeerSession::wait_readable(
@@ -718,7 +1091,18 @@ PeerError PeerSession::send_command(
     }
 
     WireError wire_error{WireError::none};
-    return send_message(
+    if (transport_) {
+        return send_encrypted_message(
+            native_socket(socket_),
+            params_,
+            *transport_,
+            command,
+            payload,
+            wire_error
+        );
+    }
+
+    return send_plain_message(
         native_socket(socket_),
         params_,
         command,
@@ -735,7 +1119,17 @@ PeerError PeerSession::receive_command(
     }
 
     WireError wire_error{WireError::none};
-    return receive_message(
+    if (transport_) {
+        return receive_encrypted_message(
+            native_socket(socket_),
+            params_,
+            *transport_,
+            message,
+            wire_error
+        );
+    }
+
+    return receive_plain_message(
         native_socket(socket_),
         params_,
         message,
@@ -750,28 +1144,16 @@ PeerError PeerSession::ping(
         return PeerError::receive_failed;
     }
 
-    WireError wire_error{WireError::none};
     const auto payload = serialize_nonce(nonce);
 
-    auto error = send_message(
-        native_socket(socket_),
-        params_,
-        "ping",
-        payload,
-        wire_error
-    );
+    auto error = send_command("ping", payload);
 
     if (error != PeerError::none) {
         return error;
     }
 
     WireMessage message;
-    error = receive_message(
-        native_socket(socket_),
-        params_,
-        message,
-        wire_error
-    );
+    error = receive_command(message);
 
     if (error != PeerError::none) {
         return error;
@@ -797,15 +1179,9 @@ PeerError PeerSession::service_once()
         return PeerError::receive_failed;
     }
 
-    WireError wire_error{WireError::none};
     WireMessage message;
 
-    const auto error = receive_message(
-        native_socket(socket_),
-        params_,
-        message,
-        wire_error
-    );
+    const auto error = receive_command(message);
 
     if (error != PeerError::none) {
         return error;
@@ -825,13 +1201,7 @@ PeerError PeerSession::service_once()
     const auto payload =
         serialize_nonce(*nonce);
 
-    return send_message(
-        native_socket(socket_),
-        params_,
-        "pong",
-        payload,
-        wire_error
-    );
+    return send_command("pong", payload);
 }
 
 PeerError PeerSession::request_addresses(
@@ -844,14 +1214,7 @@ PeerError PeerSession::request_addresses(
         return PeerError::receive_failed;
     }
 
-    WireError wire_error{WireError::none};
-    auto error = send_message(
-        native_socket(socket_),
-        params_,
-        "getaddr",
-        {},
-        wire_error
-    );
+    auto error = send_command("getaddr", {});
 
     if (error != PeerError::none) {
         return error;
@@ -861,12 +1224,7 @@ PeerError PeerSession::request_addresses(
          handled < 8U;
          ++handled) {
         WireMessage message;
-        error = receive_message(
-            native_socket(socket_),
-            params_,
-            message,
-            wire_error
-        );
+        error = receive_command(message);
 
         if (error != PeerError::none) {
             return error;
@@ -881,13 +1239,7 @@ PeerError PeerSession::request_addresses(
 
             const auto pong =
                 serialize_nonce(*nonce);
-            error = send_message(
-                native_socket(socket_),
-                params_,
-                "pong",
-                pong,
-                wire_error
-            );
+            error = send_command("pong", pong);
 
             if (error != PeerError::none) {
                 return error;
@@ -925,15 +1277,9 @@ PeerError PeerSession::service_discovery_once(
         return PeerError::receive_failed;
     }
 
-    WireError wire_error{WireError::none};
     WireMessage message;
 
-    auto error = receive_message(
-        native_socket(socket_),
-        params_,
-        message,
-        wire_error
-    );
+    auto error = receive_command(message);
 
     if (error != PeerError::none) {
         return error;
@@ -948,13 +1294,7 @@ PeerError PeerSession::service_discovery_once(
 
         const auto pong =
             serialize_nonce(*nonce);
-        return send_message(
-            native_socket(socket_),
-            params_,
-            "pong",
-            pong,
-            wire_error
-        );
+        return send_command("pong", pong);
     }
 
     if (message.command == "getaddr") {
@@ -965,13 +1305,7 @@ PeerError PeerSession::service_discovery_once(
         const auto payload =
             serialize_addresses(advertised);
 
-        return send_message(
-            native_socket(socket_),
-            params_,
-            "addr",
-            payload,
-            wire_error
-        );
+        return send_command("addr", payload);
     }
 
     if (message.command == "addr") {
@@ -1001,6 +1335,8 @@ PeerError PeerSession::service_discovery_once(
 
 void PeerSession::close() noexcept
 {
+    transport_.reset();
+
     if (!valid()) {
         return;
     }

@@ -1501,7 +1501,8 @@ VersionMessage NetworkRuntime::local_version(
             params_.p2p_protocol_version,
         .services =
             kServiceNetwork |
-            kServiceCompactBlocks,
+            kServiceCompactBlocks |
+            kServiceEncryptedTransport,
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
