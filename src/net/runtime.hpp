@@ -152,6 +152,16 @@ struct NetworkWalletSendResult {
     }
 };
 
+struct NetworkMiningTemplateResult {
+    mining::BlockTemplateResult block_template{};
+    std::optional<Hash256> randomx_seed{};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return block_template.ok();
+    }
+};
+
 class NetworkRuntime {
 public:
     NetworkRuntime(
@@ -272,6 +282,37 @@ public:
         const Bytes& payout_script,
         std::uint64_t adjusted_time,
         std::uint64_t max_attempts
+    );
+
+    [[nodiscard]] NodeSubmitResult submit_block(
+        const Block& block
+    );
+
+    [[nodiscard]] std::optional<Block> block(
+        const Hash256& hash
+    ) const;
+
+    [[nodiscard]] std::optional<Hash256> active_hash(
+        std::uint32_t height
+    ) const;
+
+    [[nodiscard]] std::optional<std::uint32_t> active_height(
+        const Hash256& hash
+    ) const;
+
+    [[nodiscard]] Hash256 cumulative_work() const;
+
+    [[nodiscard]] std::vector<Hash256>
+    mempool_transaction_ids(
+        std::size_t limit = kMaxMempoolTransactions
+    ) const;
+
+    [[nodiscard]] std::size_t mempool_bytes() const;
+
+    [[nodiscard]] NetworkMiningTemplateResult
+    mining_template(
+        const Bytes& payout_script,
+        std::uint64_t adjusted_time
     );
 
     [[nodiscard]] bool has_mempool_transaction(
