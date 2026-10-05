@@ -84,3 +84,16 @@ Changing any Genesis field now creates a different network identity. These const
 - public-testnet validation before final release freeze
 
 These values will not be guessed and silently embedded. Each will be documented, tested, then frozen before mainnet genesis.
+
+
+## Version-bits upgrade mechanism
+
+QUINTUM now includes a deterministic BIP9/BIP8-style **version-bits state machine** for future consensus upgrades. Deployments use period-aligned height windows and move through:
+
+`DEFINED -> STARTED -> LOCKED_IN -> ACTIVE`
+
+or `FAILED` when a non-lock-in-on-timeout deployment expires.
+
+A signaling block must carry the version-bits top marker plus the configured feature bit; ordinary legacy block version `1` does not accidentally signal. Threshold, period, start height, timeout height and minimum activation height are explicit deployment parameters and are regression-tested.
+
+The mechanism is deliberately **not wired to change existing RandomX Testnet validation rules yet**. It is infrastructure for activating future script/output features without silently changing consensus in an already-running release. A deployment is only attached to a real consensus rule after its parameters and migration impact are separately tested and published.
