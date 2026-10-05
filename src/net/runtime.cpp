@@ -1499,7 +1499,9 @@ VersionMessage NetworkRuntime::local_version(
     return VersionMessage{
         .protocol_version =
             params_.p2p_protocol_version,
-        .services = 1U,
+        .services =
+            kServiceNetwork |
+            kServiceCompactBlocks,
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
@@ -2124,6 +2126,13 @@ bool NetworkRuntime::process_message(
                ).ok();
     }
 
+    if (message.command == "getblocktxn") {
+        return process_get_block_transactions(
+            peer,
+            message
+        );
+    }
+
     if (message.command == "inv") {
         return process_inventory(
             peer,
@@ -2140,6 +2149,22 @@ bool NetworkRuntime::process_message(
 
     if (message.command == "block") {
         return process_block(
+            peer,
+            message,
+            now
+        );
+    }
+
+    if (message.command == "cmpctblock") {
+        return process_compact_block(
+            peer,
+            message,
+            now
+        );
+    }
+
+    if (message.command == "blocktxn") {
+        return process_block_transactions(
             peer,
             message,
             now
@@ -2164,10 +2189,23 @@ bool NetworkRuntime::process_message(
                     item.hash
                 );
             } else if (item.type ==
-                       kInventoryBlock) {
+                           kInventoryBlock ||
+                       item.type ==
+                           kInventoryCompactBlock) {
                 erase_hash(
                     peer.requested_blocks,
                     item.hash
+                );
+
+                peer.pending_compact_blocks.erase(
+                    std::remove_if(
+                        peer.pending_compact_blocks.begin(),
+                        peer.pending_compact_blocks.end(),
+                        [&](const PendingCompactBlock& pending) {
+                            return pending.hash == item.hash;
+                        }
+                    ),
+                    peer.pending_compact_blocks.end()
                 );
             }
         }
@@ -2241,7 +2279,16 @@ bool NetworkRuntime::process_inventory(
 
                 peer.requested_blocks.
                     push_back(item.hash);
-                wanted.push_back(item);
+
+                InventoryItem requested = item;
+
+                if ((peer.session.remote_version().services &
+                     kServiceCompactBlocks) != 0U) {
+                    requested.type =
+                        kInventoryCompactBlock;
+                }
+
+                wanted.push_back(requested);
             }
         }
     }
@@ -2339,13 +2386,287 @@ bool NetworkRuntime::process_block(
     const Hash256 hash =
         block_hash(block->header);
 
-    const bool requested =
-        contains_hash(
-            peer.requested_blocks,
-            hash
+    return process_received_block(
+        peer,
+        *block,
+        hash,
+        now
+    );
+}
+
+bool NetworkRuntime::process_compact_block(
+    LivePeer& peer,
+    const WireMessage& message,
+    std::uint64_t now)
+{
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
+    const auto compact =
+        parse_compact_block(
+            message.payload,
+            params_.limits
         );
 
-    if (!requested) {
+    if (!compact) {
+        return false;
+    }
+
+    const Hash256 hash =
+        block_hash(compact->header);
+
+    if (!contains_hash(
+            peer.requested_blocks,
+            hash)) {
+        return false;
+    }
+
+    CompactReconstructionResult rebuilt;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+        rebuilt =
+            reconstruct_compact_block(
+                *compact,
+                node_.mempool()
+            );
+    }
+
+    if (!rebuilt.ok()) {
+        return false;
+    }
+
+    if (rebuilt.complete()) {
+        return process_received_block(
+            peer,
+            *rebuilt.block,
+            hash,
+            now
+        );
+    }
+
+    if (rebuilt.missing_indexes.empty() ||
+        peer.pending_compact_blocks.size() >=
+            kMaxRelayInventoryItems) {
+        return false;
+    }
+
+    const bool already_pending =
+        std::any_of(
+            peer.pending_compact_blocks.begin(),
+            peer.pending_compact_blocks.end(),
+            [&](const PendingCompactBlock& pending) {
+                return pending.hash == hash;
+            }
+        );
+
+    if (already_pending) {
+        return false;
+    }
+
+    BlockTransactionsRequest request{
+        .block_hash = hash,
+        .indexes =
+            rebuilt.missing_indexes,
+    };
+
+    peer.pending_compact_blocks.push_back(
+        PendingCompactBlock{
+            .hash = hash,
+            .compact = *compact,
+            .missing_indexes =
+                rebuilt.missing_indexes,
+        }
+    );
+
+    const auto payload =
+        serialize_getblocktxn(request);
+
+    if (peer.session.send_command(
+            "getblocktxn",
+            payload) !=
+        PeerError::none) {
+        peer.pending_compact_blocks.pop_back();
+        return false;
+    }
+
+    return true;
+}
+
+bool NetworkRuntime::process_get_block_transactions(
+    LivePeer& peer,
+    const WireMessage& message)
+{
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
+    const auto request =
+        parse_getblocktxn(
+            message.payload,
+            params_.limits.
+                max_block_transactions
+        );
+
+    if (!request ||
+        std::find(
+            request->indexes.begin(),
+            request->indexes.end(),
+            0U
+        ) != request->indexes.end()) {
+        return false;
+    }
+
+    BlockTransactions response;
+    response.block_hash =
+        request->block_hash;
+
+    bool found{false};
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        const Block* block =
+            node_.chain().block(
+                request->block_hash
+            );
+
+        if (block != nullptr) {
+            found = true;
+            response.transactions.reserve(
+                request->indexes.size()
+            );
+
+            for (const auto index :
+                 request->indexes) {
+                if (index >=
+                    block->transactions.size()) {
+                    return false;
+                }
+
+                response.transactions.emplace_back(
+                    index,
+                    block->transactions[index]
+                );
+            }
+        }
+    }
+
+    if (!found) {
+        const std::array<InventoryItem, 1>
+            missing{
+                InventoryItem{
+                    .type =
+                        kInventoryCompactBlock,
+                    .hash =
+                        request->block_hash,
+                }
+            };
+
+        return peer.session.send_command(
+                   "notfound",
+                   serialize_inventory(missing)
+               ) == PeerError::none;
+    }
+
+    return peer.session.send_command(
+               "blocktxn",
+               serialize_blocktxn(response)
+           ) == PeerError::none;
+}
+
+bool NetworkRuntime::process_block_transactions(
+    LivePeer& peer,
+    const WireMessage& message,
+    std::uint64_t now)
+{
+    if ((peer.session.remote_version().services &
+         kServiceCompactBlocks) == 0U) {
+        return false;
+    }
+
+    const auto response =
+        parse_blocktxn(
+            message.payload,
+            params_.limits
+        );
+
+    if (!response) {
+        return false;
+    }
+
+    const auto pending_it =
+        std::find_if(
+            peer.pending_compact_blocks.begin(),
+            peer.pending_compact_blocks.end(),
+            [&](const PendingCompactBlock& pending) {
+                return pending.hash ==
+                    response->block_hash;
+            }
+        );
+
+    if (pending_it ==
+        peer.pending_compact_blocks.end()) {
+        return false;
+    }
+
+    if (response->transactions.size() !=
+        pending_it->missing_indexes.size()) {
+        return false;
+    }
+
+    for (std::size_t i = 0U;
+         i < response->transactions.size();
+         ++i) {
+        if (response->transactions[i].first !=
+            pending_it->missing_indexes[i]) {
+            return false;
+        }
+    }
+
+    CompactReconstructionResult rebuilt;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+        rebuilt =
+            complete_compact_block(
+                pending_it->compact,
+                node_.mempool(),
+                *response
+            );
+    }
+
+    if (!rebuilt.complete()) {
+        return false;
+    }
+
+    const Hash256 hash =
+        pending_it->hash;
+
+    peer.pending_compact_blocks.erase(
+        pending_it
+    );
+
+    return process_received_block(
+        peer,
+        *rebuilt.block,
+        hash,
+        now
+    );
+}
+
+bool NetworkRuntime::process_received_block(
+    LivePeer& peer,
+    const Block& block,
+    const Hash256& hash,
+    std::uint64_t now)
+{
+    if (!contains_hash(
+            peer.requested_blocks,
+            hash)) {
         return false;
     }
 
@@ -2354,13 +2675,26 @@ bool NetworkRuntime::process_block(
         hash
     );
 
+    peer.pending_compact_blocks.erase(
+        std::remove_if(
+            peer.pending_compact_blocks.begin(),
+            peer.pending_compact_blocks.end(),
+            [&](const PendingCompactBlock& pending) {
+                return pending.hash == hash;
+            }
+        ),
+        peer.pending_compact_blocks.end()
+    );
+
     NodeSubmitResult submitted;
+    std::optional<std::uint32_t>
+        accepted_height;
 
     {
         std::scoped_lock lock(state_mutex_);
         submitted =
             node_.submit_block_at(
-                *block,
+                block,
                 now
             );
 
@@ -2405,9 +2739,13 @@ bool NetworkRuntime::process_block(
             return true;
         }
 
-        if (submitted.ok() &&
-            !sync_wallet_locked()) {
-            return false;
+        if (submitted.ok()) {
+            if (!sync_wallet_locked()) {
+                return false;
+            }
+
+            accepted_height =
+                node_.chain().height();
         }
     }
 
@@ -2417,14 +2755,14 @@ bool NetworkRuntime::process_block(
                    duplicate_block;
     }
 
-    if (const auto accepted_height =
-            node_.chain().height()) {
+    if (accepted_height) {
         peer.reported_height =
             std::max(
                 peer.reported_height,
                 *accepted_height
             );
     }
+
     update_peer_counts();
 
     queue_announcement(

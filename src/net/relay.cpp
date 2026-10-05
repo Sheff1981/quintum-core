@@ -1,6 +1,8 @@
 #include "net/relay.hpp"
 
 #include "core/serialize.hpp"
+#include "crypto/random.hpp"
+#include "net/compact_block.hpp"
 #include "primitives/transaction.hpp"
 
 #include <algorithm>
@@ -110,6 +112,40 @@ bool count_fits_remaining(
     return count <=
         static_cast<std::uint64_t>(
             remaining / minimum_bytes);
+}
+
+std::uint64_t compact_nonce(
+    const Hash256& block_hash_value) noexcept
+{
+    std::array<Byte, 8> random{};
+
+    if (crypto::secure_random_bytes(random)) {
+        std::uint64_t value{0U};
+
+        for (std::size_t i = 0U;
+             i < random.size();
+             ++i) {
+            value |=
+                static_cast<std::uint64_t>(
+                    random[i]
+                ) << (8U * i);
+        }
+
+        return value;
+    }
+
+    std::uint64_t fallback{0U};
+
+    for (std::size_t i = 0U;
+         i < 8U;
+         ++i) {
+        fallback |=
+            static_cast<std::uint64_t>(
+                block_hash_value[i]
+            ) << (8U * i);
+    }
+
+    return fallback;
 }
 
 PeerError send_inventory(
@@ -644,7 +680,15 @@ RelayResult serve_relay_message(
                     "tx",
                     payload
                 );
-        } else if (item.type == kInventoryBlock) {
+        } else if (item.type == kInventoryBlock ||
+                   item.type == kInventoryCompactBlock) {
+            if (item.type == kInventoryCompactBlock &&
+                (peer.remote_version().services &
+                 kServiceCompactBlocks) == 0U) {
+                missing.push_back(item);
+                continue;
+            }
+
             const Block* block =
                 node.chain().block(
                     item.hash
@@ -655,14 +699,33 @@ RelayResult serve_relay_message(
                 continue;
             }
 
-            const auto payload =
-                serialize_block_payload(*block);
+            if (item.type == kInventoryCompactBlock) {
+                const auto payload =
+                    serialize_compact_block(
+                        *block,
+                        compact_nonce(item.hash)
+                    );
 
-            out.peer_error =
-                peer.send_command(
-                    "block",
-                    payload
-                );
+                if (payload.empty()) {
+                    missing.push_back(item);
+                    continue;
+                }
+
+                out.peer_error =
+                    peer.send_command(
+                        "cmpctblock",
+                        payload
+                    );
+            } else {
+                const auto payload =
+                    serialize_block_payload(*block);
+
+                out.peer_error =
+                    peer.send_command(
+                        "block",
+                        payload
+                    );
+            }
         } else {
             missing.push_back(item);
             continue;

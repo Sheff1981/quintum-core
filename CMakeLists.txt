@@ -172,6 +172,7 @@ add_library(quintum_core STATIC
     src/net/address.cpp
     src/net/discovery.cpp
     src/net/sync.cpp
+    src/net/compact_block.cpp
     src/net/relay.cpp
     src/net/runtime.cpp
     src/rpc/rpc.cpp
@@ -498,6 +499,18 @@ quintum_strict_warnings(quintum_relay_tests)
 quintum_test_assertions(quintum_relay_tests)
 
 add_test(NAME relay COMMAND quintum_relay_tests)
+
+add_executable(quintum_compact_block_tests
+    tests/compact_block_tests.cpp
+)
+target_link_libraries(
+    quintum_compact_block_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_compact_block_tests)
+quintum_test_assertions(quintum_compact_block_tests)
+
+add_test(NAME compact_block COMMAND quintum_compact_block_tests)
 
 add_executable(quintum_network_runtime_tests
     tests/network_runtime_tests.cpp
