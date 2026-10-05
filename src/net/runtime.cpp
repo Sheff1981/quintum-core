@@ -1312,11 +1312,16 @@ VersionMessage NetworkRuntime::local_version(
 
     return VersionMessage{
         .protocol_version =
-            kProtocolVersion,
+            params_.p2p_protocol_version,
         .services = 1U,
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
+        .listen_port =
+            params_.p2p_protocol_version >=
+                    kPeerAddressProtocolVersion
+                ? listen_port_.load()
+                : 0U,
     };
 }
 
@@ -1373,6 +1378,44 @@ void NetworkRuntime::accept_inbound(
 
     if (!accepted.ok()) {
         return;
+    }
+
+    const auto& remote_version =
+        accepted.session->remote_version();
+
+    if (accepted.observed_ipv4 &&
+        remote_version.protocol_version >=
+            kPeerAddressProtocolVersion &&
+        remote_version.listen_port != 0U) {
+        const bool allow_local =
+            config_.allow_local_peers ||
+            params_.network ==
+                consensus::Network::regtest;
+
+        const PeerAddress announced{
+            .ipv4 = *accepted.observed_ipv4,
+            .port = remote_version.listen_port,
+            .services = remote_version.services,
+            .last_seen = now,
+        };
+
+        if (valid_peer_address(
+                announced,
+                allow_local)) {
+            (void)addrman_.add(
+                announced
+            );
+
+            if (addrman_.save() !=
+                AddrStoreError::none) {
+                accepted.session->close();
+                return;
+            }
+
+            known_address_count_.store(
+                addrman_.size()
+            );
+        }
     }
 
     LivePeer peer{

@@ -97,6 +97,16 @@ Each address record stores:
 
 Failed outbound connections use exponential retry backoff. A discovery attempt can automatically move to another eligible peer instead of repeatedly hammering the same failed endpoint.
 
+### RandomX peer self-advertisement
+
+The RandomX Testnet uses P2P protocol version 2. Its `version` payload adds the node's listening TCP port. For inbound v2 connections, the receiver combines that claimed listening port with the **socket-observed remote IPv4 address**, validates the resulting endpoint, stores it in addrman, and can return it to later peers through normal `getaddr/addr` exchange. The sender does not get to choose the advertised IP address.
+
+This removes the single-seed topology trap: once multiple publicly reachable RandomX nodes have connected, the bootstrap node learns them and introduces later nodes to them. Existing legacy SHA-256 networks remain on protocol version 1 and retain their original 32-byte version payload.
+
+Nodes behind NAT still need an actual inbound mapping for the advertised port to be reachable. Automatic UPnP/NAT-PMP remains a separate deployment item; unreachable advertised endpoints simply fail normal connection attempts and enter retry backoff.
+
+The integration suite starts three local RandomX nodes, bootstraps two ordinary nodes through the first node, verifies direct peer discovery, shuts the bootstrap node down, mines a real RandomX block on an ordinary node, relays it directly to the other node, and verifies restart persistence.
+
 ### Persistent `peers.dat`
 
 The address manager writes `peers.dat` under the node data directory.

@@ -12,6 +12,7 @@
 namespace quintum::net {
 
 inline constexpr std::uint32_t kProtocolVersion = 1U;
+inline constexpr std::uint32_t kPeerAddressProtocolVersion = 2U;
 inline constexpr std::size_t kMessageHeaderSize = 24U;
 inline constexpr std::uint32_t kMaxMessagePayload = 2'000'000U;
 
@@ -58,6 +59,7 @@ struct VersionMessage {
     std::uint64_t timestamp{0U};
     std::uint64_t nonce{0U};
     std::uint32_t start_height{0U};
+    std::uint16_t listen_port{0U};
 };
 
 [[nodiscard]] WireEncodeResult encode_message(

@@ -212,8 +212,14 @@ WireDecodeResult decode_message(
 Bytes serialize_version(
     const VersionMessage& version)
 {
+    const bool has_listen_port =
+        version.protocol_version >=
+            kPeerAddressProtocolVersion;
+
     Bytes out;
-    out.reserve(32U);
+    out.reserve(
+        has_listen_port ? 34U : 32U
+    );
 
     append_little_endian(
         out,
@@ -236,13 +242,21 @@ Bytes serialize_version(
         version.start_height
     );
 
+    if (has_listen_port) {
+        append_little_endian(
+            out,
+            version.listen_port
+        );
+    }
+
     return out;
 }
 
 std::optional<VersionMessage> parse_version(
     std::span<const Byte> payload)
 {
-    if (payload.size() != 32U) {
+    if (payload.size() != 32U &&
+        payload.size() != 34U) {
         return std::nullopt;
     }
 
@@ -278,8 +292,35 @@ std::optional<VersionMessage> parse_version(
         !services ||
         !timestamp ||
         !nonce ||
-        !start_height ||
-        offset != payload.size()) {
+        !start_height) {
+        return std::nullopt;
+    }
+
+    std::uint16_t listen_port{0U};
+
+    if (*protocol_version >=
+        kPeerAddressProtocolVersion) {
+        if (payload.size() != 34U) {
+            return std::nullopt;
+        }
+
+        const auto parsed_port =
+            read_little_endian<std::uint16_t>(
+                payload,
+                offset
+            );
+
+        if (!parsed_port ||
+            *parsed_port == 0U) {
+            return std::nullopt;
+        }
+
+        listen_port = *parsed_port;
+    } else if (payload.size() != 32U) {
+        return std::nullopt;
+    }
+
+    if (offset != payload.size()) {
         return std::nullopt;
     }
 
@@ -289,6 +330,7 @@ std::optional<VersionMessage> parse_version(
         .timestamp = *timestamp,
         .nonce = *nonce,
         .start_height = *start_height,
+        .listen_port = listen_port,
     };
 }
 

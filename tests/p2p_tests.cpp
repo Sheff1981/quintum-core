@@ -67,6 +67,34 @@ void test_wire_protocol()
     assert(parsed->nonce ==
            0x1122334455667788ULL);
     assert(parsed->start_height == 42U);
+    assert(parsed->listen_port == 0U);
+
+    auto v2 =
+        version(
+            0x8877665544332211ULL,
+            43U
+        );
+    v2.protocol_version =
+        kPeerAddressProtocolVersion;
+    v2.listen_port = 39444U;
+
+    const auto v2_payload =
+        serialize_version(v2);
+
+    assert(v2_payload.size() == 34U);
+
+    const auto parsed_v2 =
+        parse_version(v2_payload);
+
+    assert(parsed_v2.has_value());
+    assert(parsed_v2->protocol_version ==
+           kPeerAddressProtocolVersion);
+    assert(parsed_v2->listen_port == 39444U);
+    assert(parsed_v2->start_height == 43U);
+
+    auto malformed_v2 = v2_payload;
+    malformed_v2.resize(32U);
+    assert(!parse_version(malformed_v2));
 
     auto corrupted = encoded.bytes;
     corrupted.back() ^= 0x01U;

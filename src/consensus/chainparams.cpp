@@ -86,6 +86,7 @@ constexpr ChainParams kTestnet{
 constexpr ChainParams kRandomXTestnet{
     .network = Network::randomx_testnet,
     .name = "randomx-testnet",
+    .p2p_protocol_version = 2U,
     .message_start = {0x3bU, 0xbfU, 0xb9U, 0xf0U},
     .p2p_port = 39444U,
     .rpc_port = 39445U,

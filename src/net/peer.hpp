@@ -109,6 +109,7 @@ struct PeerHandshakeResult {
     PeerError error{PeerError::none};
     WireError wire_error{WireError::none};
     std::optional<PeerSession> session{};
+    std::optional<std::uint32_t> observed_ipv4{};
 
     [[nodiscard]] bool ok() const noexcept
     {

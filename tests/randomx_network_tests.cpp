@@ -161,8 +161,69 @@ void test_randomx_walletless_p2p_relay_and_restart()
         }
     ));
 
+    // Protocol v2 lets the bootstrap node learn the inbound peer's
+    // socket-observed IPv4 plus its claimed listening port.
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            return server.status().
+                       known_addresses >= 1U;
+        }
+    ));
+
+    const auto peer_b_dir =
+        unique_dir("peer-b");
+
+    NetworkRuntimeConfig peer_b_config =
+        server_config;
+    peer_b_config.target_outbound = 2U;
+    peer_b_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 =
+                *parse_ipv4("127.0.0.1"),
+            .port =
+                server.status().listen_port,
+            .services = 1U,
+            .last_seen =
+                params.genesis.timestamp,
+        }
+    );
+
+    NetworkRuntime peer_b{
+        params,
+        peer_b_dir
+    };
+
+    const auto peer_b_start =
+        peer_b.start(peer_b_config);
+
+    assert(peer_b_start.ok());
+
+    // Peer B first connects to the seed, learns Peer A from getaddr,
+    // then opens a direct second outbound connection to Peer A.
+    assert(wait_until(
+        std::chrono::seconds(30),
+        [&] {
+            return peer_b.status().
+                       outbound_peers >= 2U &&
+                   client.status().peers >= 2U;
+        }
+    ));
+
+    server.stop();
+
+    // The bootstrap node is gone. The two ordinary nodes must remain
+    // connected directly.
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            return client.status().peers >= 1U &&
+                   peer_b.status().peers >= 1U;
+        }
+    ));
+
     const auto mined =
-        server.mine_mempool_block_at(
+        client.mine_mempool_block_at(
             payout_script(),
             params.genesis.timestamp +
                 params.pow.target_spacing_seconds,
@@ -198,18 +259,22 @@ void test_randomx_walletless_p2p_relay_and_restart()
     assert(wait_until(
         std::chrono::seconds(30),
         [&] {
-            const auto server_status =
-                server.status();
             const auto client_status =
                 client.status();
+            const auto peer_b_status =
+                peer_b.status();
 
-            return client_status.height ==
+            return peer_b_status.height ==
                        std::optional<std::uint32_t>{1U} &&
-                   client_status.tip ==
-                       server_status.tip;
+                   peer_b_status.tip ==
+                       client_status.tip;
         }
     ));
 
+    const auto surviving_tip =
+        client.status().tip;
+
+    peer_b.stop();
     client.stop();
 
     assert(!std::filesystem::exists(
@@ -224,7 +289,7 @@ void test_randomx_walletless_p2p_relay_and_restart()
 
     NetworkRuntime restarted_client{
         params,
-        client_dir
+        peer_b_dir
     };
 
     auto restart_config =
@@ -239,12 +304,11 @@ void test_randomx_walletless_p2p_relay_and_restart()
     assert(restarted_client.status().height ==
            std::optional<std::uint32_t>{1U});
     assert(restarted_client.status().tip ==
-           server.status().tip);
+           surviving_tip);
     assert(!restarted_client.status().
                wallet_enabled);
 
     restarted_client.stop();
-    server.stop();
 
     assert(!std::filesystem::exists(
         server_dir / "wallet.dat"
@@ -263,6 +327,10 @@ void test_randomx_walletless_p2p_relay_and_restart()
     );
     std::filesystem::remove_all(
         client_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        peer_b_dir,
         ec
     );
 }

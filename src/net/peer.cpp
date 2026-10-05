@@ -473,7 +473,7 @@ PeerHandshakeResult outbound_handshake(
     }
 
     if (remote->protocol_version !=
-        kProtocolVersion) {
+        local.protocol_version) {
         out.error = PeerError::unsupported_protocol;
         return out;
     }
@@ -562,7 +562,7 @@ PeerHandshakeResult inbound_handshake(
     }
 
     if (remote->protocol_version !=
-        kProtocolVersion) {
+        local.protocol_version) {
         out.error = PeerError::unsupported_protocol;
         return out;
     }
@@ -1226,6 +1226,11 @@ PeerListener::accept_and_handshake(
 
     if (!out.ok()) {
         close_native(accepted);
+    } else {
+        out.observed_ipv4 =
+            ntohl(
+                remote_address.sin_addr.s_addr
+            );
     }
 
     return out;

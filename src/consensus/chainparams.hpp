@@ -67,6 +67,7 @@ struct GenesisParams {
 struct ChainParams {
     Network network{Network::regtest};
     std::string_view name{};
+    std::uint32_t p2p_protocol_version{1U};
     std::array<Byte, 4> message_start{};
     std::uint16_t p2p_port{0U};
     std::uint16_t rpc_port{0U};
