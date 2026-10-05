@@ -12,8 +12,8 @@ This document contains only public-safe project information and placeholders. Pe
 
 **Project name:** QUINTUM  
 **Asset type:** Native coin of an independent Layer-1 blockchain  
-**Current working ticker:** QMU  
-**Final Mainnet ticker:** Not yet frozen  
+**Native coin ticker:** QMU  
+**Final Mainnet ticker:** QMU — branding-frozen 2026-10-05  
 **Consensus:** Proof of Work  
 **Ledger model:** UTXO  
 **Primary implementation:** C++23  
