@@ -231,6 +231,9 @@ void test_network_hardcoded_seeds()
     const auto regtest =
         hardcoded_seeds(
             quintum::consensus::Network::regtest);
+    const auto randomx =
+        hardcoded_seeds(
+            quintum::consensus::Network::randomx_testnet);
 
     assert(mainnet.empty());
     assert(regtest.empty());
@@ -238,6 +241,10 @@ void test_network_hardcoded_seeds()
     assert(testnet.front().host ==
            "212.193.15.139");
     assert(testnet.front().port == 38444U);
+    assert(randomx.size() == 1U);
+    assert(randomx.front().host ==
+           "212.193.15.139");
+    assert(randomx.front().port == 39444U);
 }
 
 void test_dns_seed_resolution()
