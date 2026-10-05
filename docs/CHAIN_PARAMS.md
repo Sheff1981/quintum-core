@@ -1,6 +1,6 @@
 # QUINTUM Chain Parameters
 
-Status: **CURRENT SHA-256 TESTNET IMPLEMENTED; RANDOMX TESTNET PARAMETERS DECIDED FOR NEXT NETWORK**
+Status: **LEGACY SHA-256 TESTNET PRESERVED; RANDOMX TESTNET IDENTITY AND GENESIS IMPLEMENTED**
 
 QUINTUM uses explicit parameter sets so Mainnet, Testnet and Regtest cannot silently share network identity or Proof-of-Work policy.
 
@@ -31,7 +31,7 @@ The next incompatible public Testnet is specified to use:
 - primary monetary schedule and 5% founder subsidy split as defined in `MONETARY_POLICY.md`;
 - tail subsidy of 1 QTM/block from height 6,000,001.
 
-The RandomX Testnet must receive a **new Genesis and distinct network identity**. Existing SHA-256 Testnet chain/wallet data must not be deleted or silently migrated.
+The RandomX Testnet now has a **new Genesis and distinct network identity**. Existing SHA-256 Testnet chain/wallet data remains separate and is not deleted or silently migrated.
 
 ## Existing network identities
 
@@ -55,7 +55,21 @@ Current implemented identities remain documented for the legacy SHA-256 Testnet 
 - P2P port: `48444`
 - RPC port: `48445`
 
-The next RandomX Testnet network magic, ports, Genesis hash, Merkle root, timestamp, nonce and PoW limit must be generated and pinned during implementation rather than reusing the legacy SHA-256 Testnet identity.
+### RandomX Testnet
+
+- network/data directory: `randomx-testnet`
+- message start: `3b bf b9 f0`
+- P2P port: `39444`
+- RPC port: `39445`
+- address HRP: `xqtm`
+- PoW limit bits: `0x1f7fffff`
+- Genesis timestamp: `1791158400`
+- Genesis nonce: `80`
+- Genesis Merkle root: `1e11ac64fba90f543acd87018ec0d9da7ce11d56892026037728688b8c15cd0a`
+- Genesis block ID: `89477dab8594e000e155b2a1e020ce8a73a3b03fa32568ac8773900794dca360`
+- Genesis RandomX PoW hash: `00248b3ed59b5fd59e60d06dc425deecd029d449854b674fcac5651420e115af`
+
+These values are pinned and intentionally incompatible with the legacy SHA-256 Testnet.
 
 ## Wallet address encoding candidate
 
@@ -64,6 +78,7 @@ Current address HRPs remain:
 - Mainnet: `qtm`
 - Testnet: `tqtm`
 - Regtest: `rqtm`
+- RandomX Testnet: `xqtm`
 
 Address encoding is independent from the PoW migration unless a separate decision changes it.
 
