@@ -163,9 +163,12 @@ BlockTemplateResult create_block_template(
         );
 
     if (founder_subsidy > 0U) {
-        if (!monetary.founder_payout_enabled ||
-            !crypto::is_valid_public_key(
-                monetary.founder_public_key)) {
+        const auto founder_script =
+            consensus::founder_payout_script(
+                monetary
+            );
+
+        if (!founder_script) {
             out.error =
                 BlockTemplateError::
                     founder_payout_unavailable;
@@ -175,9 +178,7 @@ BlockTemplateResult create_block_template(
         TxOutput founder;
         founder.value = founder_subsidy;
         founder.locking_script =
-            consensus::make_p2pk_locking_script(
-                monetary.founder_public_key
-            );
+            *founder_script;
         coinbase.outputs.push_back(
             std::move(founder)
         );
