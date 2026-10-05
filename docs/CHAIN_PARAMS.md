@@ -29,7 +29,7 @@ The next incompatible public Testnet is specified to use:
 - RandomX seed interval: **2,048 blocks**;
 - RandomX seed lag: **64 blocks**;
 - primary monetary schedule and 5% founder subsidy split as defined in `MONETARY_POLICY.md`;
-- tail subsidy of 1 QTM/block from height 6,000,001.
+- tail subsidy of 1 QMU/block from height 6,000,001.
 
 The RandomX Testnet now has a **new Genesis and distinct network identity**. Existing SHA-256 Testnet chain/wallet data remains separate and is not deleted or silently migrated.
 
@@ -61,7 +61,7 @@ Current implemented identities remain documented for the legacy SHA-256 Testnet 
 - message start: `3b bf b9 f0`
 - P2P port: `39444`
 - RPC port: `39445`
-- address HRP: `xqtm`
+- address HRP: `xqmu`
 - PoW limit bits: `0x1f7fffff`
 - Genesis timestamp: `1791158400`
 - Genesis nonce: `80`
@@ -75,10 +75,10 @@ These values are pinned and intentionally incompatible with the legacy SHA-256 T
 
 Current address HRPs remain:
 
-- Mainnet: `qtm`
+- Mainnet: `qmu`
 - Testnet: `tqtm`
-- Regtest: `rqtm`
-- RandomX Testnet: `xqtm`
+- Regtest: `rqmu`
+- RandomX Testnet: `xqmu`
 
 Address encoding is independent from the PoW migration unless a separate decision changes it.
 
