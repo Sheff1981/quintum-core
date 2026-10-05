@@ -155,25 +155,6 @@ add_executable(quintumd
 target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
 
-# Temporary deterministic probe used to pin the first RandomX Testnet
-# Genesis vector. It runs during CI builds and is removed from ALL once
-# the resulting nonce/hash are frozen in ChainParams.
-add_executable(quintum_randomx_genesis_probe
-    tools/randomx_genesis_probe.cpp
-)
-target_link_libraries(
-    quintum_randomx_genesis_probe
-    PRIVATE quintum_core
-)
-quintum_strict_warnings(
-    quintum_randomx_genesis_probe
-)
-add_custom_target(
-    run_randomx_genesis_probe ALL
-    COMMAND quintum_randomx_genesis_probe
-    DEPENDS quintum_randomx_genesis_probe
-    VERBATIM
-)
 
 if(QUINTUM_BUILD_GUI)
     find_package(Qt6 6.8 REQUIRED COMPONENTS Widgets)
