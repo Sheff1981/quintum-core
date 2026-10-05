@@ -871,7 +871,8 @@ int main(int argc, char* argv[])
             << '\n'
             << "RPC cookie: "
             << rpc_started.cookie_path.string()
-            << '\n';
+            << '\n'
+            << std::flush;
     }
 
     std::signal(SIGINT, handle_signal);
