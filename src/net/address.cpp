@@ -54,6 +54,47 @@ bool excluded_endpoint(
     );
 }
 
+std::uint32_t ipv4_group(
+    std::uint32_t ipv4) noexcept
+{
+    // Public-peer diversity group. /16 is deliberately coarse enough to
+    // stop one provider/subnet from dominating addrman while still allowing
+    // many independent hosts from a large ISP or hosting network.
+    return ipv4 >> 16U;
+}
+
+bool excluded_group(
+    const PeerAddress& value,
+    std::span<const PeerAddress> excluded) noexcept
+{
+    const auto group = ipv4_group(value.ipv4);
+
+    return std::any_of(
+        excluded.begin(),
+        excluded.end(),
+        [&](const PeerAddress& item) {
+            return ipv4_group(item.ipv4) == group;
+        }
+    );
+}
+
+std::size_t group_count(
+    std::span<const AddrInfo> entries,
+    std::uint32_t group) noexcept
+{
+    return static_cast<std::size_t>(
+        std::count_if(
+            entries.begin(),
+            entries.end(),
+            [&](const AddrInfo& info) {
+                return ipv4_group(
+                           info.address.ipv4) ==
+                       group;
+            }
+        )
+    );
+}
+
 std::uint64_t failure_delay(
     std::uint32_t failures) noexcept
 {
@@ -578,6 +619,15 @@ AddrStoreError AddrManager::load()
             continue;
         }
 
+        if (!allow_local_ &&
+            group_count(
+                loaded,
+                ipv4_group(
+                    info.address.ipv4)) >=
+                kMaxAddrEntriesPerIpv4Group) {
+            continue;
+        }
+
         const bool duplicate =
             std::any_of(
                 loaded.begin(),
@@ -753,6 +803,14 @@ bool AddrManager::add(
         return false;
     }
 
+    if (!allow_local_ &&
+        group_count(
+            entries_,
+            ipv4_group(address.ipv4)) >=
+            kMaxAddrEntriesPerIpv4Group) {
+        return false;
+    }
+
     entries_.push_back(
         AddrInfo{.address = address}
     );
@@ -821,32 +879,55 @@ std::optional<PeerAddress> AddrManager::select(
     std::uint64_t now,
     std::span<const PeerAddress> excluded) const
 {
-    const AddrInfo* best{nullptr};
+    const auto choose =
+        [&](bool require_diverse_group)
+            -> const AddrInfo* {
+        const AddrInfo* best{nullptr};
 
-    for (const auto& entry : entries_) {
-        if (entry.next_attempt > now ||
-            excluded_endpoint(
-                entry.address,
-                excluded)) {
-            continue;
+        for (const auto& entry : entries_) {
+            if (entry.next_attempt > now ||
+                excluded_endpoint(
+                    entry.address,
+                    excluded) ||
+                (require_diverse_group &&
+                 !allow_local_ &&
+                 excluded_group(
+                     entry.address,
+                     excluded))) {
+                continue;
+            }
+
+            if (best == nullptr ||
+                entry.failures < best->failures ||
+                (entry.failures == best->failures &&
+                 entry.last_success >
+                     best->last_success) ||
+                (entry.failures == best->failures &&
+                 entry.last_success ==
+                     best->last_success &&
+                 entry.last_attempt <
+                     best->last_attempt)) {
+                best = &entry;
+            }
         }
 
-        if (best == nullptr ||
-            entry.failures < best->failures ||
-            (entry.failures == best->failures &&
-             entry.last_success > best->last_success) ||
-            (entry.failures == best->failures &&
-             entry.last_success == best->last_success &&
-             entry.last_attempt < best->last_attempt)) {
-            best = &entry;
-        }
-    }
+        return best;
+    };
+
+    // Prefer a different /16 from already-connected public peers. If the
+    // network is still tiny and no diverse peer exists, fall back rather
+    // than refusing to connect.
+    const AddrInfo* best =
+        choose(!excluded.empty());
 
     if (best == nullptr) {
-        return std::nullopt;
+        best = choose(false);
     }
 
-    return best->address;
+    return best == nullptr
+        ? std::nullopt
+        : std::optional<PeerAddress>{
+              best->address};
 }
 
 std::vector<PeerAddress> AddrManager::addresses(
@@ -862,8 +943,61 @@ std::vector<PeerAddress> AddrManager::addresses(
     std::vector<PeerAddress> out;
     out.reserve(count);
 
-    for (std::size_t i = 0U; i < count; ++i) {
-        out.push_back(entries_[i].address);
+    if (allow_local_) {
+        for (std::size_t i = 0U;
+             i < count;
+             ++i) {
+            out.push_back(
+                entries_[i].address
+            );
+        }
+        return out;
+    }
+
+    std::vector<std::uint32_t> groups;
+    groups.reserve(count);
+
+    // First pass advertises one peer per /16, making addr exchange less
+    // useful to a single-subnet poisoning attempt.
+    for (const auto& entry : entries_) {
+        if (out.size() >= count) {
+            break;
+        }
+
+        const auto group =
+            ipv4_group(
+                entry.address.ipv4);
+
+        if (std::find(
+                groups.begin(),
+                groups.end(),
+                group) != groups.end()) {
+            continue;
+        }
+
+        groups.push_back(group);
+        out.push_back(entry.address);
+    }
+
+    // Fill remaining capacity afterwards so small networks are not harmed.
+    for (const auto& entry : entries_) {
+        if (out.size() >= count) {
+            break;
+        }
+
+        if (std::find_if(
+                out.begin(),
+                out.end(),
+                [&](const PeerAddress& item) {
+                    return same_endpoint(
+                        item,
+                        entry.address
+                    );
+                }) != out.end()) {
+            continue;
+        }
+
+        out.push_back(entry.address);
     }
 
     return out;
