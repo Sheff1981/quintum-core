@@ -16,11 +16,11 @@ The current purpose of this document is to define what an exchange will need and
 - ledger: UTXO;
 - consensus: PoW;
 - precision candidate: 8 decimals;
-- current working GUI symbol: QTM;
+- current working GUI symbol: QMU;
 - final Mainnet exchange ticker: not yet frozen;
-- Mainnet address HRP candidate: `qtm`;
+- Mainnet address HRP candidate: `qmu`;
 - Testnet address HRP: `tqtm`;
-- Regtest address HRP: `rqtm`.
+- Regtest address HRP: `rqmu`.
 
 ## 3. Network endpoints
 
