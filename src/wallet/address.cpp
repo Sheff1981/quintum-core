@@ -257,6 +257,8 @@ std::string_view address_hrp(
         return "qtm";
     case consensus::Network::testnet:
         return "tqtm";
+    case consensus::Network::randomx_testnet:
+        return "xqtm";
     case consensus::Network::regtest:
     default:
         return "rqtm";
