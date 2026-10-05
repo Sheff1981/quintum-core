@@ -1499,7 +1499,9 @@ VersionMessage NetworkRuntime::local_version(
     return VersionMessage{
         .protocol_version =
             params_.p2p_protocol_version,
-        .services = 1U,
+        .services =
+            kServiceNetwork |
+            kServiceCompactBlocks,
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
@@ -2124,6 +2126,13 @@ bool NetworkRuntime::process_message(
                ).ok();
     }
 
+    if (message.command == "getblocktxn") {
+        return process_get_block_transactions(
+            peer,
+            message
+        );
+    }
+
     if (message.command == "inv") {
         return process_inventory(
             peer,
@@ -2140,6 +2149,22 @@ bool NetworkRuntime::process_message(
 
     if (message.command == "block") {
         return process_block(
+            peer,
+            message,
+            now
+        );
+    }
+
+    if (message.command == "cmpctblock") {
+        return process_compact_block(
+            peer,
+            message,
+            now
+        );
+    }
+
+    if (message.command == "blocktxn") {
+        return process_block_transactions(
             peer,
             message,
             now
@@ -2164,10 +2189,23 @@ bool NetworkRuntime::process_message(
                     item.hash
                 );
             } else if (item.type ==
-                       kInventoryBlock) {
+                           kInventoryBlock ||
+                       item.type ==
+                           kInventoryCompactBlock) {
                 erase_hash(
                     peer.requested_blocks,
                     item.hash
+                );
+
+                peer.pending_compact_blocks.erase(
+                    std::remove_if(
+                        peer.pending_compact_blocks.begin(),
+                        peer.pending_compact_blocks.end(),
+                        [&](const PendingCompactBlock& pending) {
+                            return pending.hash == item.hash;
+                        }
+                    ),
+                    peer.pending_compact_blocks.end()
                 );
             }
         }
@@ -2241,7 +2279,16 @@ bool NetworkRuntime::process_inventory(
 
                 peer.requested_blocks.
                     push_back(item.hash);
-                wanted.push_back(item);
+
+                InventoryItem requested = item;
+
+                if ((peer.session.remote_version().services &
+                     kServiceCompactBlocks) != 0U) {
+                    requested.type =
+                        kInventoryCompactBlock;
+                }
+
+                wanted.push_back(requested);
             }
         }
     }
