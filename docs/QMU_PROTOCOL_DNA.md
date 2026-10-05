@@ -108,12 +108,12 @@ Already implemented or now in-tree:
 - bounded canonical multisig primitives;
 - P2PKH256 hashed-key authorization primitives;
 - optional consensus-pinned founder multisig custody representation;
-- sanitizer CI mode.
+- sanitizer CI mode;
+- loopback-only cookie-authenticated production JSON-RPC/mining API;
+- negotiated compact block relay with mempool reconstruction and missing-transaction fallback.
 
 Still required before Mainnet freeze:
 
-- production JSON-RPC/mining API;
-- compact blocks;
 - encrypted P2P;
 - proxy/Tor/I2P and automatic NAT mapping;
 - Dandelion++ transaction relay;
