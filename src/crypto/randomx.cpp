@@ -31,12 +31,13 @@ RandomXLightHasher::RandomXLightHasher(
         return;
     }
 
-    // Keep the consensus/reference path deliberately conservative:
-    // interpreter/light mode plus the explicit v2 ruleset. CPU-specific
-    // optimization flags must never change the resulting hash.
-    constexpr auto flags =
+    // Use the upstream-recommended CPU flags (AES/JIT/Argon2 where
+    // supported) while keeping light mode and the explicit v2 ruleset.
+    // RandomX guarantees identical hash output across these execution modes;
+    // fixed cross-platform vectors enforce that consensus property in CI.
+    const auto flags =
         static_cast<randomx_flags>(
-            RANDOMX_FLAG_DEFAULT |
+            randomx_get_flags() |
             RANDOMX_FLAG_V2
         );
 
