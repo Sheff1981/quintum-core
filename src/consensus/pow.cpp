@@ -4,10 +4,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace quintum::consensus {
 namespace {
@@ -539,6 +543,231 @@ MiningResult mine_randomx_header(
     }
 
     result.status = MineStatus::exhausted;
+    return result;
+}
+
+MiningResult mine_randomx_header_parallel(
+    BlockHeader& header,
+    const Hash256& seed_key,
+    std::uint64_t max_attempts,
+    std::size_t worker_count,
+    bool full_memory)
+{
+    if (worker_count <= 1U) {
+        return mine_randomx_header(
+            header,
+            seed_key,
+            max_attempts
+        );
+    }
+
+    const auto compact =
+        decode_compact_target(
+            header.bits
+        );
+
+    MiningResult result;
+    result.nonce = header.nonce;
+
+    if (!compact_is_canonical(
+            header.bits,
+            compact)) {
+        result.status =
+            MineStatus::invalid_target;
+        return result;
+    }
+
+    struct CachedContext {
+        bool initialized{false};
+        Hash256 seed{};
+        std::size_t workers{0U};
+        bool full_memory{false};
+        std::unique_ptr<
+            crypto::RandomXMiningContext
+        > context{};
+    };
+
+    thread_local CachedContext cache;
+
+    const std::size_t bounded_workers =
+        std::min<std::size_t>(
+            worker_count,
+            64U
+        );
+
+    if (!cache.initialized ||
+        cache.seed != seed_key ||
+        cache.workers != bounded_workers ||
+        cache.full_memory != full_memory ||
+        cache.context == nullptr ||
+        !cache.context->valid()) {
+        auto replacement =
+            std::make_unique<
+                crypto::RandomXMiningContext
+            >(
+                std::span<const Byte>{
+                    seed_key
+                },
+                bounded_workers,
+                full_memory
+            );
+
+        if (!replacement->valid()) {
+            result.status =
+                MineStatus::hashing_failed;
+            return result;
+        }
+
+        cache.seed = seed_key;
+        cache.workers = bounded_workers;
+        cache.full_memory = full_memory;
+        cache.context =
+            std::move(replacement);
+        cache.initialized = true;
+    }
+
+    if (max_attempts == 0U) {
+        result.status =
+            MineStatus::exhausted;
+        return result;
+    }
+
+    const std::uint64_t start_nonce =
+        header.nonce;
+
+    std::atomic<bool> stop{false};
+    std::atomic<bool> hashing_failed{false};
+    std::atomic<std::uint64_t>
+        attempts_done{0U};
+    std::mutex result_mutex;
+
+    std::vector<std::thread> workers;
+    workers.reserve(bounded_workers);
+
+    for (std::size_t worker = 0U;
+         worker < bounded_workers;
+         ++worker) {
+        workers.emplace_back(
+            [&, worker] {
+                for (std::uint64_t offset =
+                         static_cast<std::uint64_t>(
+                             worker);
+                     offset < max_attempts &&
+                     !stop.load(
+                         std::memory_order_relaxed);
+                     offset +=
+                         static_cast<std::uint64_t>(
+                             bounded_workers)) {
+                    if (offset >
+                        std::numeric_limits<
+                            std::uint64_t>::max() -
+                            start_nonce) {
+                        break;
+                    }
+
+                    BlockHeader candidate =
+                        header;
+                    candidate.nonce =
+                        start_nonce + offset;
+
+                    const auto input =
+                        serialize_block_header(
+                            candidate
+                        );
+
+                    const auto hash =
+                        cache.context->hash(
+                            worker,
+                            input
+                        );
+
+                    attempts_done.fetch_add(
+                        1U,
+                        std::memory_order_relaxed
+                    );
+
+                    if (!hash) {
+                        hashing_failed.store(
+                            true,
+                            std::memory_order_relaxed
+                        );
+                        stop.store(
+                            true,
+                            std::memory_order_relaxed
+                        );
+                        break;
+                    }
+
+                    if (!hash_meets_target(
+                            *hash,
+                            compact.target)) {
+                        continue;
+                    }
+
+                    bool expected{false};
+
+                    if (stop.compare_exchange_strong(
+                            expected,
+                            true,
+                            std::memory_order_relaxed)) {
+                        std::scoped_lock lock(
+                            result_mutex
+                        );
+                        result.status =
+                            MineStatus::found;
+                        result.nonce =
+                            candidate.nonce;
+                        result.hash = *hash;
+                    }
+
+                    break;
+                }
+            }
+        );
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    result.attempts =
+        attempts_done.load(
+            std::memory_order_relaxed
+        );
+
+    if (result.status ==
+        MineStatus::found) {
+        header.nonce = result.nonce;
+        return result;
+    }
+
+    if (hashing_failed.load(
+            std::memory_order_relaxed)) {
+        result.status =
+            MineStatus::hashing_failed;
+        return result;
+    }
+
+    result.status =
+        MineStatus::exhausted;
+
+    const std::uint64_t last_offset =
+        max_attempts - 1U;
+
+    if (last_offset <=
+        std::numeric_limits<
+            std::uint64_t>::max() -
+            start_nonce) {
+        result.nonce =
+            start_nonce + last_offset;
+        header.nonce = result.nonce;
+    } else {
+        result.nonce =
+            std::numeric_limits<
+                std::uint64_t>::max();
+        header.nonce = result.nonce;
+    }
+
     return result;
 }
 
