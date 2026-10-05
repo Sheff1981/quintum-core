@@ -71,6 +71,8 @@ QString network_directory_name(
         return "mainnet";
     case quintum::consensus::Network::testnet:
         return "testnet";
+    case quintum::consensus::Network::randomx_testnet:
+        return "randomx-testnet";
     case quintum::consensus::Network::regtest:
         return "regtest";
     }
@@ -512,6 +514,10 @@ int main(int argc, char* argv[])
         "testnet",
         "Use the QUINTUM test network."
     };
+    const QCommandLineOption randomx_testnet{
+        "randomx-testnet",
+        "Use the QUINTUM RandomX public test network."
+    };
     const QCommandLineOption regtest{
         "regtest",
         "Use local regression-test mode."
@@ -532,6 +538,7 @@ int main(int argc, char* argv[])
 
     parser.addOption(mainnet);
     parser.addOption(testnet);
+    parser.addOption(randomx_testnet);
     parser.addOption(regtest);
     parser.addOption(datadir);
     parser.addOption(smoke_test);
@@ -546,6 +553,9 @@ int main(int argc, char* argv[])
             parser.isSet(testnet)
         ) +
         static_cast<int>(
+            parser.isSet(randomx_testnet)
+        ) +
+        static_cast<int>(
             parser.isSet(regtest)
         );
 
@@ -553,13 +563,13 @@ int main(int argc, char* argv[])
         QMessageBox::critical(
             nullptr,
             "Invalid network selection",
-            "Choose only one of --mainnet, --testnet, or --regtest."
+            "Choose only one of --mainnet, --testnet, --randomx-testnet, or --regtest."
         );
         return 2;
     }
 
     quintum::consensus::Network network =
-        quintum::consensus::Network::testnet;
+        quintum::consensus::Network::randomx_testnet;
 
     if (parser.isSet(mainnet)) {
         network =
@@ -567,6 +577,12 @@ int main(int argc, char* argv[])
     } else if (parser.isSet(testnet)) {
         network =
             quintum::consensus::Network::testnet;
+    } else if (parser.isSet(randomx_testnet)) {
+        network =
+            quintum::consensus::Network::randomx_testnet;
+    } else if (parser.isSet(regtest)) {
+        network =
+            quintum::consensus::Network::regtest;
     }
 
     const auto& params =
