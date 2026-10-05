@@ -386,6 +386,23 @@ RpcServer::start(
         return out;
     }
 
+    server_->wait_until_ready();
+
+    if (!server_->is_running()) {
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+
+        server_.reset();
+        running_.store(false);
+        port_ = 0U;
+        authorization_header_.clear();
+        remove_file(cookie_path_);
+        out.error =
+            RpcServerError::listen_failed;
+        return out;
+    }
+
     out.port = port_;
     return out;
 }
