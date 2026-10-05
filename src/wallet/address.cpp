@@ -254,14 +254,14 @@ std::string_view address_hrp(
 {
     switch (network) {
     case consensus::Network::mainnet:
-        return "qtm";
+        return "qmu";
     case consensus::Network::testnet:
         return "tqtm";
     case consensus::Network::randomx_testnet:
-        return "xqtm";
+        return "xqmu";
     case consensus::Network::regtest:
     default:
-        return "rqtm";
+        return "rqmu";
     }
 }
 
