@@ -23,3 +23,47 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Smoke walletless Linux node
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/quintum-walletless-smoke"
+          log="$RUNNER_TEMP/quintum-walletless-smoke.log"
+          rm -rf "$root"
+          ./build/quintumd             --regtest             --disable-wallet             --listen-port 0             --datadir "$root"             >"$log" 2>&1 &
+          pid=$!
+          sleep 2
+          kill -TERM "$pid"
+          wait "$pid"
+
+          test ! -e "$root/regtest/wallet.dat"
+          test ! -e "$root/regtest/wallet_state.dat"
+          test ! -e "$root/regtest/wallet_meta.dat"
+          grep -q "Wallet: disabled (node-only mode)" "$log"
+
+      - name: Stage Linux RandomX seed package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="dist/linux"
+          mkdir -p "$stage"
+          cp build/quintumd "$stage/quintumd"
+          cp packaging/linux/quintumd-randomx-testnet.service "$stage/"
+          cp packaging/linux/install-randomx-testnet.sh "$stage/"
+          cp docs/P2P.md "$stage/P2P.md"
+          chmod 0755 "$stage/quintumd" "$stage/install-randomx-testnet.sh"
+          (
+            cd "$stage"
+            sha256sum               quintumd               quintumd-randomx-testnet.service               install-randomx-testnet.sh               P2P.md               > SHA256SUMS.txt
+          )
+
+      - name: Upload Linux RandomX seed package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-linux-x64
+          path: dist/linux/**
+          if-no-files-found: error

@@ -344,3 +344,5 @@ This confirms the live reconnect/backoff path and the desktop peer-height/synchr
 ## RandomX Testnet bootstrap
 
 The isolated RandomX Testnet uses P2P port **39444** and currently carries `212.193.15.139:39444` as its first hardcoded bootstrap candidate. This does not make that VPS a consensus dependency: after peers learn addresses through `addr/getaddr` and persist them in `peers.dat`, nodes connect directly. Public DNS seed hostnames remain a deployment step.
+
+The Linux CI now publishes a `quintum-linux-x64` artifact containing `quintumd`, SHA-256 checksums, a hardened `quintumd-randomx-testnet.service`, and `install-randomx-testnet.sh`. The service runs with `--disable-wallet` and stores the new chain under `/var/lib/quintum-randomx/randomx-testnet`. It uses a separate executable and service name, so the historical SHA-256 Testnet service and data are not overwritten. The installer can open host UFW port 39444 when UFW is already active; provider-side firewall/NAT rules remain deployment infrastructure.

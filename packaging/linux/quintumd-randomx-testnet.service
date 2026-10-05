@@ -1,0 +1,30 @@
+[Unit]
+Description=QUINTUM RandomX Testnet public node
+Documentation=https://github.com/Sheff1981/quintum-core
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=quintum
+Group=quintum
+UMask=0077
+ExecStart=/usr/local/bin/quintumd-randomx-testnet --randomx-testnet --disable-wallet --datadir /var/lib/quintum-randomx
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+LimitNOFILE=65536
+
+# Public bootstrap nodes do not need wallet private keys.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/quintum-randomx
+
+[Install]
+WantedBy=multi-user.target
