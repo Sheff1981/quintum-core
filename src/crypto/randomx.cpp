@@ -2,8 +2,11 @@
 
 #include <randomx.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <thread>
 #include <utility>
+#include <vector>
 
 namespace quintum::crypto {
 
@@ -94,6 +97,231 @@ std::optional<Hash256> RandomXLightHasher::hash(
 
     randomx_calculate_hash(
         impl_->vm,
+        input.data(),
+        input.size(),
+        out.data()
+    );
+
+    return out;
+}
+
+struct RandomXMiningContext::Impl {
+    randomx_cache* cache{nullptr};
+    randomx_dataset* dataset{nullptr};
+    std::vector<randomx_vm*> vms{};
+    std::size_t worker_count{0U};
+    bool full_memory_mode{false};
+
+    ~Impl()
+    {
+        for (auto* vm : vms) {
+            if (vm != nullptr) {
+                randomx_destroy_vm(vm);
+            }
+        }
+        if (dataset != nullptr) {
+            randomx_release_dataset(dataset);
+        }
+        if (cache != nullptr) {
+            randomx_release_cache(cache);
+        }
+    }
+};
+
+RandomXMiningContext::RandomXMiningContext(
+    std::span<const Byte> key,
+    std::size_t workers,
+    bool full_memory)
+    : impl_(std::make_unique<Impl>())
+{
+    if (key.empty() || workers == 0U) {
+        impl_.reset();
+        return;
+    }
+
+    try {
+        const std::size_t bounded_workers =
+            std::min<std::size_t>(
+                workers,
+                64U
+            );
+
+        auto flags =
+            static_cast<randomx_flags>(
+                randomx_get_flags() |
+                RANDOMX_FLAG_V2
+            );
+
+        if (full_memory) {
+            flags =
+                static_cast<randomx_flags>(
+                    flags |
+                    RANDOMX_FLAG_FULL_MEM
+                );
+        }
+
+        impl_->cache =
+            randomx_alloc_cache(flags);
+
+        if (impl_->cache == nullptr) {
+            impl_.reset();
+            return;
+        }
+
+        randomx_init_cache(
+            impl_->cache,
+            key.data(),
+            key.size()
+        );
+
+        if (full_memory) {
+            impl_->dataset =
+                randomx_alloc_dataset(flags);
+
+            if (impl_->dataset == nullptr) {
+                impl_.reset();
+                return;
+            }
+
+            const unsigned long item_count =
+                randomx_dataset_item_count();
+
+            const std::size_t init_workers =
+                std::min<std::size_t>(
+                    bounded_workers,
+                    static_cast<std::size_t>(
+                        item_count)
+                );
+
+            std::vector<std::thread> initializers;
+            initializers.reserve(init_workers);
+
+            const unsigned long base =
+                item_count /
+                static_cast<unsigned long>(
+                    init_workers);
+            const unsigned long remainder =
+                item_count %
+                static_cast<unsigned long>(
+                    init_workers);
+
+            unsigned long start{0UL};
+
+            for (std::size_t i = 0U;
+                 i < init_workers;
+                 ++i) {
+                const unsigned long count =
+                    base +
+                    (i <
+                             static_cast<std::size_t>(
+                                 remainder)
+                         ? 1UL
+                         : 0UL);
+
+                const unsigned long range_start =
+                    start;
+                start += count;
+
+                initializers.emplace_back(
+                    [this,
+                     range_start,
+                     count] {
+                        randomx_init_dataset(
+                            impl_->dataset,
+                            impl_->cache,
+                            range_start,
+                            count
+                        );
+                    }
+                );
+            }
+
+            for (auto& thread : initializers) {
+                thread.join();
+            }
+        }
+
+        impl_->vms.reserve(bounded_workers);
+
+        for (std::size_t i = 0U;
+             i < bounded_workers;
+             ++i) {
+            randomx_vm* vm =
+                randomx_create_vm(
+                    flags,
+                    full_memory
+                        ? nullptr
+                        : impl_->cache,
+                    full_memory
+                        ? impl_->dataset
+                        : nullptr
+                );
+
+            if (vm == nullptr) {
+                impl_.reset();
+                return;
+            }
+
+            impl_->vms.push_back(vm);
+        }
+
+        impl_->worker_count =
+            bounded_workers;
+        impl_->full_memory_mode =
+            full_memory;
+    } catch (...) {
+        impl_.reset();
+    }
+}
+
+RandomXMiningContext::~RandomXMiningContext() = default;
+
+RandomXMiningContext::RandomXMiningContext(
+    RandomXMiningContext&&) noexcept = default;
+
+RandomXMiningContext&
+RandomXMiningContext::operator=(
+    RandomXMiningContext&&) noexcept = default;
+
+bool RandomXMiningContext::valid() const noexcept
+{
+    return impl_ != nullptr &&
+           impl_->cache != nullptr &&
+           !impl_->vms.empty() &&
+           impl_->worker_count ==
+               impl_->vms.size() &&
+           (!impl_->full_memory_mode ||
+            impl_->dataset != nullptr);
+}
+
+std::size_t
+RandomXMiningContext::workers() const noexcept
+{
+    return valid()
+        ? impl_->worker_count
+        : 0U;
+}
+
+bool RandomXMiningContext::full_memory() const noexcept
+{
+    return valid() &&
+           impl_->full_memory_mode;
+}
+
+std::optional<Hash256>
+RandomXMiningContext::hash(
+    std::size_t worker,
+    std::span<const Byte> input) const noexcept
+{
+    if (!valid() ||
+        worker >= impl_->vms.size()) {
+        return std::nullopt;
+    }
+
+    Hash256 out{};
+
+    randomx_calculate_hash(
+        impl_->vms[worker],
         input.data(),
         input.size(),
         out.data()
