@@ -113,18 +113,27 @@ void test_network_parameter_sets()
         quintum::consensus::testnet_params();
     const auto& reg =
         quintum::consensus::regtest_params();
+    const auto& randomx =
+        quintum::consensus::randomx_testnet_params();
 
     assert(main.name == "mainnet");
     assert(test.name == "testnet");
     assert(reg.name == "regtest");
+    assert(randomx.name == "randomx-testnet");
 
     assert(main.message_start != test.message_start);
     assert(main.message_start != reg.message_start);
     assert(test.message_start != reg.message_start);
+    assert(randomx.message_start != main.message_start);
+    assert(randomx.message_start != test.message_start);
+    assert(randomx.message_start != reg.message_start);
 
     assert(main.p2p_port != test.p2p_port);
     assert(main.p2p_port != reg.p2p_port);
     assert(test.p2p_port != reg.p2p_port);
+    assert(randomx.p2p_port != main.p2p_port);
+    assert(randomx.p2p_port != test.p2p_port);
+    assert(randomx.p2p_port != reg.p2p_port);
 
     assert(main.pow.target_spacing_seconds == 600U);
     assert(main.pow.retarget_interval == 2016U);
@@ -139,6 +148,18 @@ void test_network_parameter_sets()
 
     assert(reg.pow.pow_limit_bits == 0x2100ffffU);
     assert(reg.pow.no_retargeting);
+
+    assert(randomx.pow.target_spacing_seconds == 120U);
+    assert(randomx.pow.pow_limit_bits == 0x1f7fffffU);
+    assert(randomx.pow.difficulty_algorithm ==
+           quintum::consensus::DifficultyAlgorithm::asert);
+    assert(randomx.pow.asert_half_life_seconds == 34'560U);
+    assert(randomx.pow.pow_algorithm ==
+           quintum::consensus::PowAlgorithm::randomx_v2);
+    assert(randomx.monetary.schedule ==
+           quintum::consensus::MonetarySchedule::randomx_v1);
+    assert(randomx.monetary.coinbase_maturity ==
+           quintum::consensus::kRandomXCoinbaseMaturity);
 }
 
 void test_retarget_vectors()
