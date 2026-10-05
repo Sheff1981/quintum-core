@@ -104,3 +104,15 @@ At the current P2PK transaction shape, a common 1-input/2-output transaction is 
 - **DECIDED FOR IMPLEMENTATION**: approved target for the next test network but not yet present in running consensus code.
 - **TESTNET FROZEN**: fixed for that test network.
 - **MAINNET FROZEN**: changing it can split the production network.
+
+## Branding/ticker freeze — 2026-10-05
+
+- project/coin name: **QUINTUM**;
+- native coin ticker: **QMU**;
+- Mainnet address HRP: `qmu`;
+- RandomX Testnet address HRP: `xqmu`;
+- Regtest address HRP: `rqmu`;
+- the historical SHA-256 Testnet keeps `tqtm` to preserve archived test data and addresses;
+- the legacy `.qtmbackup` extension remains unchanged for backup-format compatibility.
+
+The QMU ticker is branding-frozen before Mainnet. This decision does not alter PoW, Genesis identity, subsidy arithmetic, founder public key, transaction IDs or historical SHA-256 Testnet state.
