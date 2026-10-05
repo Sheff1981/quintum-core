@@ -934,9 +934,16 @@ hardcoded_seeds(
             SeedEndpoint{"212.193.15.139", 38444U},
         };
 
+    static constexpr std::array<SeedEndpoint, 1>
+        randomx_testnet_seeds{
+            SeedEndpoint{"212.193.15.139", 39444U},
+        };
+
     switch (network) {
     case consensus::Network::testnet:
         return testnet_seeds;
+    case consensus::Network::randomx_testnet:
+        return randomx_testnet_seeds;
     case consensus::Network::mainnet:
     case consensus::Network::regtest:
     default:
@@ -958,6 +965,7 @@ dns_seeds(
     switch (network) {
     case consensus::Network::mainnet:
     case consensus::Network::testnet:
+    case consensus::Network::randomx_testnet:
     case consensus::Network::regtest:
     default:
         return no_seeds;
