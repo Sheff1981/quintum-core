@@ -1,6 +1,7 @@
 #pragma once
 
 #include "net/address.hpp"
+#include "net/compact_block.hpp"
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
 #include "node/node.hpp"
@@ -330,6 +331,13 @@ private:
         std::uint64_t next_attempt{0U};
     };
 
+    struct PendingCompactBlock {
+        Hash256 hash{};
+        CompactBlock compact{};
+        std::vector<std::uint32_t>
+            missing_indexes{};
+    };
+
     struct LivePeer {
         PeerSession session{};
         std::optional<PeerAddress> address{};
@@ -341,6 +349,8 @@ private:
         std::uint32_t messages_in_window{0U};
         std::vector<Hash256> requested_transactions{};
         std::vector<Hash256> requested_blocks{};
+        std::vector<PendingCompactBlock>
+            pending_compact_blocks{};
     };
 
     [[nodiscard]] VersionMessage local_version(
@@ -379,6 +389,30 @@ private:
     [[nodiscard]] bool process_block(
         LivePeer& peer,
         const WireMessage& message,
+        std::uint64_t now
+    );
+
+    [[nodiscard]] bool process_compact_block(
+        LivePeer& peer,
+        const WireMessage& message,
+        std::uint64_t now
+    );
+
+    [[nodiscard]] bool process_get_block_transactions(
+        LivePeer& peer,
+        const WireMessage& message
+    );
+
+    [[nodiscard]] bool process_block_transactions(
+        LivePeer& peer,
+        const WireMessage& message,
+        std::uint64_t now
+    );
+
+    [[nodiscard]] bool process_received_block(
+        LivePeer& peer,
+        const Block& block,
+        const Hash256& hash,
         std::uint64_t now
     );
 
