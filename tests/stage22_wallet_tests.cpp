@@ -819,9 +819,12 @@ void test_wallet_index_rebuilds_after_reorg()
     assert(after_reorg.ok());
     assert(after_reorg.index_rebuilt);
     assert(after_reorg.blocks_scanned == 4U);
+    const auto reorg_history =
+        wallet.history();
+
     const auto* inactive =
         find_history(
-            wallet.history(),
+            reorg_history,
             abandoned_txid
         );
 
