@@ -53,7 +53,7 @@ ln -s /opt/quintum/run-quintum.sh "$deb_root/usr/bin/quintum"
 install -m 0644     "$repo_root/packaging/linux/quintum.desktop"     "$deb_root/usr/share/applications/quintum.desktop"
 install -m 0644     "$repo_root/src/qt/assets/quintum_icon.png"     "$deb_root/usr/share/icons/hicolor/256x256/apps/quintum.png"
 
-deb_version="${version/-/~}"
+deb_version="$version"
 cat > "$deb_root/DEBIAN/control" <<EOF
 Package: quintum-core
 Version: ${deb_version}

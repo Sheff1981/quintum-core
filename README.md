@@ -5,16 +5,23 @@ QUINTUM is an independent proof-of-work cryptocurrency and peer-to-peer network 
 > Status: **pre-alpha / protocol design**. No mainnet exists yet. Coins created in development networks have no monetary value.
 
 
-## Public testnet — Windows testers wanted
+## Public RandomX Testnet — testers wanted
 
-External testers are welcome.
+External testers are welcome on Windows, Linux and macOS.
 
-**Official pre-alpha Windows release:**  
-https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.1-prealpha
+**Official cross-platform pre-alpha release:**  
+https://github.com/Sheff1981/quintum-core/releases/tag/v0.0.2-prealpha
 
-Download `QUINTUM-Core-Setup-0.0.1-prealpha-x64.exe` and `SHA256SUMS.txt`, then verify the installer checksum before running it.
+Downloads:
+- Windows x64: `QUINTUM-Core-Setup-0.0.2-prealpha-x64.exe`
+- Linux x64 (Debian/Ubuntu): `QUINTUM-Core-0.0.2-prealpha-linux-x64.deb`
+- Linux x64 portable: `QUINTUM-Core-0.0.2-prealpha-linux-x64.tar.gz`
+- macOS Apple Silicon: `QUINTUM-Core-0.0.2-prealpha-macos-arm64.dmg`
+- macOS Intel: `QUINTUM-Core-0.0.2-prealpha-macos-x64.dmg`
 
-The installer is currently **unsigned pre-alpha software**. Windows may display a SmartScreen warning.
+Download `SHA256SUMS.txt` from the same release and verify the package before running it.
+
+All desktop packages contain the same Qt UI/UX and default to the isolated **RandomX Testnet**. Windows binaries are currently unsigned. macOS packages are ad-hoc signed for bundle integrity but are not Developer ID signed/notarized.
 
 Testing instructions: [docs/TESTNET_TESTING.md](docs/TESTNET_TESTING.md)  
 Community / first testers: [COMMUNITY.md](COMMUNITY.md)  
@@ -27,9 +34,9 @@ Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 - UTXO accounting model
 - Fully validating nodes
 - Peer-to-peer block and transaction relay
-- No premine, hidden mint, master key, or developer backdoor
+- No hidden premine, hidden mint, master key, or developer backdoor; RandomX primary emission includes a public consensus-enforced 5% founder output
 - Private keys remain under the user's control
-- Windows-first desktop experience, with portable core architecture
+- Cross-platform Qt desktop experience for Windows, Linux and macOS
 - Consensus rules are documented and tested before mainnet launch
 
 ## Technology
@@ -37,7 +44,7 @@ Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 - C++23
 - CMake
 - secp256k1 for transaction signatures
-- SHA-256 family cryptographic hashing
+- RandomX v2.0.1 mining PoW; SHA-256 family hashing remains used for identifiers and non-mining cryptographic hashing
 - Durable restart-safe blockchain storage
 - Authenticated encrypted wallet storage with Argon2id + XChaCha20-Poly1305
 - BIP32 deterministic recovery with 24-word English recovery phrases and atomic restoration

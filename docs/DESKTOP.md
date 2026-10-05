@@ -17,16 +17,17 @@ cmake --build build-gui --config Release --target quintum_qt
 
 The desktop executable is named `QUINTUM` / `QUINTUM.exe`.
 
-CI pins Qt **6.8.0** for reproducibility and builds the GUI separately on Linux and Windows.
+CI pins Qt **6.8.0** for reproducibility and builds/packages the same GUI on Windows x64, Linux x64, macOS Apple Silicon and macOS Intel.
 
 ## Networks and data directories
 
-The GUI defaults to **Testnet** while QUINTUM is pre-mainnet so normal desktop installs automatically join the public test network. Regtest remains available explicitly with `--regtest` for local QA.
+The GUI defaults to the isolated **RandomX Testnet** while QUINTUM is pre-mainnet so normal desktop installs automatically join the current public test network. Regtest remains available explicitly with `--regtest` for local QA.
 
 Supported switches:
 
 - `--regtest` — local regression network;
-- `--testnet` — QUINTUM test network;
+- `--randomx-testnet` — current public RandomX test network (default);
+- `--testnet` — historical SHA-256 test network;
 - `--mainnet` — pre-mainnet candidate parameters;
 - `--datadir PATH` — explicit data directory.
 

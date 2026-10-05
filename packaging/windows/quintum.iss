@@ -7,7 +7,7 @@
 #endif
 
 #ifndef AppVersion
-  #define AppVersion "0.0.1-prealpha"
+  #define AppVersion "0.0.2-prealpha"
 #endif
 
 #define AppName "QUINTUM Core"
@@ -36,11 +36,11 @@ RestartApplications=no
 CloseApplicationsFilter=QUINTUM.exe
 SetupLogging=yes
 MinVersion=10.0.17763
-VersionInfoVersion=0.0.1.0
+VersionInfoVersion=0.0.2.0
 VersionInfoCompany=QUINTUM
 VersionInfoDescription=QUINTUM Core Installer
 VersionInfoProductName=QUINTUM Core
-VersionInfoProductVersion=0.0.1.0
+VersionInfoProductVersion=0.0.2.0
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
