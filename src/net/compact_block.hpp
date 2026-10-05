@@ -78,7 +78,7 @@ compact_short_id(
     const BlockHeader& header,
     std::uint64_t nonce,
     const Hash256& txid
-) noexcept;
+);
 
 [[nodiscard]] Bytes serialize_compact_block(
     const Block& block,
