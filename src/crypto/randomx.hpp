@@ -2,6 +2,7 @@
 
 #include "core/types.hpp"
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <span>
@@ -38,6 +39,48 @@ public:
     [[nodiscard]] bool valid() const noexcept;
 
     [[nodiscard]] std::optional<Hash256> hash(
+        std::span<const Byte> input
+    ) const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_{};
+};
+
+// Shared RandomX mining context. Multiple worker VMs share one initialized
+// cache in light mode, or one full dataset in fast/full-memory mode.
+// Each worker index owns a distinct VM and must be used by at most one
+// hashing thread at a time.
+class RandomXMiningContext {
+public:
+    RandomXMiningContext(
+        std::span<const Byte> key,
+        std::size_t workers,
+        bool full_memory
+    );
+
+    ~RandomXMiningContext();
+
+    RandomXMiningContext(
+        const RandomXMiningContext&
+    ) = delete;
+    RandomXMiningContext& operator=(
+        const RandomXMiningContext&
+    ) = delete;
+
+    RandomXMiningContext(
+        RandomXMiningContext&&
+    ) noexcept;
+    RandomXMiningContext& operator=(
+        RandomXMiningContext&&
+    ) noexcept;
+
+    [[nodiscard]] bool valid() const noexcept;
+    [[nodiscard]] std::size_t workers() const noexcept;
+    [[nodiscard]] bool full_memory() const noexcept;
+
+    [[nodiscard]] std::optional<Hash256> hash(
+        std::size_t worker,
         std::span<const Byte> input
     ) const noexcept;
 
