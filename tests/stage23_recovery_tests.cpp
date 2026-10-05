@@ -135,7 +135,8 @@ void test_mnemonic_roundtrip_preserves_quintum_keys()
     for (const auto network : {
              consensus::Network::mainnet,
              consensus::Network::testnet,
-             consensus::Network::regtest}) {
+             consensus::Network::regtest,
+             consensus::Network::randomx_testnet}) {
         for (const bool internal : {
                  false,
                  true}) {
