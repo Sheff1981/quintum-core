@@ -116,7 +116,7 @@ Observed live status:
 - real desktop PoW mining at roughly 37 kH/s;
 - two accepted blocks;
 - local height 2;
-- 100 QMU shown as immature coinbase balance;
+- 100 QTM shown as immature coinbase balance on the historical SHA-256 Testnet;
 - both blocks independently present and durable on the remote VPS at height 2.
 
 This confirms that the ordinary installer path now reaches a live public peer and relays mined blocks end to end without manual IP entry.
