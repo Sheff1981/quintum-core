@@ -360,6 +360,92 @@ void test_retry_backoff_and_seed_bootstrap()
     std::filesystem::remove_all(dir, ec);
 }
 
+void test_addrman_public_subnet_diversity()
+{
+    using namespace quintum::net;
+
+    const auto dir =
+        unique_dir("subnet-diversity");
+    AddrManager manager{
+        quintum::consensus::testnet_params(),
+        dir,
+        false
+    };
+
+    auto make_public =
+        [](std::uint32_t third,
+           std::uint16_t port) {
+            const auto ip =
+                parse_ipv4(
+                    "203.0." +
+                    std::to_string(third) +
+                    ".1");
+            assert(ip.has_value());
+
+            return PeerAddress{
+                .ipv4 = *ip,
+                .port = port,
+                .services = 1U,
+                .last_seen = 5'000U,
+            };
+        };
+
+    for (std::size_t i = 0U;
+         i < kMaxAddrEntriesPerIpv4Group;
+         ++i) {
+        assert(manager.add(
+            make_public(
+                static_cast<std::uint32_t>(i),
+                static_cast<std::uint16_t>(
+                    40'000U + i)
+            )
+        ));
+    }
+
+    assert(!manager.add(
+        make_public(200U, 49'999U)
+    ));
+
+    const auto other_ip =
+        parse_ipv4("198.51.100.7");
+    assert(other_ip.has_value());
+
+    const PeerAddress other{
+        .ipv4 = *other_ip,
+        .port = 45'000U,
+        .services = 1U,
+        .last_seen = 5'001U,
+    };
+    assert(manager.add(other));
+
+    const std::array<PeerAddress, 1>
+        excluded{
+            manager.entries().front().address
+        };
+
+    const auto selected =
+        manager.select(
+            5'001U,
+            excluded
+        );
+
+    assert(selected.has_value());
+    assert((selected->ipv4 >> 16U) !=
+           (excluded.front().ipv4 >> 16U));
+
+    const auto advertised =
+        manager.addresses(2U);
+    assert(advertised.size() == 2U);
+    assert((advertised[0].ipv4 >> 16U) !=
+           (advertised[1].ipv4 >> 16U));
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        dir,
+        ec
+    );
+}
+
 void test_real_peer_discovery_chain()
 {
     using namespace quintum::net;
@@ -629,6 +715,7 @@ int main()
     test_network_hardcoded_seeds();
     test_dns_seed_resolution();
     test_retry_backoff_and_seed_bootstrap();
+    test_addrman_public_subnet_diversity();
     test_real_peer_discovery_chain();
     test_connect_any_skips_failed_peer();
     return 0;
