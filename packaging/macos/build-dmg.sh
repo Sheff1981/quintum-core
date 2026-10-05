@@ -37,7 +37,7 @@ install -m 0644 "$repo_root/docs/TESTNET_TESTING.md" "$app/Contents/Resources/do
 # and it does not imply Apple notarization.
 codesign --force --deep --sign - "$app"
 
-QT_QPA_PLATFORM=offscreen     "$app/Contents/MacOS/QUINTUM" --smoke-test
+QT_QPA_PLATFORM=cocoa "$app/Contents/MacOS/QUINTUM" --smoke-test
 
 zipfile="$output/QUINTUM-Core-${version}-macos-${arch}.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zipfile"

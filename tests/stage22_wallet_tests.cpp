@@ -767,8 +767,11 @@ void test_wallet_index_rebuilds_after_reorg()
 
     assert(indexed.ok());
     assert(indexed.index_rebuilt);
+    const auto indexed_history =
+        wallet.history();
+
     assert(find_history(
-               wallet.history(),
+               indexed_history,
                abandoned_txid) != nullptr);
 
     std::vector<Block> stronger_branch;
@@ -819,9 +822,12 @@ void test_wallet_index_rebuilds_after_reorg()
     assert(after_reorg.ok());
     assert(after_reorg.index_rebuilt);
     assert(after_reorg.blocks_scanned == 4U);
+    const auto reorg_history =
+        wallet.history();
+
     const auto* inactive =
         find_history(
-            wallet.history(),
+            reorg_history,
             abandoned_txid
         );
 
@@ -925,9 +931,12 @@ void test_imported_key_invalidates_live_index_immediately()
     assert(rescanned.index_rebuilt);
     assert(rescanned.blocks_scanned == 2U);
 
+    const auto imported_history =
+        wallet.history();
+
     const auto* record =
         find_history(
-            wallet.history(),
+            imported_history,
             historical_txid
         );
 

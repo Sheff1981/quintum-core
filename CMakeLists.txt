@@ -43,6 +43,28 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(secp256k1)
 
 FetchContent_Declare(
+    nlohmann_json_source
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG 55f93686c01528224f448c19128836e7df245f72
+    GIT_SHALLOW FALSE
+)
+FetchContent_GetProperties(nlohmann_json_source)
+if(NOT nlohmann_json_source_POPULATED)
+    FetchContent_Populate(nlohmann_json_source)
+endif()
+
+FetchContent_Declare(
+    cpp_httplib_source
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG 4f3f9ef19be83ae97a5d9a059432dc00e445b7ab
+    GIT_SHALLOW FALSE
+)
+FetchContent_GetProperties(cpp_httplib_source)
+if(NOT cpp_httplib_source_POPULATED)
+    FetchContent_Populate(cpp_httplib_source)
+endif()
+
+FetchContent_Declare(
     monocypher_source
     URL https://github.com/LoupVaillant/Monocypher/releases/download/4.0.3/monocypher-4.0.3.tar.gz
     URL_HASH SHA256=8cc9bc341a66249016db9bd70e9142d8d0aef9945973744b1ac05dbc55d8ee66
@@ -152,6 +174,8 @@ add_library(quintum_core STATIC
     src/net/sync.cpp
     src/net/relay.cpp
     src/net/runtime.cpp
+    src/rpc/rpc.cpp
+    src/rpc/server.cpp
     src/wallet/address.cpp
     src/wallet/mnemonic.cpp
     src/wallet/metadata.cpp
@@ -162,10 +186,20 @@ add_library(quintum_core STATIC
     src/wallet/wallet.cpp
 )
 target_compile_features(quintum_core PUBLIC cxx_std_23)
-target_include_directories(quintum_core PUBLIC src)
+target_include_directories(
+    quintum_core
+    PUBLIC
+        src
+        ${nlohmann_json_source_SOURCE_DIR}/single_include
+        ${cpp_httplib_source_SOURCE_DIR}
+)
 target_link_libraries(
     quintum_core
-    PUBLIC secp256k1 monocypher randomx
+    PUBLIC
+        secp256k1
+        monocypher
+        randomx
+        Threads::Threads
 )
 if(WIN32)
     target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt advapi32)
@@ -476,6 +510,18 @@ quintum_strict_warnings(quintum_network_runtime_tests)
 quintum_test_assertions(quintum_network_runtime_tests)
 
 add_test(NAME network_runtime COMMAND quintum_network_runtime_tests)
+
+add_executable(quintum_rpc_tests
+    tests/rpc_tests.cpp
+)
+target_link_libraries(
+    quintum_rpc_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_rpc_tests)
+quintum_test_assertions(quintum_rpc_tests)
+
+add_test(NAME rpc COMMAND quintum_rpc_tests)
 
 
 add_executable(quintum_wallet_tests
