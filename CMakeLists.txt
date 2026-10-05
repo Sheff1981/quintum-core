@@ -99,6 +99,28 @@ function(quintum_test_assertions target)
     endif()
 endfunction()
 
+
+option(
+    QUINTUM_ENABLE_SANITIZERS
+    "Enable AddressSanitizer and UndefinedBehaviorSanitizer"
+    OFF
+)
+
+if(QUINTUM_ENABLE_SANITIZERS)
+    if(MSVC)
+        message(FATAL_ERROR
+            "QUINTUM_ENABLE_SANITIZERS is currently supported on Clang/GCC CI")
+    endif()
+
+    add_compile_options(
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+    )
+    add_link_options(
+        -fsanitize=address,undefined
+    )
+endif()
+
 add_library(quintum_core STATIC
     src/crypto/sha256.cpp
     src/crypto/secp256k1.cpp
