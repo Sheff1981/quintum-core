@@ -56,6 +56,13 @@ For heights 1 through 6,000,000:
 
 After height 6,000,000, the founder consensus reward is permanently **0 QMU**.
 
+
+### Founder custody hardening
+
+The consensus code now supports a pinned bounded **m-of-n secp256k1 multisig founder payout script** (up to 5 keys) in addition to the existing single-key testnet payout. Coinbase validation compares the founder output against the exact configured custody script, so a miner cannot redirect or weaken it.
+
+The currently deployed RandomX Testnet deliberately remains on its existing single test key so its already-published consensus identity is not silently changed. Before Mainnet freeze, the Mainnet monetary parameters will pin the selected multisig threshold/public keys; private keys are never stored in the repository or on public seed nodes.
+
 ## Tail emission
 
 Beginning at height **6,000,001**:
