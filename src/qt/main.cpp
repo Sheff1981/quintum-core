@@ -496,7 +496,7 @@ int main(int argc, char* argv[])
         "QUINTUM Core"
     );
     QCoreApplication::setApplicationVersion(
-        "0.0.2-prealpha"
+        "0.0.3-prealpha"
     );
 
     QCommandLineParser parser;
