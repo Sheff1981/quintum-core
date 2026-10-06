@@ -834,7 +834,7 @@ void test_wallet_rescan_rejects_pruned_history()
     Wallet wallet{params, wallet_directory};
     assert(wallet.start().ok());
 
-    Mempool mempool{params};
+    Mempool mempool{};
     const auto synced =
         wallet.sync(node.chain(), mempool);
 
