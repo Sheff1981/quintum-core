@@ -583,7 +583,7 @@ Json dispatch_method(
     }
 
     if (method == "getmininginfo") {
-        return Json{
+        Json result{
             {"blocks",
              status.height.value_or(0U)},
             {"currentblocktx",
@@ -599,6 +599,20 @@ Json dispatch_method(
              params.pow.
                  target_spacing_seconds},
         };
+
+        if (status.difficulty) {
+            result["difficulty"] =
+                *status.difficulty;
+        }
+
+        if (status.difficulty_bits) {
+            result["bits"] =
+                bits_hex(
+                    *status.difficulty_bits
+                );
+        }
+
+        return result;
     }
 
     if (method == "getblocktemplate") {
