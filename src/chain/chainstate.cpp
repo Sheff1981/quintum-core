@@ -529,7 +529,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
             anchor_parent_time =
                 anchor_parent->second.
-                    block.header.timestamp;
+                    header.timestamp;
         }
 
         if (parent->header.timestamp >
