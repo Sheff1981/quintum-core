@@ -2133,6 +2133,7 @@ StorageError PersistentChainstate::load()
 
     if (error == StorageError::none) {
         chain_ = std::move(staged);
+        recovery_blocks_.clear();
     }
 
     return error;
@@ -2150,11 +2151,86 @@ PersistentChainstate::store() const noexcept
     return store_;
 }
 
+ChainConnectResult
+PersistentChainstate::restore_cached_bodies(
+    Chainstate& staged) const
+{
+    for (const auto& [hash, block] :
+         recovery_blocks_) {
+        if (staged.has_block_body(hash)) {
+            continue;
+        }
+
+        const auto restored =
+            staged.restore_block_body(block);
+
+        if (!restored.ok()) {
+            return restored;
+        }
+    }
+
+    return {};
+}
+
+void PersistentChainstate::remember_if_pruned(
+    const Block& block,
+    const ChainConnectResult& result)
+{
+    if (result.reorganized) {
+        recovery_blocks_.clear();
+        return;
+    }
+
+    const auto hash = block_hash(block.header);
+
+    if (chain_.has_block(hash) &&
+        !chain_.has_block_body(hash)) {
+        recovery_blocks_.insert_or_assign(
+            hash,
+            block
+        );
+    }
+}
+
+PersistentConnectResult
+PersistentChainstate::restore_block_body(
+    const Block& block)
+{
+    Chainstate staged = chain_;
+    auto result =
+        staged.restore_block_body(block);
+
+    if (!result.ok()) {
+        return PersistentConnectResult{
+            .chain = result,
+        };
+    }
+
+    recovery_blocks_.insert_or_assign(
+        block_hash(block.header),
+        block
+    );
+
+    return PersistentConnectResult{
+        .chain = result,
+    };
+}
+
 PersistentConnectResult
 PersistentChainstate::connect_block(
     const Block& block)
 {
     Chainstate staged = chain_;
+
+    const auto restored =
+        restore_cached_bodies(staged);
+
+    if (!restored.ok()) {
+        return PersistentConnectResult{
+            .chain = restored,
+        };
+    }
+
     auto result =
         staged.connect_block(block);
 
@@ -2171,6 +2247,7 @@ PersistentChainstate::connect_block(
         StorageError::none) {
         store_.apply_pruning(staged);
         chain_ = std::move(staged);
+        remember_if_pruned(block, result);
     }
 
     return PersistentConnectResult{
@@ -2185,6 +2262,16 @@ PersistentChainstate::connect_block(
     std::uint64_t adjusted_time)
 {
     Chainstate staged = chain_;
+
+    const auto restored =
+        restore_cached_bodies(staged);
+
+    if (!restored.ok()) {
+        return PersistentConnectResult{
+            .chain = restored,
+        };
+    }
+
     auto result =
         staged.connect_block(
             block,
@@ -2203,6 +2290,7 @@ PersistentChainstate::connect_block(
         StorageError::none) {
         store_.apply_pruning(staged);
         chain_ = std::move(staged);
+        remember_if_pruned(block, result);
     }
 
     return PersistentConnectResult{
@@ -2232,6 +2320,7 @@ PersistentChainstate::disconnect_tip()
         StorageError::none) {
         store_.apply_pruning(staged);
         chain_ = std::move(staged);
+        recovery_blocks_.clear();
     }
 
     return PersistentDisconnectResult{
