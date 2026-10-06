@@ -323,6 +323,64 @@ std::vector<BlockHeader> headers_after(
 
 } // namespace
 
+Bytes serialize_chain_work(
+    const Hash256& work)
+{
+    return Bytes(work.begin(), work.end());
+}
+
+std::optional<Hash256> parse_chain_work(
+    std::span<const Byte> payload)
+{
+    Hash256 work{};
+
+    if (payload.size() != work.size()) {
+        return std::nullopt;
+    }
+
+    std::copy(
+        payload.begin(),
+        payload.end(),
+        work.begin()
+    );
+
+    return work;
+}
+
+bool sync_driver_should_run(
+    const Hash256& local_work,
+    const std::optional<Hash256>& remote_work,
+    std::uint32_t local_height,
+    std::uint32_t remote_height,
+    bool outbound) noexcept
+{
+    if (remote_work) {
+        if (std::lexicographical_compare(
+                local_work.begin(),
+                local_work.end(),
+                remote_work->begin(),
+                remote_work->end())) {
+            return true;
+        }
+
+        if (std::lexicographical_compare(
+                remote_work->begin(),
+                remote_work->end(),
+                local_work.begin(),
+                local_work.end())) {
+            return false;
+        }
+
+        return outbound;
+    }
+
+    const bool local_is_behind =
+        remote_height > local_height;
+
+    return local_is_behind ||
+        (remote_height == local_height && outbound);
+}
+
 std::vector<Hash256> build_block_locator(
     const Chainstate& chain)
 {
