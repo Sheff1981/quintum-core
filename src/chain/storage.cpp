@@ -1576,13 +1576,18 @@ StorageError ChainstateStore::commit(
     
     }
 
+    const std::uint32_t snapshot_version =
+        prune_policy_.enabled
+            ? kStorageVersion
+            : kStorageVersionV1;
+
     Bytes state;
     state.reserve(1024U);
 
     append_literal(state, kStateMagic);
     append_little_endian(
         state,
-        kStorageVersion);
+        snapshot_version);
     state.push_back(
         static_cast<Byte>(params_.network));
     append_literal(
@@ -1593,11 +1598,15 @@ StorageError ChainstateStore::commit(
     append_hash(
         state,
         params_.genesis.hash);
-    // The snapshot names the exact block-store generation it was built
-    // against. Generation 0 is the legacy blocks.dat layout.
-    append_little_endian(
-        state,
-        next_generation);
+    if (snapshot_version >= kStorageVersion) {
+        // Pruned snapshots name the exact block-store generation they
+        // were built against. Archival mode deliberately stays on the
+        // legacy v1 layout so an upgrade does not destroy rollback
+        // compatibility with existing installations.
+        append_little_endian(
+            state,
+            next_generation);
+    }
 
     append_little_endian(
         state,
@@ -1624,24 +1633,28 @@ StorageError ChainstateStore::commit(
             it->second.chain_work);
         state.push_back(
             it->second.failed ? 1U : 0U);
-        const auto header_bytes =
-            serialize_block_header(it->second.header);
-        state.insert(
-            state.end(),
-            header_bytes.begin(),
-            header_bytes.end());
-        bool body_available =
-            it->second.block.has_value();
-        if (prune_policy_.enabled) {
+
+        if (snapshot_version >= kStorageVersionV2) {
+            const auto header_bytes =
+                serialize_block_header(it->second.header);
+            state.insert(
+                state.end(),
+                header_bytes.begin(),
+                header_bytes.end());
+        }
+
+        if (snapshot_version >= kStorageVersion) {
+            bool body_available =
+                it->second.block.has_value();
             const auto status = prune_status(chain);
             body_available =
                 body_available &&
                 (!status.prune_height ||
                  it->second.height >
                      *status.prune_height);
+            state.push_back(
+                body_available ? 1U : 0U);
         }
-        state.push_back(
-            body_available ? 1U : 0U);
     }
 
     append_little_endian(
