@@ -1757,6 +1757,13 @@ StorageError ChainstateStore::load(
         std::size_t body_index{0U};
 
         for (const auto& meta : disk.index) {
+            // Pruned entries no longer have a block body to cross-check.
+            // Their persisted header must therefore authenticate the
+            // stored index hash on its own.
+            if (block_hash(meta.header) != meta.hash) {
+                return StorageError::state_mismatch;
+            }
+
             std::optional<Block> body;
             if (meta.body_available) {
                 if (body_index >= scan.blocks.size()) {
