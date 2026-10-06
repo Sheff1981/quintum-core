@@ -1555,6 +1555,7 @@ VersionMessage NetworkRuntime::local_version(
             kServiceCompactBlocks |
             kServiceEncryptedTransport |
             kServiceAddrV2 |
+            kServiceChainWork |
             (config_.enable_dandelion_relay
                  ? kServiceDandelionRelay
                  : 0U),
@@ -1955,6 +1956,7 @@ bool NetworkRuntime::prepare_live_peer(
     }
 
     std::uint32_t local_height{0U};
+    Hash256 local_work{};
 
     {
         std::scoped_lock lock(state_mutex_);
@@ -1963,19 +1965,82 @@ bool NetworkRuntime::prepare_live_peer(
                 node_.chain().height()) {
             local_height = *height;
         }
+
+        local_work =
+            node_.chain().cumulative_work();
     }
 
-    // Exactly one side drives connection setup. The node that is behind
-    // drives headers/block synchronization regardless of TCP direction.
-    // If both tips are at the same height, the outbound side drives the
-    // non-consensus addr/mempool exchange. This avoids both peers sending
-    // synchronous request/response commands at the same time.
-    const bool local_is_behind =
-        peer.reported_height > local_height;
+    std::optional<Hash256> remote_work;
+
+    // Stage 38 keeps P2P protocol v2 wire-compatible with existing nodes.
+    // New nodes advertise a service bit and exchange cumulative chainwork
+    // immediately after the version/verack handshake. Older peers simply
+    // omit the capability and retain the previous height-based fallback.
+    if ((peer.session.remote_version().services &
+            kServiceChainWork) != 0U) {
+        const auto local_payload =
+            serialize_chain_work(local_work);
+
+        if (outbound) {
+            if (peer.session.send_command(
+                    "chainwork",
+                    local_payload) !=
+                PeerError::none) {
+                return false;
+            }
+
+            WireMessage response;
+            if (peer.session.receive_command(
+                    response) !=
+                    PeerError::none ||
+                response.command != "chainwork") {
+                return false;
+            }
+
+            remote_work =
+                parse_chain_work(
+                    response.payload
+                );
+        } else {
+            WireMessage request;
+            if (peer.session.receive_command(
+                    request) !=
+                    PeerError::none ||
+                request.command != "chainwork") {
+                return false;
+            }
+
+            remote_work =
+                parse_chain_work(
+                    request.payload
+                );
+
+            if (!remote_work ||
+                peer.session.send_command(
+                    "chainwork",
+                    local_payload) !=
+                    PeerError::none) {
+                return false;
+            }
+        }
+
+        if (!remote_work) {
+            return false;
+        }
+    }
+
+    // Exactly one side drives setup. Capable peers compare cumulative work,
+    // which is the PoW fork-choice rule. Legacy peers fall back to height.
+    // Equal work is broken by TCP direction so both sides never issue
+    // synchronous request/response flows at the same time.
     const bool active_setup =
-        local_is_behind ||
-        (peer.reported_height == local_height &&
-         outbound);
+        sync_driver_should_run(
+            local_work,
+            remote_work,
+            local_height,
+            peer.reported_height,
+            outbound
+        );
 
     if (!active_setup) {
         peer.last_activity = now;
