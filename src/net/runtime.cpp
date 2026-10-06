@@ -2141,6 +2141,27 @@ void NetworkRuntime::service_peers(
             continue;
         }
 
+        if (config_.block_request_timeout_seconds > 0U) {
+            const bool stalled_block_request =
+                std::any_of(
+                    peer.requested_blocks.begin(),
+                    peer.requested_blocks.end(),
+                    [&](const PendingBlockRequest& request) {
+                        return elapsed(
+                            now,
+                            request.requested_at,
+                            config_.
+                                block_request_timeout_seconds
+                        );
+                    }
+                );
+
+            if (stalled_block_request) {
+                peer.session.close();
+                continue;
+            }
+        }
+
         if (peer.pending_ping) {
             if (elapsed(
                     now,
@@ -2381,7 +2402,8 @@ bool NetworkRuntime::process_message(
     if (message.command == "inv") {
         return process_inventory(
             peer,
-            message
+            message,
+            now
         );
     }
 
@@ -2445,9 +2467,15 @@ bool NetworkRuntime::process_message(
                            kInventoryBlock ||
                        item.type ==
                            kInventoryCompactBlock) {
-                erase_hash(
-                    peer.requested_blocks,
-                    item.hash
+                peer.requested_blocks.erase(
+                    std::remove_if(
+                        peer.requested_blocks.begin(),
+                        peer.requested_blocks.end(),
+                        [&](const PendingBlockRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    ),
+                    peer.requested_blocks.end()
                 );
 
                 peer.pending_compact_blocks.erase(
@@ -2472,7 +2500,8 @@ bool NetworkRuntime::process_message(
 
 bool NetworkRuntime::process_inventory(
     LivePeer& peer,
-    const WireMessage& message)
+    const WireMessage& message,
+    std::uint64_t now)
 {
     const auto inventory =
         parse_inventory(
@@ -2544,16 +2573,32 @@ bool NetworkRuntime::process_inventory(
                     continue;
                 }
 
+                const bool already_requested =
+                    std::any_of(
+                        peer.requested_blocks.begin(),
+                        peer.requested_blocks.end(),
+                        [&](const PendingBlockRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    );
+
                 if (node_.chain().has_block(
                         item.hash) ||
-                    contains_hash(
-                        peer.requested_blocks,
-                        item.hash)) {
+                    already_requested) {
                     continue;
                 }
 
-                peer.requested_blocks.
-                    push_back(item.hash);
+                if (peer.requested_blocks.size() >=
+                    config_.max_block_requests_in_flight) {
+                    continue;
+                }
+
+                peer.requested_blocks.push_back(
+                    PendingBlockRequest{
+                        .hash = item.hash,
+                        .requested_at = now,
+                    }
+                );
 
                 InventoryItem requested = item;
 
@@ -2771,9 +2816,16 @@ bool NetworkRuntime::process_compact_block(
     const Hash256 hash =
         block_hash(compact->header);
 
-    if (!contains_hash(
-            peer.requested_blocks,
-            hash)) {
+    const bool requested =
+        std::any_of(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        );
+
+    if (!requested) {
         return false;
     }
 
@@ -3018,15 +3070,28 @@ bool NetworkRuntime::process_received_block(
     const Hash256& hash,
     std::uint64_t now)
 {
-    if (!contains_hash(
-            peer.requested_blocks,
-            hash)) {
+    const bool requested =
+        std::any_of(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        );
+
+    if (!requested) {
         return false;
     }
 
-    erase_hash(
-        peer.requested_blocks,
-        hash
+    peer.requested_blocks.erase(
+        std::remove_if(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        ),
+        peer.requested_blocks.end()
     );
 
     peer.pending_compact_blocks.erase(
