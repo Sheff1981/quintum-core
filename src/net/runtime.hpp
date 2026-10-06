@@ -75,7 +75,8 @@ struct NetworkRuntimeConfig {
     std::uint64_t block_request_timeout_seconds{30U};
     std::size_t max_block_requests_in_flight{16U};
     std::uint64_t transaction_request_timeout_seconds{15U};
-    std::size_t max_transaction_requests_in_flight{256U};
+    std::size_t max_transaction_requests_in_flight{128U};
+    std::size_t max_deferred_transaction_requests{512U};
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
@@ -429,6 +430,7 @@ private:
         std::uint32_t stem_transactions_in_window{0U};
         std::vector<PendingTransactionRequest>
             requested_transactions{};
+        std::vector<Hash256> deferred_transactions{};
         std::vector<PendingBlockRequest> requested_blocks{};
         std::vector<PendingCompactBlock>
             pending_compact_blocks{};
@@ -469,6 +471,11 @@ private:
     [[nodiscard]] bool process_transaction(
         LivePeer& peer,
         const WireMessage& message
+    );
+
+    [[nodiscard]] bool drain_transaction_requests(
+        LivePeer& peer,
+        std::uint64_t now
     );
 
     [[nodiscard]] bool process_stem_transaction(
