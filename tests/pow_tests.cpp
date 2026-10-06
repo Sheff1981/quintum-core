@@ -92,6 +92,39 @@ void test_invalid_targets()
     );
 }
 
+void test_difficulty_display_ratio()
+{
+    const auto easiest =
+        quintum::consensus::difficulty_from_bits(
+            0x2100ffffU,
+            0x2100ffffU
+        );
+    assert(easiest.has_value());
+    assert(*easiest == 1.0);
+
+    const auto harder =
+        quintum::consensus::difficulty_from_bits(
+            0x2000ffffU,
+            0x2100ffffU
+        );
+    assert(harder.has_value());
+    assert(*harder == 256.0);
+
+    assert(
+        !quintum::consensus::difficulty_from_bits(
+            0U,
+            0x2100ffffU
+        ).has_value()
+    );
+
+    assert(
+        !quintum::consensus::difficulty_from_bits(
+            0x1e00ffffU,
+            0x1d00ffffU
+        ).has_value()
+    );
+}
+
 void test_chain_work()
 {
     const auto compact =
@@ -270,6 +303,7 @@ int main()
 {
     test_compact_target_vectors();
     test_invalid_targets();
+    test_difficulty_display_ratio();
     test_chain_work();
     test_real_nonce_mining();
     test_randomx_block_pow();
