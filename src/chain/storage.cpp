@@ -1782,19 +1782,42 @@ StorageError ChainstateStore::load(
                 body = candidate;
             }
 
+            if (meta.height == 0U) {
+                if (meta.parent != Hash256{}) {
+                    return StorageError::state_mismatch;
+                }
+            } else {
+                const auto parent_it =
+                    restored.block_index_.find(meta.parent);
+                if (parent_it == restored.block_index_.end() ||
+                    parent_it->second.height + 1U != meta.height) {
+                    return StorageError::state_mismatch;
+                }
+            }
+
+            const auto [inserted_it, inserted] =
+                restored.block_index_.emplace(
+                    meta.hash,
+                    BlockIndexEntry{
+                        .block = std::move(body),
+                        .header = meta.header,
+                        .hash = meta.hash,
+                        .parent = meta.parent,
+                        .height = meta.height,
+                        .chain_work = meta.chain_work,
+                        .failed = meta.failed,
+                    });
+            (void)inserted_it;
+            if (!inserted) {
+                return StorageError::state_mismatch;
+            }
+
             restored.acceptance_order_.push_back(
                 meta.hash);
-            restored.block_index_.emplace(
-                meta.hash,
-                BlockIndexEntry{
-                    .block = std::move(body),
-                    .header = meta.header,
-                    .hash = meta.hash,
-                    .parent = meta.parent,
-                    .height = meta.height,
-                    .chain_work = meta.chain_work,
-                    .failed = meta.failed,
-                });
+        }
+
+        if (body_index != scan.blocks.size()) {
+            return StorageError::state_mismatch;
         }
 
         restored.chain_.reserve(disk.active.size());
