@@ -1612,8 +1612,18 @@ StorageError ChainstateStore::commit(
             state.end(),
             header_bytes.begin(),
             header_bytes.end());
+        bool body_available =
+            it->second.block.has_value();
+        if (prune_policy_.enabled) {
+            const auto status = prune_status(chain);
+            body_available =
+                body_available &&
+                (!status.prune_height ||
+                 it->second.height >
+                     *status.prune_height);
+        }
         state.push_back(
-            it->second.block ? 1U : 0U);
+            body_available ? 1U : 0U);
     }
 
     append_little_endian(
