@@ -811,6 +811,149 @@ void test_ibd_batches_block_requests()
 }
 
 
+void test_randomx_headers_first_uses_randomx_pow()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto params =
+        consensus::randomx_testnet_params();
+
+    // Keep public RandomX consensus parameters and Genesis intact while the
+    // test remains completely isolated from public discovery.
+    params.network =
+        consensus::Network::regtest;
+    params.name =
+        "randomx-headers-first-test";
+    params.p2p_port = 0U;
+    params.rpc_port = 0U;
+
+    const auto server_dir =
+        unique_dir("randomx-header-server");
+    const auto client_dir =
+        unique_dir("randomx-header-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 10'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    constexpr std::uint32_t kBlocks = 3U;
+
+    for (std::uint32_t height = 1U;
+         height <= kBlocks;
+         ++height) {
+        const auto mined =
+            server.mine_block_at(
+                payout_script(10U),
+                params.genesis.timestamp +
+                    static_cast<std::uint64_t>(
+                        height) *
+                    params.pow.
+                        target_spacing_seconds,
+                20'000U
+            );
+
+        assert(mined.ok());
+        assert(mined.height == height);
+    }
+
+    bool has_sha256d_mismatch{false};
+
+    for (std::uint32_t height = 1U;
+         height <= kBlocks;
+         ++height) {
+        const auto header =
+            server.chain().
+                active_header(height);
+        assert(header);
+
+        if (consensus::check_proof_of_work(
+                *header,
+                params.pow) !=
+            consensus::PowCheckError::none) {
+            has_sha256d_mismatch = true;
+        }
+    }
+
+    // This guarantees the fixture would have been rejected by the old
+    // headers-first path that incorrectly applied SHA-256d to RandomX.
+    assert(has_sha256d_mismatch);
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        serve_requests(
+            listener,
+            server.chain(),
+            version(0x1771U, kBlocks),
+            2U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1772U, 0U),
+            10'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now
+        );
+
+    assert(synced.ok());
+    assert(synced.headers_received ==
+           kBlocks);
+    assert(synced.blocks_requested ==
+           kBlocks);
+    assert(synced.block_request_batches ==
+           1U);
+    assert(synced.blocks_accepted ==
+           kBlocks);
+    assert(client.chain().height() ==
+           server.chain().height());
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error ==
+           SyncError::none);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        server_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        client_dir,
+        ec
+    );
+}
+
+
 void test_invalid_difficulty_headers_stop_before_block_download()
 {
     using namespace quintum;
@@ -1067,6 +1210,7 @@ int main()
     test_heavier_remote_branch_reorg();
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
+    test_randomx_headers_first_uses_randomx_pow();
     test_invalid_difficulty_headers_stop_before_block_download();
     test_chainwork_sync_selection();
     test_full_known_header_batch_is_not_treated_as_stalled();
