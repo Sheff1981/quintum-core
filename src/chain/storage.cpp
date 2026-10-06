@@ -1799,6 +1799,37 @@ StorageError ChainstateStore::load(
                     parent_it->second.chain_work;
             }
 
+            const auto pow_error =
+                params_.pow.pow_algorithm ==
+                        consensus::PowAlgorithm::randomx_v2
+                    ? [&]() {
+                          const BlockIndexEntry* parent_ptr = nullptr;
+                          if (meta.height != 0U) {
+                              const auto parent_it =
+                                  restored.block_index_.find(meta.parent);
+                              if (parent_it == restored.block_index_.end()) {
+                                  return consensus::PowCheckError::hashing_failed;
+                              }
+                              parent_ptr = &parent_it->second;
+                          }
+                          const auto seed =
+                              restored.randomx_seed_key_for(
+                                  parent_ptr,
+                                  meta.height);
+                          return seed
+                              ? consensus::check_randomx_proof_of_work(
+                                    meta.header,
+                                    params_.pow,
+                                    *seed)
+                              : consensus::PowCheckError::hashing_failed;
+                      }()
+                    : consensus::check_proof_of_work(
+                          meta.header,
+                          params_.pow);
+            if (pow_error != consensus::PowCheckError::none) {
+                return StorageError::state_mismatch;
+            }
+
             const auto compact =
                 consensus::decode_compact_target(
                     meta.header.bits);
