@@ -3,6 +3,7 @@
 #include "net/address.hpp"
 #include "net/compact_block.hpp"
 #include "net/discovery.hpp"
+#include "net/dandelion.hpp"
 #include "net/nat_mapping.hpp"
 #include "net/peer.hpp"
 #include "node/node.hpp"
@@ -35,6 +36,20 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
     std::uint32_t max_messages_per_second{256U};
+    std::uint32_t max_stem_transactions_per_second{32U};
+    bool enable_dandelion_relay{true};
+    std::uint32_t dandelion_fluff_percent{
+        kDefaultDandelionFluffPercent
+    };
+    std::uint64_t dandelion_embargo_min_seconds{
+        kDefaultDandelionEmbargoMinSeconds
+    };
+    std::uint64_t dandelion_embargo_jitter_seconds{
+        kDefaultDandelionEmbargoJitterSeconds
+    };
+    std::uint64_t dandelion_epoch_seconds{
+        kDefaultDandelionEpochSeconds
+    };
     std::size_t randomx_mining_threads{0U};
     bool randomx_full_memory_mining{false};
     std::vector<PeerAddress> bootstrap_peers{};
@@ -338,6 +353,11 @@ private:
         std::uint64_t next_attempt{0U};
     };
 
+    struct StemRelayState {
+        Hash256 txid{};
+        std::uint64_t embargo_deadline{0U};
+    };
+
     struct PendingCompactBlock {
         Hash256 hash{};
         CompactBlock compact{};
@@ -354,6 +374,7 @@ private:
         std::uint32_t reported_height{0U};
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
+        std::uint32_t stem_transactions_in_window{0U};
         std::vector<Hash256> requested_transactions{};
         std::vector<Hash256> requested_blocks{};
         std::vector<PendingCompactBlock>
@@ -369,6 +390,8 @@ private:
     void accept_inbound(std::uint64_t now);
     void maintain_outbound(std::uint64_t now);
     void service_peers(std::uint64_t now);
+    void flush_private_transactions(std::uint64_t now);
+    void service_stem_embargo(std::uint64_t now);
     void flush_announcements();
     void prune_closed(std::uint64_t now);
 
@@ -392,6 +415,12 @@ private:
     [[nodiscard]] bool process_transaction(
         LivePeer& peer,
         const WireMessage& message
+    );
+
+    [[nodiscard]] bool process_stem_transaction(
+        LivePeer& peer,
+        const WireMessage& message,
+        std::uint64_t now
     );
 
     [[nodiscard]] bool process_block(
@@ -428,6 +457,23 @@ private:
         std::uint32_t type,
         const Hash256& hash
     );
+
+    void queue_private_transaction(
+        const Hash256& txid
+    );
+
+    [[nodiscard]] bool relay_stem_transaction(
+        const Hash256& txid,
+        LivePeer* source,
+        std::uint64_t now
+    );
+
+    void erase_stem_relay(
+        const Hash256& txid
+    );
+
+    [[nodiscard]] std::vector<Hash256>
+    hidden_transaction_ids();
 
     void schedule_reconnect(
         const PeerAddress& address,
@@ -467,6 +513,10 @@ private:
     mutable std::mutex announcement_mutex_{};
     std::vector<PendingAnnouncement>
         announcements_{};
+    std::vector<Hash256>
+        pending_private_transactions_{};
+    std::vector<StemRelayState>
+        stem_relays_{};
 
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
@@ -486,6 +536,8 @@ private:
     std::uint64_t wallet_mining_nonce_{0U};
     std::uint64_t ping_counter_{0U};
     std::uint64_t next_outbound_attempt_{0U};
+    std::optional<PeerAddress> origin_stem_route_{};
+    std::uint64_t origin_stem_epoch_deadline_{0U};
     std::thread worker_{};
     std::thread nat_worker_{};
 };

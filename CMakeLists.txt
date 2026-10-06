@@ -247,6 +247,7 @@ add_library(quintum_core STATIC
     src/net/v2_transport.cpp
     src/net/socks5.cpp
     src/net/nat_mapping.cpp
+    src/net/dandelion.cpp
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
@@ -580,6 +581,18 @@ quintum_strict_warnings(quintum_nat_mapping_tests)
 quintum_test_assertions(quintum_nat_mapping_tests)
 
 add_test(NAME nat_mapping COMMAND quintum_nat_mapping_tests)
+
+add_executable(quintum_dandelion_tests
+    tests/dandelion_tests.cpp
+)
+target_link_libraries(
+    quintum_dandelion_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_dandelion_tests)
+quintum_test_assertions(quintum_dandelion_tests)
+
+add_test(NAME dandelion COMMAND quintum_dandelion_tests)
 
 add_executable(quintum_discovery_tests
     tests/discovery_tests.cpp

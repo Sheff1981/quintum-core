@@ -599,7 +599,8 @@ PeerError request_mempool_inventory(
 RelayResult serve_relay_message(
     PeerSession& peer,
     const NodeRuntime& node,
-    const WireMessage& message)
+    const WireMessage& message,
+    std::span<const Hash256> hidden_transactions)
 {
     RelayResult out;
 
@@ -609,15 +610,35 @@ RelayResult serve_relay_message(
             return out;
         }
 
-        const auto ids =
-            node.mempool().transaction_ids(
+        const std::size_t scan_limit =
+            kMaxRelayInventoryItems +
+            std::min<std::size_t>(
+                hidden_transactions.size(),
                 kMaxRelayInventoryItems
             );
 
+        const auto ids =
+            node.mempool().transaction_ids(
+                scan_limit
+            );
+
         std::vector<InventoryItem> items;
-        items.reserve(ids.size());
+        items.reserve(
+            std::min<std::size_t>(
+                ids.size(),
+                kMaxRelayInventoryItems
+            )
+        );
 
         for (const auto& txid : ids) {
+            if (std::find(
+                    hidden_transactions.begin(),
+                    hidden_transactions.end(),
+                    txid) !=
+                hidden_transactions.end()) {
+                continue;
+            }
+
             items.push_back(
                 InventoryItem{
                     .type =
@@ -625,6 +646,11 @@ RelayResult serve_relay_message(
                     .hash = txid,
                 }
             );
+
+            if (items.size() ==
+                kMaxRelayInventoryItems) {
+                break;
+            }
         }
 
         const auto payload =
@@ -660,6 +686,15 @@ RelayResult serve_relay_message(
 
     for (const auto& item : *inventory) {
         if (item.type == kInventoryTransaction) {
+            if (std::find(
+                    hidden_transactions.begin(),
+                    hidden_transactions.end(),
+                    item.hash) !=
+                hidden_transactions.end()) {
+                missing.push_back(item);
+                continue;
+            }
+
             const Transaction* transaction =
                 node.mempool().transaction(
                     item.hash

@@ -5,6 +5,7 @@
 #include "net/relay.hpp"
 #include "node/node.hpp"
 
+#include <array>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -433,6 +434,214 @@ void test_live_transaction_and_block_relay()
     std::filesystem::remove_all(dir_b, ec);
 }
 
+void test_hidden_stem_transaction_not_served()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir_a =
+        unique_dir("hidden-a");
+    const auto dir_b =
+        unique_dir("hidden-b");
+    const std::uint64_t now =
+        params.genesis.timestamp + 45'000U;
+    const auto payout =
+        payout_script(4U);
+
+    NodeRuntime node{params, dir_a};
+    NodeRuntime mirror{params, dir_b};
+
+    assert(node.start_at(now).ok());
+    assert(mirror.start_at(now).ok());
+
+    const auto coin =
+        build_shared_mature_chain(
+            node,
+            mirror,
+            payout,
+            now
+        );
+
+    const auto spend =
+        make_spend(
+            coin,
+            4U,
+            333U
+        );
+    const auto txid =
+        transaction_id(spend);
+
+    assert(node.submit_transaction(
+        spend).ok());
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    PeerError server_error{
+        PeerError::none
+    };
+
+    std::thread server([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                version(0x1821U, 100U),
+                5'000U
+            );
+
+        if (!accepted.ok()) {
+            server_error = accepted.error;
+            return;
+        }
+
+        const std::array<Hash256, 1>
+            hidden{txid};
+
+        WireMessage mempool_request;
+        server_error =
+            accepted.session->receive_command(
+                mempool_request
+            );
+
+        if (server_error !=
+            PeerError::none) {
+            accepted.session->close();
+            return;
+        }
+
+        const auto mempool_served =
+            serve_relay_message(
+                *accepted.session,
+                node,
+                mempool_request,
+                hidden
+            );
+
+        if (!mempool_served.ok()) {
+            server_error =
+                mempool_served.peer_error !=
+                        PeerError::none
+                    ? mempool_served.peer_error
+                    : PeerError::wire_error;
+            accepted.session->close();
+            return;
+        }
+
+        WireMessage getdata_request;
+        server_error =
+            accepted.session->receive_command(
+                getdata_request
+            );
+
+        if (server_error !=
+            PeerError::none) {
+            accepted.session->close();
+            return;
+        }
+
+        const auto getdata_served =
+            serve_relay_message(
+                *accepted.session,
+                node,
+                getdata_request,
+                hidden
+            );
+
+        if (!getdata_served.ok()) {
+            server_error =
+                getdata_served.peer_error !=
+                        PeerError::none
+                    ? getdata_served.peer_error
+                    : PeerError::wire_error;
+        }
+
+        accepted.session->close();
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1822U, 100U),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    assert(connected.session->send_command(
+               "mempool",
+               {}) ==
+           PeerError::none);
+
+    WireMessage inventory_message;
+    assert(connected.session->receive_command(
+               inventory_message) ==
+           PeerError::none);
+    assert(inventory_message.command ==
+           "inv");
+
+    const auto inventory =
+        parse_inventory(
+            inventory_message.payload
+        );
+
+    assert(inventory.has_value());
+    assert(inventory->empty());
+
+    const std::array<InventoryItem, 1>
+        request{
+            InventoryItem{
+                .type =
+                    kInventoryTransaction,
+                .hash = txid,
+            }
+        };
+
+    assert(connected.session->send_command(
+               "getdata",
+               serialize_inventory(request)) ==
+           PeerError::none);
+
+    WireMessage missing_message;
+    assert(connected.session->receive_command(
+               missing_message) ==
+           PeerError::none);
+    assert(missing_message.command ==
+           "notfound");
+
+    const auto missing =
+        parse_inventory(
+            missing_message.payload
+        );
+
+    assert(missing.has_value());
+    assert(missing->size() == 1U);
+    assert(missing->front().type ==
+           kInventoryTransaction);
+    assert(missing->front().hash == txid);
+
+    connected.session->close();
+    server.join();
+
+    assert(server_error ==
+           PeerError::none);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        dir_a,
+        ec
+    );
+    std::filesystem::remove_all(
+        dir_b,
+        ec
+    );
+}
+
 void test_mempool_inventory_catchup()
 {
     using namespace quintum;
@@ -545,6 +754,7 @@ int main()
 {
     test_local_mempool_validation_and_mining();
     test_live_transaction_and_block_relay();
+    test_hidden_stem_transaction_not_served();
     test_mempool_inventory_catchup();
     return 0;
 }

@@ -18,6 +18,8 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 **Network reachability implemented in Stage 33:** addrman now migrates legacy `peers.dat` v1 to typed v2 records, capable peers exchange IPv4/Tor v3/I2P endpoints over negotiated `addrv2`, Tor/I2P dial through SOCKS5 without local DNS resolution, and ordinary public runtimes attempt best-effort NAT-PMP/UPnP inbound port mapping with clean shutdown and non-fatal fallback. Legacy IPv4 `addr` peers remain compatible.
 
+**Private transaction relay implemented in Stage 34:** locally originated transactions use a negotiated Dandelion-style stem phase through one capable outbound route before ordinary inventory diffusion. Epoch route rotation, loop-to-fluff handling, randomized embargo fallback, stem-phase mempool/getdata suppression and a dedicated stem message-rate ceiling preserve liveness and bound abuse. Legacy peers keep the existing `inv/getdata/tx` path.
+
 ## M4 — Wallet
 **Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery.
 
