@@ -1,4 +1,5 @@
 #include "chain/storage.hpp"
+#include "consensus/pow.hpp"
 
 #include "core/serialize.hpp"
 #include "crypto/sha256.hpp"
@@ -38,16 +39,20 @@ constexpr std::array<Byte, 8> kStateMagic{
 constexpr std::array<Byte, 4> kBlockMagic{
     'Q', 'B', 'L', 'K'
 };
-constexpr std::uint32_t kStorageVersion = 1U;
+constexpr std::uint32_t kStorageVersionV1 = 1U;
+constexpr std::uint32_t kStorageVersionV2 = 2U;
+constexpr std::uint32_t kStorageVersion = 3U;
 constexpr std::size_t kChecksumSize = 32U;
 constexpr std::uint64_t kMaxCollectionEntries = 100'000'000ULL;
 
 struct IndexMeta {
     Hash256 hash{};
+    BlockHeader header{};
     Hash256 parent{};
     std::uint32_t height{0U};
     Hash256 chain_work{};
     bool failed{false};
+    bool body_available{true};
 };
 
 struct ActiveMeta {
@@ -58,6 +63,8 @@ struct ActiveMeta {
 };
 
 struct DiskState {
+    std::uint32_t version{kStorageVersionV1};
+    std::uint64_t block_generation{0U};
     std::vector<IndexMeta> index{};
     std::vector<ActiveMeta> active{};
     std::map<OutPoint, Coin, OutPointLess> utxos{};
@@ -858,9 +865,13 @@ StorageError parse_state_file(
         return StorageError::truncated;
     }
 
-    if (*version != kStorageVersion) {
+    if (*version != kStorageVersionV1 &&
+        *version != kStorageVersionV2 &&
+        *version != kStorageVersion) {
         return StorageError::unsupported_version;
     }
+
+    state.version = *version;
 
     Byte network{0U};
     std::array<Byte, 4> message_start{};
@@ -884,6 +895,15 @@ StorageError parse_state_file(
             params.genesis.enforce ||
         genesis_hash != params.genesis.hash) {
         return StorageError::wrong_network;
+    }
+
+    if (*version >= kStorageVersion) {
+        const auto generation =
+            reader.little<std::uint64_t>();
+        if (!generation) {
+            return StorageError::truncated;
+        }
+        state.block_generation = *generation;
     }
 
     const auto block_count =
@@ -923,6 +943,43 @@ StorageError parse_state_file(
 
         meta.height = *height;
         meta.failed = failed != 0U;
+
+        if (*version >= kStorageVersionV2) {
+            const auto header_version =
+                reader.little<std::uint32_t>();
+            if (!header_version ||
+                !reader.hash(meta.header.previous_block) ||
+                !reader.hash(meta.header.merkle_root)) {
+                return StorageError::truncated;
+            }
+            meta.header.version = *header_version;
+
+            const auto timestamp =
+                reader.little<std::uint64_t>();
+            const auto bits =
+                reader.little<std::uint32_t>();
+            const auto nonce =
+                reader.little<std::uint64_t>();
+
+            if (!timestamp || !bits || !nonce) {
+                return StorageError::truncated;
+            }
+
+            meta.header.timestamp = *timestamp;
+            meta.header.bits = *bits;
+            meta.header.nonce = *nonce;
+        }
+
+        if (*version >= kStorageVersion) {
+            Byte body_available{0U};
+            if (!reader.byte(body_available) ||
+                body_available > 1U) {
+                return StorageError::truncated;
+            }
+            meta.body_available =
+                body_available != 0U;
+        }
+
         state.index.push_back(std::move(meta));
     }
 
@@ -1198,13 +1255,33 @@ Bytes make_block_record(const Block& block)
     return record;
 }
 
+StorageError write_block_records_synced(
+    const std::filesystem::path& path,
+    const std::vector<const Block*>& blocks)
+{
+    Bytes bytes;
+    for (const auto* block : blocks) {
+        if (block == nullptr) {
+            return StorageError::state_mismatch;
+        }
+        const auto record = make_block_record(*block);
+        bytes.insert(
+            bytes.end(),
+            record.begin(),
+            record.end());
+    }
+    return write_file_synced(path, bytes);
+}
+
 } // namespace
 
 ChainstateStore::ChainstateStore(
     std::filesystem::path directory,
-    const consensus::ChainParams& params)
+    const consensus::ChainParams& params,
+    PrunePolicy prune_policy)
     : directory_(std::move(directory)),
-      params_(params)
+      params_(params),
+      prune_policy_(prune_policy)
 {
 }
 
@@ -1219,9 +1296,68 @@ std::filesystem::path ChainstateStore::blocks_path() const
     return directory_ / "blocks.dat";
 }
 
+namespace {
+std::filesystem::path generation_blocks_path(
+    const std::filesystem::path& directory,
+    std::uint64_t generation)
+{
+    if (generation == 0U) {
+        return directory / "blocks.dat";
+    }
+    return directory /
+        ("blocks." + std::to_string(generation) + ".dat");
+}
+} // namespace
+
 std::filesystem::path ChainstateStore::state_path() const
 {
     return directory_ / "chainstate.dat";
+}
+
+const PrunePolicy& ChainstateStore::prune_policy() const noexcept
+{
+    return prune_policy_;
+}
+
+PruneStatus ChainstateStore::prune_status(
+    const Chainstate& chain) const noexcept
+{
+    PruneStatus out{
+        .enabled = prune_policy_.enabled,
+        .keep_recent_blocks = prune_policy_.keep_recent_blocks,
+    };
+
+    if (!prune_policy_.enabled ||
+        prune_policy_.keep_recent_blocks == 0U) {
+        return out;
+    }
+
+    const auto height = chain.height();
+    if (!height ||
+        *height < prune_policy_.keep_recent_blocks) {
+        return out;
+    }
+
+    out.prune_height =
+        *height - prune_policy_.keep_recent_blocks;
+    return out;
+}
+
+void ChainstateStore::apply_pruning(
+    Chainstate& chain) const noexcept
+{
+    const auto status = prune_status(chain);
+    if (!status.prune_height) {
+        return;
+    }
+
+    for (auto& [hash, entry] :
+         chain.block_index_) {
+        (void)hash;
+        if (entry.height <= *status.prune_height) {
+            entry.block.reset();
+        }
+    }
 }
 
 StorageError ChainstateStore::commit(
@@ -1246,121 +1382,204 @@ StorageError ChainstateStore::commit(
         return StorageError::io_error;
     }
 
-    std::size_t committed_count{0U};
-
+    DiskState previous_state;
+    bool have_previous_state{false};
     {
-        DiskState old_state;
-        const auto old_error =
+        const auto previous_error =
             parse_state_file(
                 state_path(),
                 params_,
-                old_state);
-
-        if (old_error == StorageError::none) {
-            committed_count =
-                old_state.index.size();
-        } else if (
-            old_error != StorageError::not_found) {
-            return old_error;
+                previous_state);
+        if (previous_error == StorageError::none) {
+            have_previous_state = true;
+        } else if (previous_error != StorageError::not_found) {
+            return previous_error;
         }
     }
 
-    if (committed_count >
-        chain.acceptance_order_.size()) {
-        return StorageError::state_mismatch;
-    }
+    std::uint64_t next_generation{0U};
 
-    auto scan =
-        scan_block_file(
-            blocks_path(),
-            committed_count,
-            params_);
-
-    if (scan.error != StorageError::none) {
-        return scan.error;
-    }
-
-    for (std::size_t i = 0U;
-         i < committed_count;
-         ++i) {
-        const auto& expected_hash =
-            chain.acceptance_order_[i];
-
-        const auto index_it =
-            chain.block_index_.find(expected_hash);
-
-        if (index_it ==
-                chain.block_index_.end() ||
-            block_hash(
-                scan.blocks[i].header) !=
-                expected_hash ||
-            serialize_block_bytes(
-                scan.blocks[i]) !=
-                serialize_block_bytes(
-                    index_it->second.block)) {
-            return StorageError::state_mismatch;
+    if (prune_policy_.enabled) {
+        if (have_previous_state &&
+            previous_state.block_generation ==
+                std::numeric_limits<std::uint64_t>::max()) {
+            return StorageError::bad_format;
         }
-    }
+        next_generation = have_previous_state
+            ? previous_state.block_generation + 1U
+            : 1U;
 
-    {
-        const auto path = blocks_path();
-        const bool exists =
-            std::filesystem::exists(path, ec);
+        const auto status = prune_status(chain);
+        std::vector<const Block*> retained;
+        retained.reserve(chain.acceptance_order_.size());
 
-        if (ec) {
-            return StorageError::io_error;
-        }
-
-        if (exists) {
-            const auto current_size =
-                std::filesystem::file_size(path, ec);
-
-            if (ec ||
-                current_size <
-                    scan.committed_size) {
-                return StorageError::truncated;
+        for (const auto& hash : chain.acceptance_order_) {
+            const auto it = chain.block_index_.find(hash);
+            if (it == chain.block_index_.end()) {
+                return StorageError::state_mismatch;
             }
 
-            if (current_size !=
-                scan.committed_size) {
-                std::filesystem::resize_file(
-                    path,
-                    scan.committed_size,
-                    ec);
+            const bool keep =
+                !status.prune_height ||
+                it->second.height > *status.prune_height;
 
-                if (ec) {
-                    return StorageError::io_error;
+            if (keep) {
+                if (!it->second.block) {
+                    return StorageError::state_mismatch;
+                }
+                retained.push_back(&*it->second.block);
+            }
+        }
+
+        auto temporary_blocks =
+            generation_blocks_path(
+                directory_,
+                next_generation);
+        temporary_blocks += ".tmp";
+        const auto write_error =
+            write_block_records_synced(
+                temporary_blocks,
+                retained);
+        if (write_error != StorageError::none) {
+            return write_error;
+        }
+
+        const auto generation_path =
+            generation_blocks_path(
+                directory_,
+                next_generation);
+        if (!atomic_replace(
+                temporary_blocks,
+                generation_path)) {
+            return StorageError::io_error;
+        }
+    }
+
+    if (!prune_policy_.enabled) {
+        std::size_t committed_count{0U};
+    
+        {
+            DiskState old_state;
+            const auto old_error =
+                parse_state_file(
+                    state_path(),
+                    params_,
+                    old_state);
+    
+            if (old_error == StorageError::none) {
+                committed_count =
+                    old_state.index.size();
+            } else if (
+                old_error != StorageError::not_found) {
+                return old_error;
+            }
+        }
+    
+        if (committed_count >
+            chain.acceptance_order_.size()) {
+            return StorageError::state_mismatch;
+        }
+    
+        auto scan =
+            scan_block_file(
+                blocks_path(),
+                committed_count,
+                params_);
+    
+        if (scan.error != StorageError::none) {
+            return scan.error;
+        }
+    
+        for (std::size_t i = 0U;
+             i < committed_count;
+             ++i) {
+            const auto& expected_hash =
+                chain.acceptance_order_[i];
+    
+            const auto index_it =
+                chain.block_index_.find(expected_hash);
+    
+            if (index_it ==
+                    chain.block_index_.end() ||
+                block_hash(
+                    scan.blocks[i].header) !=
+                    expected_hash ||
+                !index_it->second.block ||
+                serialize_block_bytes(
+                    scan.blocks[i]) !=
+                    serialize_block_bytes(
+                        *index_it->second.block)) {
+                return StorageError::state_mismatch;
+            }
+        }
+    
+        {
+            const auto path = blocks_path();
+            const bool exists =
+                std::filesystem::exists(path, ec);
+    
+            if (ec) {
+                return StorageError::io_error;
+            }
+    
+            if (exists) {
+                const auto current_size =
+                    std::filesystem::file_size(path, ec);
+    
+                if (ec ||
+                    current_size <
+                        scan.committed_size) {
+                    return StorageError::truncated;
+                }
+    
+                if (current_size !=
+                    scan.committed_size) {
+                    std::filesystem::resize_file(
+                        path,
+                        scan.committed_size,
+                        ec);
+    
+                    if (ec) {
+                        return StorageError::io_error;
+                    }
                 }
             }
         }
+    
+        for (std::size_t i = committed_count;
+             i < chain.acceptance_order_.size();
+             ++i) {
+            const auto index_it =
+                chain.block_index_.find(
+                    chain.acceptance_order_[i]);
+    
+            if (index_it ==
+                    chain.block_index_.end() ||
+                !index_it->second.block) {
+                return StorageError::state_mismatch;
+            }
+    
+            const auto record =
+                make_block_record(
+                    *index_it->second.block);
+    
+            const auto append_error =
+                append_file_synced(
+                    blocks_path(),
+                    record);
+    
+            if (append_error !=
+                StorageError::none) {
+                return append_error;
+            }
+        }
+    
     }
 
-    for (std::size_t i = committed_count;
-         i < chain.acceptance_order_.size();
-         ++i) {
-        const auto index_it =
-            chain.block_index_.find(
-                chain.acceptance_order_[i]);
-
-        if (index_it ==
-            chain.block_index_.end()) {
-            return StorageError::state_mismatch;
-        }
-
-        const auto record =
-            make_block_record(
-                index_it->second.block);
-
-        const auto append_error =
-            append_file_synced(
-                blocks_path(),
-                record);
-
-        if (append_error !=
-            StorageError::none) {
-            return append_error;
-        }
-    }
+    const std::uint32_t snapshot_version =
+        prune_policy_.enabled
+            ? kStorageVersion
+            : kStorageVersionV1;
 
     Bytes state;
     state.reserve(1024U);
@@ -1368,7 +1587,7 @@ StorageError ChainstateStore::commit(
     append_literal(state, kStateMagic);
     append_little_endian(
         state,
-        kStorageVersion);
+        snapshot_version);
     state.push_back(
         static_cast<Byte>(params_.network));
     append_literal(
@@ -1379,6 +1598,15 @@ StorageError ChainstateStore::commit(
     append_hash(
         state,
         params_.genesis.hash);
+    if (snapshot_version >= kStorageVersion) {
+        // Pruned snapshots name the exact block-store generation they
+        // were built against. Archival mode deliberately stays on the
+        // legacy v1 layout so an upgrade does not destroy rollback
+        // compatibility with existing installations.
+        append_little_endian(
+            state,
+            next_generation);
+    }
 
     append_little_endian(
         state,
@@ -1405,6 +1633,28 @@ StorageError ChainstateStore::commit(
             it->second.chain_work);
         state.push_back(
             it->second.failed ? 1U : 0U);
+
+        if (snapshot_version >= kStorageVersionV2) {
+            const auto header_bytes =
+                serialize_block_header(it->second.header);
+            state.insert(
+                state.end(),
+                header_bytes.begin(),
+                header_bytes.end());
+        }
+
+        if (snapshot_version >= kStorageVersion) {
+            bool body_available =
+                it->second.block.has_value();
+            const auto status = prune_status(chain);
+            body_available =
+                body_available &&
+                (!status.prune_height ||
+                 it->second.height >
+                     *status.prune_height);
+            state.push_back(
+                body_available ? 1U : 0U);
+        }
     }
 
     append_little_endian(
@@ -1459,6 +1709,23 @@ StorageError ChainstateStore::commit(
         return StorageError::io_error;
     }
 
+    // The new snapshot is now authoritative. Only after this durable
+    // switch is it safe to remove the generation referenced by the
+    // previous snapshot. Cleanup failure is non-fatal: keeping an
+    // obsolete generation wastes disk space but cannot corrupt state.
+    if (prune_policy_.enabled &&
+        have_previous_state &&
+        previous_state.block_generation != next_generation) {
+        const auto obsolete_path =
+            generation_blocks_path(
+                directory_,
+                previous_state.block_generation);
+        std::error_code cleanup_ec;
+        (void)std::filesystem::remove(
+            obsolete_path,
+            cleanup_ec);
+    }
+
     return StorageError::none;
 }
 
@@ -1474,6 +1741,198 @@ StorageError ChainstateStore::load(
 
     if (state_error != StorageError::none) {
         return state_error;
+    }
+
+    if (disk.version >= kStorageVersion &&
+        disk.block_generation != 0U) {
+        const auto body_count =
+            static_cast<std::size_t>(
+                std::count_if(
+                    disk.index.begin(),
+                    disk.index.end(),
+                    [](const IndexMeta& meta) {
+                        return meta.body_available;
+                    }));
+
+        auto scan = scan_block_file(
+            generation_blocks_path(
+                directory_,
+                disk.block_generation),
+            body_count,
+            params_);
+        if (scan.error != StorageError::none ||
+            scan.blocks.size() != body_count) {
+            return scan.error != StorageError::none
+                ? scan.error
+                : StorageError::truncated;
+        }
+
+        Chainstate restored{params_};
+        std::size_t body_index{0U};
+
+        for (const auto& meta : disk.index) {
+            // Pruned entries no longer have a block body to cross-check.
+            // Their persisted header must therefore authenticate the
+            // stored index hash on its own.
+            if (block_hash(meta.header) != meta.hash) {
+                return StorageError::state_mismatch;
+            }
+
+            std::optional<Block> body;
+            if (meta.body_available) {
+                if (body_index >= scan.blocks.size()) {
+                    return StorageError::truncated;
+                }
+                const auto& candidate =
+                    scan.blocks[body_index++];
+                if (block_hash(candidate.header) !=
+                        meta.hash ||
+                    serialize_block_header(
+                        candidate.header) !=
+                    serialize_block_header(
+                        meta.header)) {
+                    return StorageError::state_mismatch;
+                }
+                body = candidate;
+            }
+
+            Hash256 expected_chain_work{};
+            if (meta.height == 0U) {
+                if (meta.parent != Hash256{}) {
+                    return StorageError::state_mismatch;
+                }
+            } else {
+                const auto parent_it =
+                    restored.block_index_.find(meta.parent);
+                if (parent_it == restored.block_index_.end() ||
+                    parent_it->second.height + 1U != meta.height) {
+                    return StorageError::state_mismatch;
+                }
+                expected_chain_work =
+                    parent_it->second.chain_work;
+            }
+
+            const BlockIndexEntry* parent_ptr = nullptr;
+            if (meta.height != 0U) {
+                const auto parent_it =
+                    restored.block_index_.find(meta.parent);
+                if (parent_it == restored.block_index_.end()) {
+                    return StorageError::state_mismatch;
+                }
+                parent_ptr = &parent_it->second;
+            }
+
+            Block header_candidate{};
+            header_candidate.header = meta.header;
+            const auto required_bits =
+                restored.expected_bits(
+                    header_candidate,
+                    parent_ptr);
+            if (!required_bits ||
+                *required_bits != meta.header.bits) {
+                return StorageError::state_mismatch;
+            }
+
+            const auto pow_error =
+                params_.pow.pow_algorithm ==
+                        consensus::PowAlgorithm::randomx_v2
+                    ? [&]() {
+                          const auto seed =
+                              restored.randomx_seed_key_for(
+                                  parent_ptr,
+                                  meta.height);
+                          return seed
+                              ? consensus::check_randomx_proof_of_work(
+                                    meta.header,
+                                    params_.pow,
+                                    *seed)
+                              : consensus::PowCheckError::hashing_failed;
+                      }()
+                    : consensus::check_proof_of_work(
+                          meta.header,
+                          params_.pow);
+            if (pow_error != consensus::PowCheckError::none) {
+                return StorageError::state_mismatch;
+            }
+
+            const auto compact =
+                consensus::decode_compact_target(
+                    meta.header.bits);
+            if (!compact.valid() ||
+                consensus::encode_compact_target(
+                    compact.target) != meta.header.bits ||
+                !consensus::add_chain_work(
+                    expected_chain_work,
+                    consensus::work_for_target(
+                        compact.target)) ||
+                expected_chain_work != meta.chain_work) {
+                return StorageError::state_mismatch;
+            }
+
+            const auto [inserted_it, inserted] =
+                restored.block_index_.emplace(
+                    meta.hash,
+                    BlockIndexEntry{
+                        .block = std::move(body),
+                        .header = meta.header,
+                        .hash = meta.hash,
+                        .parent = meta.parent,
+                        .height = meta.height,
+                        .chain_work = meta.chain_work,
+                        .failed = meta.failed,
+                    });
+            (void)inserted_it;
+            if (!inserted) {
+                return StorageError::state_mismatch;
+            }
+
+            restored.acceptance_order_.push_back(
+                meta.hash);
+        }
+
+        if (body_index != scan.blocks.size()) {
+            return StorageError::state_mismatch;
+        }
+
+        restored.chain_.reserve(disk.active.size());
+        for (std::size_t active_index = 0U;
+             active_index < disk.active.size();
+             ++active_index) {
+            const auto& stored =
+                disk.active[active_index];
+            const auto index_it =
+                restored.block_index_.find(
+                    stored.hash);
+            if (index_it ==
+                    restored.block_index_.end() ||
+                index_it->second.failed ||
+                index_it->second.height !=
+                    stored.height ||
+                index_it->second.chain_work !=
+                    stored.chain_work ||
+                stored.height != active_index ||
+                (active_index == 0U
+                     ? index_it->second.parent != Hash256{}
+                     : index_it->second.parent !=
+                           disk.active[
+                               active_index - 1U].hash)) {
+                return StorageError::state_mismatch;
+            }
+            restored.chain_.push_back(
+                ChainEntry{
+                    .hash = stored.hash,
+                    .header =
+                        index_it->second.header,
+                    .height = stored.height,
+                    .chain_work =
+                        stored.chain_work,
+                    .undo = stored.undo,
+                });
+        }
+
+        restored.utxos_.coins_ = disk.utxos;
+        chain = std::move(restored);
+        return StorageError::none;
     }
 
     auto scan =
@@ -1504,6 +1963,19 @@ StorageError ChainstateStore::load(
             return StorageError::state_mismatch;
         }
 
+        // v1 snapshots did not persist headers. The verified block log is
+        // the authoritative migration source. v2 must match exactly.
+        const auto block_header_bytes =
+            serialize_block_header(block.header);
+
+        if (disk.version == kStorageVersionV1) {
+            disk.index[i].header = block.header;
+        } else if (serialize_block_header(
+                       disk.index[i].header) !=
+                   block_header_bytes) {
+            return StorageError::state_mismatch;
+        }
+
         const auto result =
             replay.connect_block(
                 block,
@@ -1525,7 +1997,11 @@ StorageError ChainstateStore::load(
             it->second.height !=
                 disk.index[i].height ||
             it->second.chain_work !=
-                disk.index[i].chain_work) {
+                disk.index[i].chain_work ||
+            serialize_block_header(
+                it->second.header) !=
+                serialize_block_header(
+                    disk.index[i].header)) {
             return StorageError::state_mismatch;
         }
     }
@@ -1557,9 +2033,13 @@ StorageError ChainstateStore::load(
             return StorageError::state_mismatch;
         }
 
+        if (!block_it->second.block) {
+            return StorageError::state_mismatch;
+        }
+
         const auto result =
             active.connect_block(
-                block_it->second.block,
+                *block_it->second.block,
                 std::numeric_limits<
                     std::uint64_t>::max());
 
@@ -1635,9 +2115,13 @@ StorageError ChainstateStore::load(
 
 PersistentChainstate::PersistentChainstate(
     const consensus::ChainParams& params,
-    std::filesystem::path directory)
+    std::filesystem::path directory,
+    PrunePolicy prune_policy)
     : chain_(params),
-      store_(std::move(directory), params)
+      store_(
+          std::move(directory),
+          params,
+          prune_policy)
 {
 }
 
@@ -1685,6 +2169,7 @@ PersistentChainstate::connect_block(
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 
@@ -1716,6 +2201,7 @@ PersistentChainstate::connect_block(
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 
@@ -1744,6 +2230,7 @@ PersistentChainstate::disconnect_tip()
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 

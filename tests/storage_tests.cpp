@@ -2,8 +2,11 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/tx_auth.hpp"
+#include "crypto/secp256k1.hpp"
 #include "primitives/block.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
@@ -63,6 +66,38 @@ quintum::Block make_block(
             block.header,
             10'000U);
 
+    assert(mined.found());
+    return block;
+}
+
+quintum::crypto::PrivateKey pruning_test_key()
+{
+    quintum::crypto::PrivateKey key{};
+    key.back() = 1U;
+    return key;
+}
+
+quintum::Bytes pruning_test_script()
+{
+    const auto public_key =
+        quintum::crypto::derive_public_key(pruning_test_key());
+    assert(public_key);
+    return quintum::consensus::make_p2pk_locking_script(*public_key);
+}
+
+quintum::Block make_block_with_transactions(
+    const quintum::Hash256& previous,
+    std::uint32_t height,
+    std::vector<quintum::Transaction> transactions)
+{
+    quintum::Block block;
+    block.header.previous_block = previous;
+    block.header.timestamp = 1'700'000'000ULL + height;
+    block.header.bits = 0x2100ffffU;
+    block.transactions = std::move(transactions);
+    quintum::update_merkle_root(block);
+    const auto mined =
+        quintum::consensus::mine_header(block.header, 10'000U);
     assert(mined.found());
     return block;
 }
@@ -428,6 +463,365 @@ void test_truncated_committed_block_is_rejected()
     std::filesystem::remove_all(directory, ec);
 }
 
+
+void test_physical_prune_restart_and_continue()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-physical-prune");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 2U,
+    };
+
+    quintum::Hash256 tip{};
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+
+        quintum::Hash256 zero{};
+        const auto genesis =
+            make_block(zero, 0U, 0x70U);
+        const auto h0 =
+            quintum::block_hash(genesis.header);
+        const auto b1 =
+            make_block(h0, 1U, 0x71U);
+        const auto h1 =
+            quintum::block_hash(b1.header);
+        const auto b2 =
+            make_block(h1, 2U, 0x72U);
+        const auto h2 =
+            quintum::block_hash(b2.header);
+        const auto b3 =
+            make_block(h2, 3U, 0x73U);
+
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(b1).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+
+        tip = quintum::block_hash(b3.header);
+        assert(node.chain().block(h0) == nullptr);
+        assert(node.chain().block(h1) == nullptr);
+
+        std::ifstream state(
+            node.store().state_path(),
+            std::ios::binary);
+        assert(state);
+        std::array<unsigned char, 12> prefix{};
+        state.read(
+            reinterpret_cast<char*>(prefix.data()),
+            static_cast<std::streamsize>(prefix.size()));
+        assert(state.gcount() ==
+               static_cast<std::streamsize>(prefix.size()));
+        const std::uint32_t version =
+            static_cast<std::uint32_t>(prefix[8]) |
+            (static_cast<std::uint32_t>(prefix[9]) << 8U) |
+            (static_cast<std::uint32_t>(prefix[10]) << 16U) |
+            (static_cast<std::uint32_t>(prefix[11]) << 24U);
+        assert(version == 3U);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(
+            restarted.load() ==
+            quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 3U);
+        assert(restarted.chain().tip_hash());
+        assert(*restarted.chain().tip_hash() == tip);
+        assert(restarted.chain().utxos().size() == 4U);
+
+        const auto b4 =
+            make_block(tip, 4U, 0x74U);
+        assert(restarted.connect_block(b4).ok());
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 4U);
+
+        // A successful second pruned commit switches the snapshot to
+        // generation 5 and may only then delete generation 4.
+        assert(!std::filesystem::exists(
+            directory / "blocks.4.dat"));
+        assert(std::filesystem::exists(
+            directory / "blocks.5.dat"));
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
+void test_spend_utxo_from_pruned_block_after_restart()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-pruned-utxo-spend");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 2U,
+    };
+
+    quintum::Transaction funding_coinbase;
+    funding_coinbase.inputs.push_back(quintum::TxInput{
+        .unlocking_script = {0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0xa0U},
+    });
+    funding_coinbase.outputs.push_back(quintum::TxOutput{
+        .value = quintum::consensus::block_subsidy(0U),
+        .locking_script = pruning_test_script(),
+    });
+
+    quintum::Hash256 tip{};
+    const auto funding_txid =
+        quintum::transaction_id(funding_coinbase);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+        quintum::Hash256 zero{};
+        const auto genesis = make_block_with_transactions(
+            zero, 0U, {funding_coinbase});
+        const auto genesis_hash =
+            quintum::block_hash(genesis.header);
+        assert(node.connect_block(genesis).ok());
+        tip = genesis_hash;
+
+        for (std::uint32_t height = 1U;
+             height <= 100U;
+             ++height) {
+            const auto block =
+                make_block(tip, height,
+                           static_cast<quintum::Byte>(height));
+            assert(node.connect_block(block).ok());
+            tip = quintum::block_hash(block.header);
+        }
+
+        assert(node.chain().block(genesis_hash) == nullptr);
+        assert(node.chain().utxos().contains(
+            quintum::OutPoint{.txid = funding_txid, .index = 0U}));
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(restarted.load() == quintum::StorageError::none);
+
+        const quintum::OutPoint funding{
+            .txid = funding_txid,
+            .index = 0U,
+        };
+        assert(restarted.chain().utxos().contains(funding));
+
+        quintum::Transaction spend;
+        spend.inputs.push_back(quintum::TxInput{
+            .previous_output = funding,
+        });
+        spend.outputs.push_back(quintum::TxOutput{
+            .value = funding_coinbase.outputs.front().value - 100U,
+            .locking_script = pruning_test_script(),
+        });
+        assert(
+            quintum::consensus::sign_p2pk_input(
+                spend,
+                0U,
+                funding_coinbase.outputs.front(),
+                pruning_test_key()) ==
+            quintum::consensus::InputAuthError::none);
+
+        const auto block101 = make_block_with_transactions(
+            tip,
+            101U,
+            {
+                make_coinbase(101U, 0xb1U),
+                spend,
+            });
+        const auto result =
+            restarted.connect_block(block101);
+        assert(result.ok());
+        assert(result.chain.total_fees == 100U);
+        assert(!restarted.chain().utxos().contains(funding));
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
+void test_pruned_reorg_within_retained_window()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-pruned-reorg");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 3U,
+    };
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0x80U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto a1 = make_block(h0, 1U, 0x81U);
+    const auto h1 = quintum::block_hash(a1.header);
+    const auto a2 = make_block(h1, 2U, 0x82U);
+    const auto h2 = quintum::block_hash(a2.header);
+    const auto a3 = make_block(h2, 3U, 0x83U);
+    const auto h3 = quintum::block_hash(a3.header);
+    const auto b2 = make_block(h1, 2U, 0x92U);
+    const auto bh2 = quintum::block_hash(b2.header);
+    const auto b3 = make_block(bh2, 3U, 0x93U);
+    const auto bh3 = quintum::block_hash(b3.header);
+    const auto b4 = make_block(bh3, 4U, 0x94U);
+    const auto bh4 = quintum::block_hash(b4.header);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(a1).ok());
+        assert(node.connect_block(a2).ok());
+        assert(node.connect_block(a3).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+        assert(node.chain().tip_hash());
+        assert(*node.chain().tip_hash() == h3);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(restarted.load() == quintum::StorageError::none);
+        assert(restarted.chain().block(h0) == nullptr);
+        assert(restarted.chain().block(h1) != nullptr);
+        const auto reorg = restarted.connect_block(b4);
+        assert(reorg.ok());
+        assert(reorg.chain.activated);
+        assert(reorg.chain.reorganized);
+        assert(restarted.chain().tip_hash());
+        assert(*restarted.chain().tip_hash() == bh4);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 4U);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
+void test_archival_mode_retains_all_block_bodies()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-archival");
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0xa0U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto b1 = make_block(h0, 1U, 0xa1U);
+    const auto h1 = quintum::block_hash(b1.header);
+    const auto b2 = make_block(h1, 2U, 0xa2U);
+    const auto h2 = quintum::block_hash(b2.header);
+    const auto b3 = make_block(h2, 3U, 0xa3U);
+    const auto h3 = quintum::block_hash(b3.header);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory};
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(b1).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+
+        const auto status =
+            node.store().prune_status(node.chain());
+        assert(!status.enabled);
+        assert(node.chain().block(h0) != nullptr);
+        assert(node.chain().block(h1) != nullptr);
+        assert(node.chain().block(h2) != nullptr);
+        assert(node.chain().block(h3) != nullptr);
+
+        std::ifstream state(
+            node.store().state_path(),
+            std::ios::binary);
+        assert(state);
+        std::array<unsigned char, 12> prefix{};
+        state.read(
+            reinterpret_cast<char*>(prefix.data()),
+            static_cast<std::streamsize>(prefix.size()));
+        assert(state.gcount() ==
+               static_cast<std::streamsize>(prefix.size()));
+        const std::uint32_t version =
+            static_cast<std::uint32_t>(prefix[8]) |
+            (static_cast<std::uint32_t>(prefix[9]) << 8U) |
+            (static_cast<std::uint32_t>(prefix[10]) << 16U) |
+            (static_cast<std::uint32_t>(prefix[11]) << 24U);
+        assert(version == 1U);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory};
+        assert(restarted.load() == quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 3U);
+        assert(restarted.chain().block(h0) != nullptr);
+        assert(restarted.chain().block(h1) != nullptr);
+        assert(restarted.chain().block(h2) != nullptr);
+        assert(restarted.chain().block(h3) != nullptr);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
+void test_prune_policy_boundary()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-prune-policy");
+
+    quintum::PersistentChainstate node{
+        params,
+        directory,
+        quintum::PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0x60U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto b1 = make_block(h0, 1U, 0x61U);
+    const auto h1 = quintum::block_hash(b1.header);
+    const auto b2 = make_block(h1, 2U, 0x62U);
+
+    assert(node.connect_block(genesis).ok());
+    assert(node.connect_block(b1).ok());
+    assert(node.connect_block(b2).ok());
+
+    const auto status =
+        node.store().prune_status(node.chain());
+
+    assert(status.enabled);
+    assert(status.keep_recent_blocks == 2U);
+    assert(status.prune_height);
+    assert(*status.prune_height == 0U);
+
+    quintum::PersistentChainstate restarted{
+        params,
+        directory,
+        quintum::PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+
+    assert(restarted.load() == quintum::StorageError::none);
+    assert(restarted.chain().height());
+    assert(*restarted.chain().height() == 2U);
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 } // namespace
 
 int main()
@@ -436,5 +830,10 @@ int main()
     test_uncommitted_block_tail_is_ignored();
     test_corruption_and_wrong_network_are_rejected();
     test_truncated_committed_block_is_rejected();
+    test_prune_policy_boundary();
+    test_physical_prune_restart_and_continue();
+    test_spend_utxo_from_pruned_block_after_restart();
+    test_pruned_reorg_within_retained_window();
+    test_archival_mode_retains_all_block_bodies();
     return 0;
 }

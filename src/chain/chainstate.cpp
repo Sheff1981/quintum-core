@@ -267,9 +267,10 @@ const Block* Chainstate::block(
     const Hash256& hash) const noexcept
 {
     const auto it = block_index_.find(hash);
-    return it == block_index_.end()
+    return it == block_index_.end() ||
+            !it->second.block
         ? nullptr
-        : &it->second.block;
+        : &*it->second.block;
 }
 
 std::optional<std::uint32_t> Chainstate::next_work_required(
@@ -417,7 +418,7 @@ std::optional<std::uint64_t> Chainstate::median_time_past(
          count < params_.time.median_time_span;
          ++count) {
         timestamps.push_back(
-            cursor->block.header.timestamp);
+            cursor->header.timestamp);
 
         if (cursor->height == 0U) {
             break;
@@ -449,7 +450,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     }
 
     if (pow.no_retargeting) {
-        return parent->block.header.bits;
+        return parent->header.bits;
     }
 
     if (pow.target_spacing_seconds == 0U) {
@@ -478,10 +479,10 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
                     : pow.target_spacing_seconds * 2U;
 
             const std::uint64_t threshold =
-                parent->block.header.timestamp >
+                parent->header.timestamp >
                         std::numeric_limits<std::uint64_t>::max() - delay
                     ? std::numeric_limits<std::uint64_t>::max()
-                    : parent->block.header.timestamp + delay;
+                    : parent->header.timestamp + delay;
 
             if (block.header.timestamp > threshold) {
                 return pow.pow_limit_bits;
@@ -510,13 +511,13 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
         std::uint64_t anchor_parent_time{0U};
 
         if (anchor->height == 0U) {
-            if (anchor->block.header.timestamp <
+            if (anchor->header.timestamp <
                 pow.target_spacing_seconds) {
                 return std::nullopt;
             }
 
             anchor_parent_time =
-                anchor->block.header.timestamp -
+                anchor->header.timestamp -
                 pow.target_spacing_seconds;
         } else {
             const auto anchor_parent =
@@ -529,10 +530,10 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
             anchor_parent_time =
                 anchor_parent->second.
-                    block.header.timestamp;
+                    header.timestamp;
         }
 
-        if (parent->block.header.timestamp >
+        if (parent->header.timestamp >
                 static_cast<std::uint64_t>(
                     std::numeric_limits<std::int64_t>::max()) ||
             anchor_parent_time >
@@ -543,7 +544,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
         const std::int64_t time_diff =
             static_cast<std::int64_t>(
-                parent->block.header.timestamp
+                parent->header.timestamp
             ) -
             static_cast<std::int64_t>(
                 anchor_parent_time
@@ -557,7 +558,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
         const auto asert =
             consensus::calculate_asert_bits(
-                anchor->block.header.bits,
+                anchor->header.bits,
                 static_cast<std::int64_t>(
                     pow.target_spacing_seconds
                 ),
@@ -595,10 +596,10 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
                     : pow.target_spacing_seconds * 2U;
 
             const std::uint64_t threshold =
-                parent->block.header.timestamp >
+                parent->header.timestamp >
                         std::numeric_limits<std::uint64_t>::max() - delay
                     ? std::numeric_limits<std::uint64_t>::max()
-                    : parent->block.header.timestamp + delay;
+                    : parent->header.timestamp + delay;
 
             if (block.header.timestamp > threshold) {
                 return pow.pow_limit_bits;
@@ -607,7 +608,7 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
             const BlockIndexEntry* cursor = parent;
 
             while ((cursor->height % pow.retarget_interval) != 0U &&
-                   cursor->block.header.bits ==
+                   cursor->header.bits ==
                        pow.pow_limit_bits) {
                 const auto it =
                     block_index_.find(cursor->parent);
@@ -619,10 +620,10 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
                 cursor = &it->second;
             }
 
-            return cursor->block.header.bits;
+            return cursor->header.bits;
         }
 
-        return parent->block.header.bits;
+        return parent->header.bits;
     }
 
     const BlockIndexEntry* first = parent;
@@ -642,9 +643,9 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
     const auto retarget =
         consensus::calculate_retarget_bits(
-            parent->block.header.bits,
-            first->block.header.timestamp,
-            parent->block.header.timestamp,
+            parent->header.bits,
+            first->header.timestamp,
+            parent->header.timestamp,
             pow
         );
 
@@ -824,6 +825,7 @@ ChainConnectResult Chainstate::connect_block(
         hash,
         BlockIndexEntry{
             .block = block,
+            .header = block.header,
             .hash = hash,
             .parent = block.header.previous_block,
             .height = new_height,
@@ -991,8 +993,14 @@ ChainConnectResult Chainstate::connect_block(
             }
         }
 
+        if (!index_it->second.block) {
+            result.error =
+                ChainConnectError::block_body_unavailable;
+            return result;
+        }
+
         auto applied = apply_block_to_view(
-            index_it->second.block,
+            *index_it->second.block,
             staged_utxos,
             staged_height,
             staged_parent_work,

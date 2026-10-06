@@ -642,6 +642,100 @@ void test_hidden_stem_transaction_not_served()
     );
 }
 
+void test_pruned_block_request_returns_notfound()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params = consensus::regtest_params();
+    const auto dir = unique_dir("pruned-notfound");
+    const std::uint64_t now =
+        params.genesis.timestamp + 47'000U;
+    const auto payout = payout_script(5U);
+
+    NodeRuntime node{
+        params,
+        dir,
+        PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+    assert(node.start_at(now).ok());
+
+    const auto genesis_hash = *node.chain().tip_hash();
+    for (std::uint32_t height = 1U;
+         height <= 3U;
+         ++height) {
+        const auto mined = node.mine_block_at(
+            payout,
+            now + height,
+            4'096U);
+        assert(mined.ok());
+    }
+
+    assert(node.chain().block(genesis_hash) == nullptr);
+
+    PeerListener listener{params};
+    assert(listener.listen("127.0.0.1", 0U) ==
+           PeerError::none);
+
+    RelayResult served;
+    std::thread server([&] {
+        auto accepted = listener.accept_and_handshake(
+            version(0x1831U, 3U),
+            5'000U);
+        if (!accepted.ok()) {
+            served.error = RelayError::transport_failed;
+            served.peer_error = accepted.error;
+            return;
+        }
+        served = serve_relay_once(
+            *accepted.session,
+            node);
+        accepted.session->close();
+    });
+
+    auto connected = connect_and_handshake(
+        params,
+        "127.0.0.1",
+        listener.local_port(),
+        version(0x1832U, 3U),
+        5'000U);
+    assert(connected.ok());
+
+    const std::array<InventoryItem, 1> request{
+        InventoryItem{
+            .type = kInventoryBlock,
+            .hash = genesis_hash,
+        }
+    };
+    assert(connected.session->send_command(
+               "getdata",
+               serialize_inventory(request)) ==
+           PeerError::none);
+
+    WireMessage response;
+    assert(connected.session->receive_command(
+               response) ==
+           PeerError::none);
+    assert(response.command == "notfound");
+
+    const auto missing = parse_inventory(
+        response.payload);
+    assert(missing.has_value());
+    assert(missing->size() == 1U);
+    assert(missing->front().type == kInventoryBlock);
+    assert(missing->front().hash == genesis_hash);
+
+    connected.session->close();
+    server.join();
+    assert(served.ok());
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 void test_mempool_inventory_catchup()
 {
     using namespace quintum;
@@ -885,6 +979,7 @@ int main()
     test_local_mempool_validation_and_mining();
     test_live_transaction_and_block_relay();
     test_hidden_stem_transaction_not_served();
+    test_pruned_block_request_returns_notfound();
     test_mempool_inventory_catchup();
     test_hidden_stem_transaction_is_not_disclosed();
     return 0;
