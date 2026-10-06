@@ -472,6 +472,10 @@ private:
         const Hash256& txid
     );
 
+    void promote_private_transaction(
+        const Hash256& txid
+    );
+
     [[nodiscard]] std::vector<Hash256>
     hidden_transaction_ids();
 
