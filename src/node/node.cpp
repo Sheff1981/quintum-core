@@ -24,9 +24,10 @@ std::uint64_t unix_time_now() noexcept
 
 NodeRuntime::NodeRuntime(
     const consensus::ChainParams& params,
-    std::filesystem::path directory)
+    std::filesystem::path directory,
+    PrunePolicy prune_policy)
     : params_(params),
-      persistent_(params, std::move(directory))
+      persistent_(params, std::move(directory), prune_policy)
 {
 }
 
