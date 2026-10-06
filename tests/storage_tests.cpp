@@ -428,6 +428,58 @@ void test_truncated_committed_block_is_rejected()
     std::filesystem::remove_all(directory, ec);
 }
 
+
+void test_prune_policy_boundary()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-prune-policy");
+
+    quintum::PersistentChainstate node{
+        params,
+        directory,
+        quintum::PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0x60U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto b1 = make_block(h0, 1U, 0x61U);
+    const auto h1 = quintum::block_hash(b1.header);
+    const auto b2 = make_block(h1, 2U, 0x62U);
+
+    assert(node.connect_block(genesis).ok());
+    assert(node.connect_block(b1).ok());
+    assert(node.connect_block(b2).ok());
+
+    const auto status =
+        node.store().prune_status(node.chain());
+
+    assert(status.enabled);
+    assert(status.keep_recent_blocks == 2U);
+    assert(status.prune_height);
+    assert(*status.prune_height == 0U);
+
+    quintum::PersistentChainstate restarted{
+        params,
+        directory,
+        quintum::PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+
+    assert(restarted.load() == quintum::StorageError::none);
+    assert(restarted.chain().height());
+    assert(*restarted.chain().height() == 2U);
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 } // namespace
 
 int main()
@@ -436,5 +488,6 @@ int main()
     test_uncommitted_block_tail_is_ignored();
     test_corruption_and_wrong_network_are_rejected();
     test_truncated_committed_block_is_rejected();
+    test_prune_policy_boundary();
     return 0;
 }
