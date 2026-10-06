@@ -1573,8 +1573,19 @@ StorageError ChainstateStore::load(
 
         // v1 snapshots did not persist headers. The block log is verified
         // before replay, so it is the authoritative migration source.
-        if (disk.index[i].header != block.header &&
-            disk.index[i].header != BlockHeader{}) {
+        const auto stored_header_bytes =
+            serialize_block_header(
+                disk.index[i].header);
+        const auto block_header_bytes =
+            serialize_block_header(block.header);
+        const auto default_header_bytes =
+            serialize_block_header(
+                BlockHeader{});
+
+        if (stored_header_bytes !=
+                block_header_bytes &&
+            stored_header_bytes !=
+                default_header_bytes) {
             return StorageError::state_mismatch;
         }
         disk.index[i].header = block.header;
@@ -1601,8 +1612,10 @@ StorageError ChainstateStore::load(
                 disk.index[i].height ||
             it->second.chain_work !=
                 disk.index[i].chain_work ||
-            it->second.header !=
-                disk.index[i].header) {
+            serialize_block_header(
+                it->second.header) !=
+                serialize_block_header(
+                    disk.index[i].header)) {
             return StorageError::state_mismatch;
         }
     }
