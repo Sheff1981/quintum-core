@@ -6,6 +6,7 @@
 #include "crypto/secp256k1.hpp"
 #include "primitives/block.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
