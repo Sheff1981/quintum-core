@@ -74,6 +74,8 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_timeout_seconds{30U};
     std::uint64_t block_request_timeout_seconds{30U};
     std::size_t max_block_requests_in_flight{16U};
+    std::uint64_t transaction_request_timeout_seconds{15U};
+    std::size_t max_transaction_requests_in_flight{256U};
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
@@ -410,6 +412,11 @@ private:
         std::uint64_t requested_at{0U};
     };
 
+    struct PendingTransactionRequest {
+        Hash256 hash{};
+        std::uint64_t requested_at{0U};
+    };
+
     struct LivePeer {
         PeerSession session{};
         std::optional<PeerAddress> address{};
@@ -420,7 +427,8 @@ private:
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
-        std::vector<Hash256> requested_transactions{};
+        std::vector<PendingTransactionRequest>
+            requested_transactions{};
         std::vector<PendingBlockRequest> requested_blocks{};
         std::vector<PendingCompactBlock>
             pending_compact_blocks{};
