@@ -731,6 +731,8 @@ SyncServiceResult serve_sync_message(
 
         if (!inventory ||
             inventory->empty() ||
+            inventory->size() >
+                kMaxBlockDownloadItems ||
             std::any_of(
                 inventory->begin(),
                 inventory->end(),
@@ -968,10 +970,10 @@ SyncResult sync_from_peer(
 
         for (std::size_t offset = 0U;
              offset < missing_headers.size();
-             offset += kMaxGetDataItems) {
+             offset += kMaxBlockDownloadItems) {
             const std::size_t batch_size =
                 std::min<std::size_t>(
-                    kMaxGetDataItems,
+                    kMaxBlockDownloadItems,
                     missing_headers.size() - offset
                 );
 
