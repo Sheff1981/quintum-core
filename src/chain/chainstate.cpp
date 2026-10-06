@@ -695,6 +695,128 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     return retarget.bits;
 }
 
+HeaderValidationResult Chainstate::validate_header_candidate(
+    const BlockHeader& header,
+    const BlockIndexEntry* parent,
+    std::uint32_t height,
+    std::uint64_t adjusted_time,
+    const HeaderIndexOverlay* overlay) const
+{
+    HeaderValidationResult out;
+    out.chain_work =
+        parent == nullptr
+            ? Hash256{}
+            : parent->chain_work;
+
+    if (!consensus::timestamp_not_too_far_future(
+            header.timestamp,
+            adjusted_time,
+            params_.time.max_future_seconds)) {
+        out.error =
+            ChainConnectError::
+                timestamp_too_far_future;
+        return out;
+    }
+
+    if (parent != nullptr) {
+        const auto mtp =
+            median_time_past(
+                parent,
+                overlay
+            );
+
+        if (!mtp ||
+            header.timestamp <= *mtp) {
+            out.error =
+                ChainConnectError::
+                    timestamp_too_old;
+            return out;
+        }
+    }
+
+    Block candidate;
+    candidate.header = header;
+
+    const auto required_bits =
+        expected_bits(
+            candidate,
+            parent,
+            overlay
+        );
+
+    if (!required_bits ||
+        header.bits != *required_bits) {
+        out.error =
+            ChainConnectError::
+                unexpected_difficulty;
+        return out;
+    }
+
+    std::optional<Hash256> randomx_seed;
+
+    if (params_.pow.pow_algorithm ==
+        consensus::PowAlgorithm::
+            randomx_v2) {
+        randomx_seed =
+            randomx_seed_key_for(
+                parent,
+                height,
+                overlay
+            );
+
+        if (!randomx_seed) {
+            out.error =
+                ChainConnectError::
+                    invalid_ancestor;
+            return out;
+        }
+    }
+
+    const auto pow_error =
+        params_.pow.pow_algorithm ==
+                consensus::PowAlgorithm::
+                    randomx_v2
+            ? consensus::
+                  check_randomx_proof_of_work(
+                      header,
+                      params_.pow,
+                      *randomx_seed
+                  )
+            : consensus::
+                  check_proof_of_work(
+                      header,
+                      params_.pow
+                  );
+
+    if (pow_error !=
+        consensus::PowCheckError::none) {
+        out.error =
+            ChainConnectError::
+                invalid_proof_of_work;
+        return out;
+    }
+
+    const auto compact =
+        consensus::decode_compact_target(
+            header.bits
+        );
+    const auto block_work =
+        consensus::work_for_target(
+            compact.target
+        );
+
+    if (!consensus::add_chain_work(
+            out.chain_work,
+            block_work)) {
+        out.error =
+            ChainConnectError::
+                chain_work_overflow;
+        return out;
+    }
+
+    return out;
+}
+
 HeaderValidationResult Chainstate::validate_headers(
     std::span<const BlockHeader> headers,
     std::uint64_t adjusted_time) const
@@ -776,112 +898,22 @@ HeaderValidationResult Chainstate::validate_headers(
         const std::uint32_t height =
             parent->height + 1U;
 
-        if (!consensus::timestamp_not_too_far_future(
-                header.timestamp,
+        const auto checked =
+            validate_header_candidate(
+                header,
+                parent,
+                height,
                 adjusted_time,
-                params_.time.max_future_seconds)) {
-            out.error =
-                ChainConnectError::
-                    timestamp_too_far_future;
-            return out;
-        }
-
-        const auto mtp =
-            median_time_past(
-                parent,
                 &overlay
             );
 
-        if (!mtp ||
-            header.timestamp <= *mtp) {
-            out.error =
-                ChainConnectError::
-                    timestamp_too_old;
+        if (!checked.ok()) {
+            out.error = checked.error;
             return out;
         }
 
-        Block candidate;
-        candidate.header = header;
-
-        const auto required_bits =
-            expected_bits(
-                candidate,
-                parent,
-                &overlay
-            );
-
-        if (!required_bits ||
-            header.bits != *required_bits) {
-            out.error =
-                ChainConnectError::
-                    unexpected_difficulty;
-            return out;
-        }
-
-        std::optional<Hash256> randomx_seed;
-
-        if (params_.pow.pow_algorithm ==
-            consensus::PowAlgorithm::
-                randomx_v2) {
-            randomx_seed =
-                randomx_seed_key_for(
-                    parent,
-                    height,
-                    &overlay
-                );
-
-            if (!randomx_seed) {
-                out.error =
-                    ChainConnectError::
-                        invalid_ancestor;
-                return out;
-            }
-        }
-
-        const auto pow_error =
-            params_.pow.pow_algorithm ==
-                    consensus::PowAlgorithm::
-                        randomx_v2
-                ? consensus::
-                      check_randomx_proof_of_work(
-                          header,
-                          params_.pow,
-                          *randomx_seed
-                      )
-                : consensus::
-                      check_proof_of_work(
-                          header,
-                          params_.pow
-                      );
-
-        if (pow_error !=
-            consensus::PowCheckError::none) {
-            out.error =
-                ChainConnectError::
-                    invalid_proof_of_work;
-            return out;
-        }
-
-        const auto compact =
-            consensus::decode_compact_target(
-                header.bits
-            );
-        const auto block_work =
-            consensus::work_for_target(
-                compact.target
-            );
-
-        Hash256 chain_work =
-            parent->chain_work;
-
-        if (!consensus::add_chain_work(
-                chain_work,
-                block_work)) {
-            out.error =
-                ChainConnectError::
-                    chain_work_overflow;
-            return out;
-        }
+        const Hash256 chain_work =
+            checked.chain_work;
 
         overlay.emplace(
             hash,
@@ -1008,7 +1040,6 @@ ChainConnectResult Chainstate::connect_block(
     }
 
     std::uint32_t new_height{0U};
-    Hash256 parent_work{};
     const BlockIndexEntry* parent_entry{nullptr};
 
     if (block_index_.empty()) {
@@ -1046,76 +1077,26 @@ ChainConnectResult Chainstate::connect_block(
         }
 
         new_height = parent_it->second.height + 1U;
-        parent_work = parent_it->second.chain_work;
         parent_entry = &parent_it->second;
     }
 
-    if (parent_entry != nullptr) {
-        const auto mtp =
-            median_time_past(parent_entry);
+    const auto header_check =
+        validate_header_candidate(
+            block.header,
+            parent_entry,
+            new_height,
+            adjusted_time,
+            nullptr
+        );
 
-        if (!mtp ||
-            block.header.timestamp <= *mtp) {
-            result.error =
-                ChainConnectError::timestamp_too_old;
-            return result;
-        }
-    }
-
-    const auto required_bits =
-        expected_bits(block, parent_entry);
-
-    if (!required_bits ||
-        block.header.bits != *required_bits) {
-        result.error = ChainConnectError::unexpected_difficulty;
-        return result;
-    }
-
-    std::optional<Hash256> randomx_seed;
-
-    if (params_.pow.pow_algorithm ==
-        consensus::PowAlgorithm::randomx_v2) {
-        randomx_seed =
-            randomx_seed_key_for(
-                parent_entry,
-                new_height
-            );
-
-        if (!randomx_seed) {
-            result.error =
-                ChainConnectError::invalid_ancestor;
-            return result;
-        }
-    }
-
-    const auto pow_error =
-        params_.pow.pow_algorithm ==
-                consensus::PowAlgorithm::randomx_v2
-            ? consensus::check_randomx_proof_of_work(
-                  block.header,
-                  params_.pow,
-                  *randomx_seed
-              )
-            : consensus::check_proof_of_work(
-                  block.header,
-                  params_.pow
-              );
-
-    if (pow_error !=
-        consensus::PowCheckError::none) {
+    if (!header_check.ok()) {
         result.error =
-            ChainConnectError::invalid_proof_of_work;
+            header_check.error;
         return result;
     }
 
-    const auto compact = consensus::decode_compact_target(block.header.bits);
-    const auto block_work = consensus::work_for_target(compact.target);
-
-    Hash256 new_chain_work = parent_work;
-    if (!consensus::add_chain_work(new_chain_work, block_work)) {
-        result.error = ChainConnectError::chain_work_overflow;
-        return result;
-    }
+    const Hash256 new_chain_work =
+        header_check.chain_work;
 
     block_index_.emplace(
         hash,
