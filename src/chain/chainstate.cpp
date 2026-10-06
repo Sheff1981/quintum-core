@@ -301,10 +301,28 @@ std::optional<std::uint32_t> Chainstate::next_work_required(
     return expected_bits(candidate, &it->second);
 }
 
+const BlockIndexEntry* Chainstate::find_index_entry(
+    const Hash256& hash,
+    const HeaderIndexOverlay* overlay) const noexcept
+{
+    if (overlay != nullptr) {
+        const auto staged = overlay->find(hash);
+        if (staged != overlay->end()) {
+            return &staged->second;
+        }
+    }
+
+    const auto persisted = block_index_.find(hash);
+    return persisted == block_index_.end()
+        ? nullptr
+        : &persisted->second;
+}
+
 std::optional<Hash256>
 Chainstate::randomx_seed_key_for(
     const BlockIndexEntry* parent,
-    std::uint32_t candidate_height) const
+    std::uint32_t candidate_height,
+    const HeaderIndexOverlay* overlay) const
 {
     if (candidate_height == 0U) {
         const Hash256 bootstrap_hash{};
@@ -334,16 +352,15 @@ Chainstate::randomx_seed_key_for(
     while (static_cast<std::uint64_t>(
                cursor->height) >
            seed_height) {
-        const auto it =
-            block_index_.find(
-                cursor->parent
+        cursor =
+            find_index_entry(
+                cursor->parent,
+                overlay
             );
 
-        if (it == block_index_.end()) {
+        if (cursor == nullptr) {
             return std::nullopt;
         }
-
-        cursor = &it->second;
     }
 
     if (static_cast<std::uint64_t>(
@@ -388,27 +405,35 @@ Chainstate::next_randomx_seed_key() const
     );
 }
 
-bool Chainstate::has_failed_ancestor(const Hash256& hash) const
+bool Chainstate::has_failed_ancestor(
+    const Hash256& hash,
+    const HeaderIndexOverlay* overlay) const
 {
-    auto it = block_index_.find(hash);
+    const BlockIndexEntry* entry =
+        find_index_entry(hash, overlay);
 
-    while (it != block_index_.end()) {
-        if (it->second.failed) {
+    while (entry != nullptr) {
+        if (entry->failed) {
             return true;
         }
 
-        if (it->second.height == 0U) {
+        if (entry->height == 0U) {
             break;
         }
 
-        it = block_index_.find(it->second.parent);
+        entry =
+            find_index_entry(
+                entry->parent,
+                overlay
+            );
     }
 
     return false;
 }
 
 std::optional<std::uint64_t> Chainstate::median_time_past(
-    const BlockIndexEntry* parent) const
+    const BlockIndexEntry* parent,
+    const HeaderIndexOverlay* overlay) const
 {
     if (parent == nullptr ||
         params_.time.median_time_span == 0U) {
@@ -432,14 +457,15 @@ std::optional<std::uint64_t> Chainstate::median_time_past(
             break;
         }
 
-        const auto it =
-            block_index_.find(cursor->parent);
+        cursor =
+            find_index_entry(
+                cursor->parent,
+                overlay
+            );
 
-        if (it == block_index_.end()) {
+        if (cursor == nullptr) {
             return std::nullopt;
         }
-
-        cursor = &it->second;
     }
 
     return consensus::median_timestamp(timestamps);
@@ -447,7 +473,8 @@ std::optional<std::uint64_t> Chainstate::median_time_past(
 
 std::optional<std::uint32_t> Chainstate::expected_bits(
     const Block& block,
-    const BlockIndexEntry* parent) const
+    const BlockIndexEntry* parent,
+    const HeaderIndexOverlay* overlay) const
 {
     const auto& pow = params_.pow;
 
@@ -501,14 +528,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
         while (anchor->height >
                pow.asert_anchor_height) {
-            const auto it =
-                block_index_.find(anchor->parent);
+            anchor =
+                find_index_entry(
+                    anchor->parent,
+                    overlay
+                );
 
-            if (it == block_index_.end()) {
+            if (anchor == nullptr) {
                 return std::nullopt;
             }
-
-            anchor = &it->second;
         }
 
         if (anchor->height !=
@@ -528,17 +556,18 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
                 anchor->header.timestamp -
                 pow.target_spacing_seconds;
         } else {
-            const auto anchor_parent =
-                block_index_.find(anchor->parent);
+            const auto* anchor_parent =
+                find_index_entry(
+                    anchor->parent,
+                    overlay
+                );
 
-            if (anchor_parent ==
-                block_index_.end()) {
+            if (anchor_parent == nullptr) {
                 return std::nullopt;
             }
 
             anchor_parent_time =
-                anchor_parent->second.
-                    header.timestamp;
+                anchor_parent->header.timestamp;
         }
 
         if (parent->header.timestamp >
@@ -618,14 +647,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
             while ((cursor->height % pow.retarget_interval) != 0U &&
                    cursor->header.bits ==
                        pow.pow_limit_bits) {
-                const auto it =
-                    block_index_.find(cursor->parent);
+                cursor =
+                    find_index_entry(
+                        cursor->parent,
+                        overlay
+                    );
 
-                if (it == block_index_.end()) {
+                if (cursor == nullptr) {
                     return std::nullopt;
                 }
-
-                cursor = &it->second;
             }
 
             return cursor->header.bits;
@@ -639,14 +669,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     for (std::uint32_t step = 1U;
          step < pow.retarget_interval;
          ++step) {
-        const auto it =
-            block_index_.find(first->parent);
+        first =
+            find_index_entry(
+                first->parent,
+                overlay
+            );
 
-        if (it == block_index_.end()) {
+        if (first == nullptr) {
             return std::nullopt;
         }
-
-        first = &it->second;
     }
 
     const auto retarget =
