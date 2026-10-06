@@ -51,7 +51,7 @@ struct NetworkRuntimeConfig {
         kDefaultDandelionEpochSeconds
     };
     std::size_t randomx_mining_threads{0U};
-    bool randomx_full_memory_mining{false};
+    bool randomx_full_memory_mining{true};
     std::vector<PeerAddress> bootstrap_peers{};
     ProxyRoutes proxies{};
     bool enable_nat_mapping{false};
