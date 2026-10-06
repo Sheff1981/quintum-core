@@ -429,6 +429,70 @@ void test_truncated_committed_block_is_rejected()
 }
 
 
+void test_physical_prune_restart_and_continue()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-physical-prune");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 2U,
+    };
+
+    quintum::Hash256 tip{};
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+
+        quintum::Hash256 zero{};
+        const auto genesis =
+            make_block(zero, 0U, 0x70U);
+        const auto h0 =
+            quintum::block_hash(genesis.header);
+        const auto b1 =
+            make_block(h0, 1U, 0x71U);
+        const auto h1 =
+            quintum::block_hash(b1.header);
+        const auto b2 =
+            make_block(h1, 2U, 0x72U);
+        const auto h2 =
+            quintum::block_hash(b2.header);
+        const auto b3 =
+            make_block(h2, 3U, 0x73U);
+
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(b1).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+
+        tip = quintum::block_hash(b3.header);
+        assert(node.chain().block(h0) == nullptr);
+        assert(node.chain().block(h1) == nullptr);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(
+            restarted.load() ==
+            quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 3U);
+        assert(restarted.chain().tip_hash());
+        assert(*restarted.chain().tip_hash() == tip);
+        assert(restarted.chain().utxos().size() == 4U);
+
+        const auto b4 =
+            make_block(tip, 4U, 0x74U);
+        assert(restarted.connect_block(b4).ok());
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 4U);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 void test_prune_policy_boundary()
 {
     const auto params = storage_regtest_params();
@@ -489,5 +553,6 @@ int main()
     test_corruption_and_wrong_network_are_rejected();
     test_truncated_committed_block_is_rejected();
     test_prune_policy_boundary();
+    test_physical_prune_restart_and_continue();
     return 0;
 }
