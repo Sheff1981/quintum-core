@@ -849,6 +849,121 @@ void test_wallet_rescan_rejects_pruned_history()
 }
 
 
+void test_existing_wallet_survives_pruned_restart()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_directory =
+        unique_dir("pruned-restart-chain");
+    const auto wallet_directory =
+        unique_dir("pruned-restart-wallet");
+    const auto& params =
+        consensus::regtest_params();
+    const std::uint64_t now =
+        params.genesis.timestamp + 1'700U;
+    Mempool mempool{};
+    WalletBalance expected_balance{};
+    std::vector<WalletTransactionRecord> expected_history;
+
+    {
+        NodeRuntime node{
+            params,
+            chain_directory,
+            PrunePolicy{
+                .enabled = true,
+                .keep_recent_blocks = 2U,
+            }
+        };
+        assert(node.start_at(now).ok());
+
+        Wallet wallet{params, wallet_directory};
+        const auto started = wallet.start();
+        assert(started.ok());
+
+        const auto decoded =
+            decode_address(params.network, started.receive_address);
+        assert(decoded.ok());
+        const Bytes owned_payout =
+            consensus::make_p2pk_locking_script(decoded.public_key);
+
+        for (std::uint32_t height = 1U;
+             height <= 3U;
+             ++height) {
+            const auto mined = node.mine_block_at(
+                owned_payout,
+                now + height,
+                4'096U);
+            assert(mined.ok());
+
+            const auto synced =
+                wallet.sync(node.chain(), mempool);
+            assert(synced.ok());
+        }
+
+        const auto genesis_hash =
+            node.chain().active_hash(0U);
+        assert(genesis_hash.has_value());
+        assert(node.chain().block(*genesis_hash) == nullptr);
+
+        expected_balance = wallet.balance();
+        expected_history = wallet.history();
+        assert(expected_balance.immature > 0U);
+        assert(!expected_history.empty());
+        assert(std::filesystem::exists(
+            wallet_directory / "wallet_state.dat"));
+    }
+
+    {
+        NodeRuntime node{
+            params,
+            chain_directory,
+            PrunePolicy{
+                .enabled = true,
+                .keep_recent_blocks = 2U,
+            }
+        };
+        assert(node.start_at(now + 10U).ok());
+
+        Wallet wallet{params, wallet_directory};
+        const auto started = wallet.start();
+        assert(started.ok());
+        assert(!started.created);
+
+        const auto synced =
+            wallet.sync(node.chain(), mempool);
+        assert(synced.ok());
+        assert(synced.blocks_scanned == 0U);
+        assert(!synced.index_rebuilt);
+        assert(wallet.balance() == expected_balance);
+        assert(wallet.history() == expected_history);
+
+        const auto decoded =
+            decode_address(params.network, started.receive_address);
+        assert(decoded.ok());
+        const Bytes owned_payout =
+            consensus::make_p2pk_locking_script(decoded.public_key);
+
+        const auto mined = node.mine_block_at(
+            owned_payout,
+            now + 11U,
+            4'096U);
+        assert(mined.ok());
+
+        const auto advanced =
+            wallet.sync(node.chain(), mempool);
+        assert(advanced.ok());
+        assert(advanced.blocks_scanned == 1U);
+        assert(wallet.history().size() >
+               expected_history.size());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(chain_directory, ec);
+    std::filesystem::remove_all(wallet_directory, ec);
+}
+
+
 void test_network_runtime_wallet_bridge()
 {
     using namespace quintum;
@@ -1444,6 +1559,7 @@ int main()
     test_prebacked_keypool_recovers_future_address();
     test_wallet_balance_build_sign_confirm_and_recover();
     test_wallet_rescan_rejects_pruned_history();
+    test_existing_wallet_survives_pruned_restart();
     test_network_runtime_wallet_bridge();
     test_encrypted_wallet_and_hd_recovery();
     test_legacy_wallet_encryption_migration();
