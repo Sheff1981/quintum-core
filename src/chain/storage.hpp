@@ -5,8 +5,20 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 
 namespace quintum {
+
+struct PrunePolicy {
+    bool enabled{false};
+    std::uint32_t keep_recent_blocks{288U};
+};
+
+struct PruneStatus {
+    bool enabled{false};
+    std::optional<std::uint32_t> prune_height{};
+    std::uint32_t keep_recent_blocks{288U};
+};
 
 enum class StorageError {
     none,
@@ -25,12 +37,15 @@ class ChainstateStore {
 public:
     ChainstateStore(
         std::filesystem::path directory,
-        const consensus::ChainParams& params
+        const consensus::ChainParams& params,
+        PrunePolicy prune_policy = {}
     );
 
     [[nodiscard]] const std::filesystem::path& directory() const noexcept;
     [[nodiscard]] std::filesystem::path blocks_path() const;
     [[nodiscard]] std::filesystem::path state_path() const;
+    [[nodiscard]] const PrunePolicy& prune_policy() const noexcept;
+    [[nodiscard]] PruneStatus prune_status(const Chainstate& chain) const noexcept;
 
     // Commits the accepted block log first, then atomically replaces the
     // chainstate snapshot. A crash can therefore leave only an uncommitted
@@ -44,6 +59,7 @@ public:
 private:
     std::filesystem::path directory_{};
     consensus::ChainParams params_{};
+    PrunePolicy prune_policy_{};
 };
 
 struct PersistentConnectResult {
@@ -72,7 +88,8 @@ class PersistentChainstate {
 public:
     PersistentChainstate(
         const consensus::ChainParams& params,
-        std::filesystem::path directory
+        std::filesystem::path directory,
+        PrunePolicy prune_policy = {}
     );
 
     [[nodiscard]] StorageError load();
