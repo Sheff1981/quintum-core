@@ -502,6 +502,23 @@ void test_physical_prune_restart_and_continue()
         tip = quintum::block_hash(b3.header);
         assert(node.chain().block(h0) == nullptr);
         assert(node.chain().block(h1) == nullptr);
+
+        std::ifstream state(
+            node.store().state_path(),
+            std::ios::binary);
+        assert(state);
+        std::array<unsigned char, 12> prefix{};
+        state.read(
+            reinterpret_cast<char*>(prefix.data()),
+            static_cast<std::streamsize>(prefix.size()));
+        assert(state.gcount() ==
+               static_cast<std::streamsize>(prefix.size()));
+        const std::uint32_t version =
+            static_cast<std::uint32_t>(prefix[8]) |
+            (static_cast<std::uint32_t>(prefix[9]) << 8U) |
+            (static_cast<std::uint32_t>(prefix[10]) << 16U) |
+            (static_cast<std::uint32_t>(prefix[11]) << 24U);
+        assert(version == 3U);
     }
 
     {
@@ -718,6 +735,23 @@ void test_archival_mode_retains_all_block_bodies()
         assert(node.chain().block(h1) != nullptr);
         assert(node.chain().block(h2) != nullptr);
         assert(node.chain().block(h3) != nullptr);
+
+        std::ifstream state(
+            node.store().state_path(),
+            std::ios::binary);
+        assert(state);
+        std::array<unsigned char, 12> prefix{};
+        state.read(
+            reinterpret_cast<char*>(prefix.data()),
+            static_cast<std::streamsize>(prefix.size()));
+        assert(state.gcount() ==
+               static_cast<std::streamsize>(prefix.size()));
+        const std::uint32_t version =
+            static_cast<std::uint32_t>(prefix[8]) |
+            (static_cast<std::uint32_t>(prefix[9]) << 8U) |
+            (static_cast<std::uint32_t>(prefix[10]) << 16U) |
+            (static_cast<std::uint32_t>(prefix[11]) << 24U);
+        assert(version == 1U);
     }
 
     {
