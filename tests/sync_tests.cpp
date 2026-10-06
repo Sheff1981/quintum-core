@@ -267,7 +267,7 @@ void test_genesis_to_tip_sync_and_restart()
             listener,
             server.chain(),
             version(0x1701U, 5U),
-            6U,
+            2U,
             server_error
         );
     });
@@ -293,6 +293,7 @@ void test_genesis_to_tip_sync_and_restart()
     assert(synced.ok());
     assert(synced.headers_received == 5U);
     assert(synced.blocks_requested == 5U);
+    assert(synced.block_request_batches == 1U);
     assert(synced.blocks_accepted == 5U);
     assert(!synced.reorganized);
 
@@ -382,7 +383,7 @@ void test_heavier_remote_branch_reorg()
             listener,
             server.chain(),
             version(0x1711U, 4U),
-            5U,
+            2U,
             server_error
         );
     });
@@ -408,6 +409,7 @@ void test_heavier_remote_branch_reorg()
     assert(synced.ok());
     assert(synced.headers_received == 4U);
     assert(synced.blocks_requested == 4U);
+    assert(synced.block_request_batches == 1U);
     assert(synced.blocks_accepted == 4U);
     assert(synced.reorganized);
 
@@ -492,7 +494,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1721U, 3U),
-                4U,
+                2U,
                 server_error
             );
         });
@@ -514,6 +516,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 now + 50U
             );
         assert(synced.ok());
+        assert(synced.block_request_batches == 1U);
         assert(synced.blocks_accepted == 3U);
 
         connected.session->close();
@@ -572,7 +575,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1731U, 6U),
-                4U,
+                2U,
                 server_error
             );
         });
@@ -597,6 +600,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
         assert(synced.ok());
         assert(synced.headers_received == 3U);
         assert(synced.blocks_requested == 3U);
+        assert(synced.block_request_batches == 1U);
         assert(synced.blocks_accepted == 3U);
         assert(!synced.reorganized);
 
@@ -656,7 +660,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1741U, 9U),
-                7U,
+                2U,
                 server_error
             );
         });
@@ -681,6 +685,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
         assert(synced.ok());
         assert(synced.headers_received == 6U);
         assert(synced.blocks_requested == 6U);
+        assert(synced.block_request_batches == 1U);
         assert(synced.block_bodies_restored == 3U);
         assert(synced.blocks_accepted == 3U);
         assert(synced.reorganized);
