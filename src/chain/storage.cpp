@@ -1782,6 +1782,7 @@ StorageError ChainstateStore::load(
                 body = candidate;
             }
 
+            Hash256 expected_chain_work{};
             if (meta.height == 0U) {
                 if (meta.parent != Hash256{}) {
                     return StorageError::state_mismatch;
@@ -1793,6 +1794,22 @@ StorageError ChainstateStore::load(
                     parent_it->second.height + 1U != meta.height) {
                     return StorageError::state_mismatch;
                 }
+                expected_chain_work =
+                    parent_it->second.chain_work;
+            }
+
+            const auto compact =
+                consensus::decode_compact_target(
+                    meta.header.bits);
+            if (!compact.valid() ||
+                consensus::encode_compact_target(
+                    compact.target) != meta.header.bits ||
+                !consensus::add_chain_work(
+                    expected_chain_work,
+                    consensus::work_for_target(
+                        compact.target)) ||
+                expected_chain_work != meta.chain_work) {
+                return StorageError::state_mismatch;
             }
 
             const auto [inserted_it, inserted] =
