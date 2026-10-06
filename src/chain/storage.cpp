@@ -1437,122 +1437,125 @@ StorageError ChainstateStore::commit(
         }
     }
 
-    std::size_t committed_count{0U};
-
-    {
-        DiskState old_state;
-        const auto old_error =
-            parse_state_file(
-                state_path(),
-                params_,
-                old_state);
-
-        if (old_error == StorageError::none) {
-            committed_count =
-                old_state.index.size();
-        } else if (
-            old_error != StorageError::not_found) {
-            return old_error;
+    if (!prune_policy_.enabled) {
+        std::size_t committed_count{0U};
+    
+        {
+            DiskState old_state;
+            const auto old_error =
+                parse_state_file(
+                    state_path(),
+                    params_,
+                    old_state);
+    
+            if (old_error == StorageError::none) {
+                committed_count =
+                    old_state.index.size();
+            } else if (
+                old_error != StorageError::not_found) {
+                return old_error;
+            }
         }
-    }
-
-    if (committed_count >
-        chain.acceptance_order_.size()) {
-        return StorageError::state_mismatch;
-    }
-
-    auto scan =
-        scan_block_file(
-            blocks_path(),
-            committed_count,
-            params_);
-
-    if (scan.error != StorageError::none) {
-        return scan.error;
-    }
-
-    for (std::size_t i = 0U;
-         i < committed_count;
-         ++i) {
-        const auto& expected_hash =
-            chain.acceptance_order_[i];
-
-        const auto index_it =
-            chain.block_index_.find(expected_hash);
-
-        if (index_it ==
-                chain.block_index_.end() ||
-            block_hash(
-                scan.blocks[i].header) !=
-                expected_hash ||
-            !index_it->second.block ||
-            serialize_block_bytes(
-                scan.blocks[i]) !=
-                serialize_block_bytes(
-                    *index_it->second.block)) {
+    
+        if (committed_count >
+            chain.acceptance_order_.size()) {
             return StorageError::state_mismatch;
         }
-    }
-
-    {
-        const auto path = blocks_path();
-        const bool exists =
-            std::filesystem::exists(path, ec);
-
-        if (ec) {
-            return StorageError::io_error;
+    
+        auto scan =
+            scan_block_file(
+                blocks_path(),
+                committed_count,
+                params_);
+    
+        if (scan.error != StorageError::none) {
+            return scan.error;
         }
-
-        if (exists) {
-            const auto current_size =
-                std::filesystem::file_size(path, ec);
-
-            if (ec ||
-                current_size <
-                    scan.committed_size) {
-                return StorageError::truncated;
+    
+        for (std::size_t i = 0U;
+             i < committed_count;
+             ++i) {
+            const auto& expected_hash =
+                chain.acceptance_order_[i];
+    
+            const auto index_it =
+                chain.block_index_.find(expected_hash);
+    
+            if (index_it ==
+                    chain.block_index_.end() ||
+                block_hash(
+                    scan.blocks[i].header) !=
+                    expected_hash ||
+                !index_it->second.block ||
+                serialize_block_bytes(
+                    scan.blocks[i]) !=
+                    serialize_block_bytes(
+                        *index_it->second.block)) {
+                return StorageError::state_mismatch;
             }
-
-            if (current_size !=
-                scan.committed_size) {
-                std::filesystem::resize_file(
-                    path,
-                    scan.committed_size,
-                    ec);
-
-                if (ec) {
-                    return StorageError::io_error;
+        }
+    
+        {
+            const auto path = blocks_path();
+            const bool exists =
+                std::filesystem::exists(path, ec);
+    
+            if (ec) {
+                return StorageError::io_error;
+            }
+    
+            if (exists) {
+                const auto current_size =
+                    std::filesystem::file_size(path, ec);
+    
+                if (ec ||
+                    current_size <
+                        scan.committed_size) {
+                    return StorageError::truncated;
+                }
+    
+                if (current_size !=
+                    scan.committed_size) {
+                    std::filesystem::resize_file(
+                        path,
+                        scan.committed_size,
+                        ec);
+    
+                    if (ec) {
+                        return StorageError::io_error;
+                    }
                 }
             }
         }
-    }
-
-    for (std::size_t i = committed_count;
-         i < chain.acceptance_order_.size();
-         ++i) {
-        const auto index_it =
-            chain.block_index_.find(
-                chain.acceptance_order_[i]);
-
-        if (index_it ==
-                chain.block_index_.end() ||
-            !index_it->second.block) {
-            return StorageError::state_mismatch;
+    
+        for (std::size_t i = committed_count;
+             i < chain.acceptance_order_.size();
+             ++i) {
+            const auto index_it =
+                chain.block_index_.find(
+                    chain.acceptance_order_[i]);
+    
+            if (index_it ==
+                    chain.block_index_.end() ||
+                !index_it->second.block) {
+                return StorageError::state_mismatch;
+            }
+    
+            const auto record =
+                make_block_record(
+                    *index_it->second.block);
+    
+            const auto append_error =
+                append_file_synced(
+                    blocks_path(),
+                    record);
+    
+            if (append_error !=
+                StorageError::none) {
+                return append_error;
+            }
         }
-
-        const auto record =
-            make_block_record(
-                *index_it->second.block);
-
-        const auto append_error =
-            append_file_synced(
-                blocks_path(),
-                record);
-
-        if (append_error !=
-            StorageError::none) {
-            return append_error;
-        }
+    
     }
 
     Bytes state;
