@@ -117,6 +117,87 @@ void serve_requests(
     error = quintum::net::SyncError::none;
 }
 
+void serve_requests_with_interleaved_inv(
+    quintum::net::PeerListener& listener,
+    const quintum::Chainstate& chain,
+    quintum::net::VersionMessage local,
+    std::size_t requests,
+    quintum::net::SyncError& error)
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto accepted =
+        listener.accept_and_handshake(
+            local,
+            5'000U
+        );
+
+    if (!accepted.ok()) {
+        error = SyncError::transport_failed;
+        return;
+    }
+
+    const auto tip = chain.tip_hash();
+    if (!tip) {
+        error = SyncError::malformed_message;
+        accepted.session->close();
+        return;
+    }
+
+    const std::array<InventoryItem, 1> announcement{
+        InventoryItem{
+            .type = kInventoryBlock,
+            .hash = *tip,
+        }
+    };
+    const auto inv_payload =
+        serialize_inventory(announcement);
+
+    for (std::size_t i = 0U;
+         i < requests;
+         ++i) {
+        WireMessage request;
+        const auto receive =
+            accepted.session->receive_command(
+                request
+            );
+
+        if (receive != PeerError::none) {
+            error = SyncError::transport_failed;
+            accepted.session->close();
+            return;
+        }
+
+        // Reproduce the live failure mode: a freshly mined block inventory
+        // arrives between a sync request and its expected response.
+        if (accepted.session->send_command(
+                "inv",
+                inv_payload) !=
+            PeerError::none) {
+            error = SyncError::transport_failed;
+            accepted.session->close();
+            return;
+        }
+
+        const auto served =
+            serve_sync_message(
+                *accepted.session,
+                chain,
+                request
+            );
+
+        if (!served.ok()) {
+            error = served.error;
+            accepted.session->close();
+            return;
+        }
+    }
+
+    accepted.session->close();
+    error = SyncError::none;
+}
+
 void test_wire_codecs_and_locator()
 {
     using namespace quintum;
@@ -319,6 +400,94 @@ void test_genesis_to_tip_sync_and_restart()
     assert(*restarted.chain().height() == 5U);
     assert(restarted.chain().tip_hash() ==
            expected_tip);
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(client_dir, ec);
+}
+
+void test_sync_tolerates_interleaved_block_inventory()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("interleaved-inv-server");
+    const auto client_dir =
+        unique_dir("interleaved-inv-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 15'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    mine_blocks(
+        server,
+        payout_script(12U),
+        now,
+        5U
+    );
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        // One getheaders and one getdata batch. Inject an unsolicited block
+        // inv before each response, as happens when the remote peer keeps
+        // mining while this node is catching up.
+        serve_requests_with_interleaved_inv(
+            listener,
+            server.chain(),
+            version(0x1703U, 5U),
+            2U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1704U, 0U),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now + 100U
+        );
+
+    assert(synced.ok());
+    assert(synced.headers_received == 5U);
+    assert(synced.blocks_requested == 5U);
+    assert(synced.blocks_accepted == 5U);
+    assert(client.chain().height() ==
+           server.chain().height());
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error == SyncError::none);
 
     std::error_code ec;
     std::filesystem::remove_all(server_dir, ec);
@@ -909,6 +1078,7 @@ int main()
 {
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
+    test_sync_tolerates_interleaved_block_inventory();
     test_heavier_remote_branch_reorg();
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
