@@ -30,7 +30,7 @@ struct ChainEntry {
 };
 
 struct BlockIndexEntry {
-    Block block{};
+    std::optional<Block> block{};
     BlockHeader header{};
     Hash256 hash{};
     Hash256 parent{};
@@ -58,6 +58,7 @@ enum class ChainConnectError {
     fee_sum_overflow,
     invalid_coinbase_reward,
     reorg_undo_failed,
+    block_body_unavailable,
 };
 
 struct ChainConnectResult {
