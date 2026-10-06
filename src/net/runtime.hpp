@@ -35,6 +35,8 @@ struct NetworkRuntimeConfig {
     std::uint64_t reconnect_delay_seconds{5U};
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
+    std::uint64_t block_request_timeout_seconds{30U};
+    std::size_t max_block_requests_in_flight{16U};
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
@@ -365,6 +367,11 @@ private:
             missing_indexes{};
     };
 
+    struct PendingBlockRequest {
+        Hash256 hash{};
+        std::uint64_t requested_at{0U};
+    };
+
     struct LivePeer {
         PeerSession session{};
         std::optional<PeerAddress> address{};
@@ -376,7 +383,7 @@ private:
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
         std::vector<Hash256> requested_transactions{};
-        std::vector<Hash256> requested_blocks{};
+        std::vector<PendingBlockRequest> requested_blocks{};
         std::vector<PendingCompactBlock>
             pending_compact_blocks{};
     };
@@ -409,7 +416,8 @@ private:
 
     [[nodiscard]] bool process_inventory(
         LivePeer& peer,
-        const WireMessage& message
+        const WireMessage& message,
+        std::uint64_t now
     );
 
     [[nodiscard]] bool process_transaction(
