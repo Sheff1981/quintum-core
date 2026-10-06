@@ -2167,6 +2167,27 @@ void NetworkRuntime::service_peers(
             continue;
         }
 
+        if (config_.transaction_request_timeout_seconds > 0U) {
+            const bool stalled_transaction_request =
+                std::any_of(
+                    peer.requested_transactions.begin(),
+                    peer.requested_transactions.end(),
+                    [&](const PendingTransactionRequest& request) {
+                        return elapsed(
+                            now,
+                            request.requested_at,
+                            config_.
+                                transaction_request_timeout_seconds
+                        );
+                    }
+                );
+
+            if (stalled_transaction_request) {
+                peer.session.close();
+                continue;
+            }
+        }
+
         if (config_.block_request_timeout_seconds > 0U) {
             const bool stalled_block_request =
                 std::any_of(
@@ -2485,9 +2506,15 @@ bool NetworkRuntime::process_message(
         for (const auto& item : *inventory) {
             if (item.type ==
                 kInventoryTransaction) {
-                erase_hash(
-                    peer.requested_transactions,
-                    item.hash
+                peer.requested_transactions.erase(
+                    std::remove_if(
+                        peer.requested_transactions.begin(),
+                        peer.requested_transactions.end(),
+                        [&](const PendingTransactionRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    ),
+                    peer.requested_transactions.end()
                 );
             } else if (item.type ==
                            kInventoryBlock ||
@@ -2559,15 +2586,31 @@ bool NetworkRuntime::process_inventory(
                     continue;
                 }
 
-                if (contains_hash(
-                        peer.
-                            requested_transactions,
-                        item.hash)) {
+                const bool already_requested =
+                    std::any_of(
+                        peer.requested_transactions.begin(),
+                        peer.requested_transactions.end(),
+                        [&](const PendingTransactionRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    );
+
+                if (already_requested) {
                     continue;
                 }
 
-                peer.requested_transactions.
-                    push_back(item.hash);
+                if (peer.requested_transactions.size() >=
+                    config_.
+                        max_transaction_requests_in_flight) {
+                    continue;
+                }
+
+                peer.requested_transactions.push_back(
+                    PendingTransactionRequest{
+                        .hash = item.hash,
+                        .requested_at = now,
+                    }
+                );
                 wanted.push_back(item);
                 continue;
             }
@@ -2672,18 +2715,27 @@ bool NetworkRuntime::process_transaction(
         transaction_id(*transaction);
 
     const bool requested =
-        contains_hash(
-            peer.requested_transactions,
-            txid
+        std::any_of(
+            peer.requested_transactions.begin(),
+            peer.requested_transactions.end(),
+            [&](const PendingTransactionRequest& request) {
+                return request.hash == txid;
+            }
         );
 
     if (!requested) {
         return false;
     }
 
-    erase_hash(
-        peer.requested_transactions,
-        txid
+    peer.requested_transactions.erase(
+        std::remove_if(
+            peer.requested_transactions.begin(),
+            peer.requested_transactions.end(),
+            [&](const PendingTransactionRequest& request) {
+                return request.hash == txid;
+            }
+        ),
+        peer.requested_transactions.end()
     );
 
     NodeTransactionResult submitted;
