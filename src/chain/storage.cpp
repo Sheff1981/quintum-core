@@ -1295,6 +1295,19 @@ std::filesystem::path ChainstateStore::blocks_path() const
     return directory_ / "blocks.dat";
 }
 
+namespace {
+std::filesystem::path generation_blocks_path(
+    const std::filesystem::path& directory,
+    std::uint64_t generation)
+{
+    if (generation == 0U) {
+        return directory / "blocks.dat";
+    }
+    return directory /
+        ("blocks." + std::to_string(generation) + ".dat");
+}
+} // namespace
+
 std::filesystem::path ChainstateStore::state_path() const
 {
     return directory_ / "chainstate.dat";
@@ -1351,7 +1364,33 @@ StorageError ChainstateStore::commit(
         return StorageError::io_error;
     }
 
+    DiskState previous_state;
+    bool have_previous_state{false};
+    {
+        const auto previous_error =
+            parse_state_file(
+                state_path(),
+                params_,
+                previous_state);
+        if (previous_error == StorageError::none) {
+            have_previous_state = true;
+        } else if (previous_error != StorageError::not_found) {
+            return previous_error;
+        }
+    }
+
+    std::uint64_t next_generation{0U};
+
     if (prune_policy_.enabled) {
+        if (have_previous_state &&
+            previous_state.block_generation ==
+                std::numeric_limits<std::uint64_t>::max()) {
+            return StorageError::bad_format;
+        }
+        next_generation = have_previous_state
+            ? previous_state.block_generation + 1U
+            : 1U;
+
         const auto status = prune_status(chain);
         std::vector<const Block*> retained;
         retained.reserve(chain.acceptance_order_.size());
@@ -1374,8 +1413,11 @@ StorageError ChainstateStore::commit(
             }
         }
 
-        auto temporary_blocks = blocks_path();
-        temporary_blocks += ".prune.tmp";
+        auto temporary_blocks =
+            generation_blocks_path(
+                directory_,
+                next_generation);
+        temporary_blocks += ".tmp";
         const auto write_error =
             write_block_records_synced(
                 temporary_blocks,
@@ -1384,12 +1426,13 @@ StorageError ChainstateStore::commit(
             return write_error;
         }
 
-        // State/body availability is committed below. Keep the old blocks
-        // file authoritative until the matching state snapshot is ready.
-        std::filesystem::remove(
-            temporary_blocks,
-            ec);
-        if (ec) {
+        const auto generation_path =
+            generation_blocks_path(
+                directory_,
+                next_generation);
+        if (!atomic_replace(
+                temporary_blocks,
+                generation_path)) {
             return StorageError::io_error;
         }
     }
@@ -1529,11 +1572,11 @@ StorageError ChainstateStore::commit(
     append_hash(
         state,
         params_.genesis.hash);
-    // Generation 0 keeps compatibility with blocks.dat. Pruned commits will
-    // advance this only after a complete generation file has been synced.
+    // The snapshot names the exact block-store generation it was built
+    // against. Generation 0 is the legacy blocks.dat layout.
     append_little_endian(
         state,
-        static_cast<std::uint64_t>(0U));
+        next_generation);
 
     append_little_endian(
         state,
