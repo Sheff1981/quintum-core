@@ -1092,6 +1092,103 @@ void test_higher_outbound_peer_updates_lower_inbound()
     );
 }
 
+void test_encrypted_stem_transaction_relay()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("stem-runtime-server");
+    const auto mirror_dir =
+        unique_dir("stem-runtime-mirror");
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 70'000U;
+    const auto payout = payout_script(23U);
+
+    const auto coin =
+        prepare_chain_data(
+            params,
+            server_dir,
+            mirror_dir,
+            base_time,
+            payout
+        );
+
+    NetworkRuntime server{
+        params,
+        server_dir
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.enable_dandelion_relay = true;
+    config.dandelion_fluff_percent = 0U;
+    config.dandelion_embargo_min_seconds = 2U;
+    config.dandelion_embargo_jitter_seconds = 0U;
+
+    const auto started =
+        server.start(config);
+    assert(started.ok());
+    assert(server.status().height ==
+           std::optional<std::uint32_t>{105U});
+
+    VersionMessage version;
+    version.protocol_version =
+        params.p2p_protocol_version;
+    version.services =
+        kServiceNetwork |
+        kServiceEncryptedTransport |
+        kServiceDandelionRelay;
+    version.timestamp = base_time + 1'000U;
+    version.nonce = 0x34123412ULL;
+    version.start_height = 105U;
+    version.listen_port = 0U;
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            server.status().listen_port,
+            version,
+            5'000U
+        );
+
+    assert(connected.ok());
+    assert(connected.session->encrypted());
+
+    const auto spend =
+        make_spend(coin, 23U, 444U);
+    const auto txid =
+        transaction_id(spend);
+
+    assert(connected.session->send_command(
+               "stemtx",
+               serialize_transaction_payload(spend)) ==
+           PeerError::none);
+
+    assert(wait_until(
+        std::chrono::seconds(8),
+        [&] {
+            return server.has_mempool_transaction(
+                txid
+            );
+        }
+    ));
+
+    connected.session->close();
+    server.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(mirror_dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -1102,5 +1199,6 @@ int main()
     test_continuous_runtime_sync_relay_reconnect();
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
+    test_encrypted_stem_transaction_relay();
     return 0;
 }
