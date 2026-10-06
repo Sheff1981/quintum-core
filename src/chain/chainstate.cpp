@@ -267,9 +267,10 @@ const Block* Chainstate::block(
     const Hash256& hash) const noexcept
 {
     const auto it = block_index_.find(hash);
-    return it == block_index_.end()
+    return it == block_index_.end() ||
+            !it->second.block
         ? nullptr
-        : &it->second.block;
+        : &*it->second.block;
 }
 
 std::optional<std::uint32_t> Chainstate::next_work_required(
@@ -992,8 +993,14 @@ ChainConnectResult Chainstate::connect_block(
             }
         }
 
+        if (!index_it->second.block) {
+            result.error =
+                ChainConnectError::block_body_unavailable;
+            return result;
+        }
+
         auto applied = apply_block_to_view(
-            index_it->second.block,
+            *index_it->second.block,
             staged_utxos,
             staged_height,
             staged_parent_work,
