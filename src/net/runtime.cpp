@@ -2167,6 +2167,43 @@ void NetworkRuntime::service_peers(
             continue;
         }
 
+        {
+            std::scoped_lock lock(state_mutex_);
+
+            peer.requested_transactions.erase(
+                std::remove_if(
+                    peer.requested_transactions.begin(),
+                    peer.requested_transactions.end(),
+                    [&](const PendingTransactionRequest& request) {
+                        return node_.mempool().contains(
+                            request.hash
+                        );
+                    }
+                ),
+                peer.requested_transactions.end()
+            );
+
+            peer.requested_blocks.erase(
+                std::remove_if(
+                    peer.requested_blocks.begin(),
+                    peer.requested_blocks.end(),
+                    [&](const PendingBlockRequest& request) {
+                        return node_.chain().has_block(
+                            request.hash
+                        );
+                    }
+                ),
+                peer.requested_blocks.end()
+            );
+        }
+
+        if (!drain_transaction_requests(
+                peer,
+                now)) {
+            peer.session.close();
+            continue;
+        }
+
         if (config_.transaction_request_timeout_seconds > 0U) {
             const bool stalled_transaction_request =
                 std::any_of(
@@ -2583,6 +2620,10 @@ bool NetworkRuntime::process_inventory(
                     promote_private_transaction(
                         item.hash
                     );
+                    erase_hash(
+                        peer.deferred_transactions,
+                        item.hash
+                    );
                     continue;
                 }
 
@@ -2595,13 +2636,31 @@ bool NetworkRuntime::process_inventory(
                         }
                     );
 
-                if (already_requested) {
+                if (already_requested ||
+                    contains_hash(
+                        peer.deferred_transactions,
+                        item.hash)) {
                     continue;
                 }
 
+                const std::size_t capacity =
+                    std::max<std::size_t>(
+                        1U,
+                        config_.
+                            max_transaction_requests_in_flight
+                    );
+
                 if (peer.requested_transactions.size() >=
-                    config_.
-                        max_transaction_requests_in_flight) {
+                    capacity) {
+                    if (peer.deferred_transactions.size() >=
+                        config_.
+                            max_deferred_transaction_requests) {
+                        return false;
+                    }
+
+                    peer.deferred_transactions.push_back(
+                        item.hash
+                    );
                     continue;
                 }
 
@@ -2694,6 +2753,72 @@ bool NetworkRuntime::process_inventory(
     return peer.session.send_command(
                "getdata",
                payload) ==
+           PeerError::none;
+}
+
+bool NetworkRuntime::drain_transaction_requests(
+    LivePeer& peer,
+    std::uint64_t now)
+{
+    if (peer.deferred_transactions.empty()) {
+        return true;
+    }
+
+    const std::size_t capacity =
+        std::max<std::size_t>(
+            1U,
+            config_.
+                max_transaction_requests_in_flight
+        );
+
+    if (peer.requested_transactions.size() >=
+        capacity) {
+        return true;
+    }
+
+    const std::size_t available =
+        capacity -
+        peer.requested_transactions.size();
+
+    const std::size_t count =
+        std::min(
+            available,
+            peer.deferred_transactions.size()
+        );
+
+    std::vector<InventoryItem> wanted;
+    wanted.reserve(count);
+
+    for (std::size_t i = 0U;
+         i < count;
+         ++i) {
+        const Hash256 hash =
+            peer.deferred_transactions[i];
+
+        peer.requested_transactions.push_back(
+            PendingTransactionRequest{
+                .hash = hash,
+                .requested_at = now,
+            }
+        );
+
+        wanted.push_back(
+            InventoryItem{
+                .type = kInventoryTransaction,
+                .hash = hash,
+            }
+        );
+    }
+
+    peer.deferred_transactions.erase(
+        peer.deferred_transactions.begin(),
+        peer.deferred_transactions.begin() +
+            static_cast<std::ptrdiff_t>(count)
+    );
+
+    return peer.session.send_command(
+               "getdata",
+               serialize_inventory(wanted)) ==
            PeerError::none;
 }
 
