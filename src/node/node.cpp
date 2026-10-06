@@ -151,6 +151,11 @@ NodeSubmitResult NodeRuntime::restore_block_body(
     return out;
 }
 
+void NodeRuntime::clear_block_body_recovery() noexcept
+{
+    persistent_.clear_block_body_recovery();
+}
+
 NodeSubmitResult NodeRuntime::submit_block(
     const Block& block)
 {
