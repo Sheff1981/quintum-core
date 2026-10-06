@@ -113,6 +113,8 @@ struct NetworkRuntimeStatus {
     bool synchronizing{false};
     double sync_progress{1.0};
     std::optional<Hash256> tip{};
+    std::optional<std::uint32_t> difficulty_bits{};
+    std::optional<double> difficulty{};
     std::size_t mempool_transactions{0U};
     wallet::WalletBalance wallet_balance{};
     Amount min_relay_fee_rate_per_kb{
