@@ -31,6 +31,7 @@ struct ChainEntry {
 
 struct BlockIndexEntry {
     Block block{};
+    BlockHeader header{};
     Hash256 hash{};
     Hash256 parent{};
     std::uint32_t height{0};
