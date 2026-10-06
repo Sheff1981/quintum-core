@@ -25,8 +25,10 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <chrono>
 #include <exception>
 #include <filesystem>
+#include <future>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -929,70 +931,149 @@ int main(int argc, char* argv[])
         }
     }
 
-    quintum::net::NetworkRuntimeConfig config;
-    config.enable_nat_mapping =
-        !parser.isSet(no_nat) &&
-        network !=
-            quintum::consensus::Network::regtest;
-    config.proxies.tor =
-        std::move(tor_route);
-    config.proxies.i2p =
-        std::move(i2p_route);
-    config.wallet_passphrase =
-        setup.password;
-    config.wallet_recovery_mnemonic =
-        setup.mnemonic;
-    config.allow_ephemeral_listener_fallback =
-        true;
-
-    wipe_string(setup.password);
-    wipe_string(setup.mnemonic);
-
     quintum::net::NetworkRuntimeStartResult started;
 
-    write_startup_stage(
-        data_path,
-        "runtime_start_begin"
-    );
+    for (;;) {
+        quintum::net::NetworkRuntimeConfig config;
+        config.enable_nat_mapping =
+            !parser.isSet(no_nat) &&
+            network !=
+                quintum::consensus::Network::regtest;
+        config.proxies.tor = tor_route;
+        config.proxies.i2p = i2p_route;
+        config.wallet_passphrase =
+            setup.password;
+        config.wallet_recovery_mnemonic =
+            setup.mnemonic;
+        config.allow_ephemeral_listener_fallback =
+            true;
 
-    try {
-        started =
-            runtime.start(
-                std::move(config)
-            );
-    } catch (const std::exception& error) {
-        QMessageBox::critical(
-            nullptr,
-            "QUINTUM Core did not start",
-            QString(
-                "QUINTUM caught an unexpected startup error instead of closing silently.\n\n%1\n\nNo wallet data was intentionally discarded."
-            ).arg(
-                QString::fromUtf8(
-                    error.what()
+        wipe_string(setup.password);
+        wipe_string(setup.mnemonic);
+
+        write_startup_stage(
+            data_path,
+            "runtime_start_begin"
+        );
+
+        startup_progress.setLabelText(
+            "Opening wallet and validating password..."
+        );
+        startup_progress.show();
+        QApplication::processEvents();
+
+        try {
+            auto start_future =
+                std::async(
+                    std::launch::async,
+                    [&runtime,
+                     config = std::move(config)]()
+                        mutable {
+                        return runtime.start(
+                            std::move(config)
+                        );
+                    }
+                );
+
+            while (start_future.wait_for(
+                       std::chrono::milliseconds(25)) !=
+                   std::future_status::ready) {
+                QApplication::processEvents();
+            }
+
+            started = start_future.get();
+        } catch (const std::exception& error) {
+            startup_progress.hide();
+            QMessageBox::critical(
+                nullptr,
+                "QUINTUM Core did not start",
+                QString(
+                    "QUINTUM caught an unexpected startup error instead of closing silently.\n\n%1\n\nNo wallet data was intentionally discarded."
+                ).arg(
+                    QString::fromUtf8(
+                        error.what()
+                    )
                 )
+            );
+            runtime.stop();
+            return 6;
+        } catch (...) {
+            startup_progress.hide();
+            QMessageBox::critical(
+                nullptr,
+                "QUINTUM Core did not start",
+                "QUINTUM caught an unexpected startup error instead of closing silently. "
+                "No wallet data was intentionally discarded."
+            );
+            runtime.stop();
+            return 6;
+        }
+
+        if (started.ok()) {
+            break;
+        }
+
+        const bool password_error =
+            started.error ==
+                quintum::net::
+                    NetworkRuntimeStartError::
+                        wallet_failed &&
+            started.wallet.error ==
+                quintum::wallet::
+                    WalletStartError::
+                        store_failed &&
+            (started.wallet.store_error ==
+                 quintum::wallet::
+                     WalletStoreError::
+                         invalid_passphrase ||
+             started.wallet.store_error ==
+                 quintum::wallet::
+                     WalletStoreError::
+                         passphrase_required);
+
+        if (!password_error) {
+            startup_progress.hide();
+            QMessageBox::critical(
+                nullptr,
+                "QUINTUM Core did not start",
+                startup_error_text(started)
+            );
+            runtime.stop();
+            return 6;
+        }
+
+        startup_progress.hide();
+
+        bool accepted{false};
+        QString passphrase =
+            QInputDialog::getText(
+                nullptr,
+                "Open QUINTUM wallet",
+                "The password did not unlock this wallet. "
+                "Enter the same wallet password that was used before this update:",
+                QLineEdit::Password,
+                {},
+                &accepted
+            );
+
+        if (!accepted) {
+            runtime.stop();
+            return 0;
+        }
+
+        QByteArray password_utf8 =
+            passphrase.toUtf8();
+
+        setup.password.assign(
+            password_utf8.constData(),
+            static_cast<std::size_t>(
+                password_utf8.size()
             )
         );
-        runtime.stop();
-        return 6;
-    } catch (...) {
-        QMessageBox::critical(
-            nullptr,
-            "QUINTUM Core did not start",
-            "QUINTUM caught an unexpected startup error instead of closing silently. "
-            "No wallet data was intentionally discarded."
-        );
-        runtime.stop();
-        return 6;
-    }
 
-    if (!started.ok()) {
-        QMessageBox::critical(
-            nullptr,
-            "QUINTUM Core did not start",
-            startup_error_text(started)
-        );
-        runtime.stop();
-        return 6;
+        wipe_byte_array(password_utf8);
+        passphrase.fill(QChar{0});
+        passphrase.clear();
     }
 
     write_startup_stage(
