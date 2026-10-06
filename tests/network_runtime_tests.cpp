@@ -2,6 +2,7 @@
 #include "crypto/secp256k1.hpp"
 #include "net/runtime.hpp"
 #include "net/relay.hpp"
+#include "net/sync.hpp"
 #include "node/node.hpp"
 
 #include <cassert>
@@ -1251,6 +1252,125 @@ void test_chainwork_runtime_prefers_shorter_heavier_peer()
 }
 
 
+void test_stalled_block_requests_are_bounded_and_expire()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir =
+        unique_dir("block-request-timeout");
+
+    NetworkRuntime runtime{
+        params,
+        dir
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 10U;
+    config.io_timeout_ms = 5'000U;
+    config.ping_interval_seconds = 30U;
+    config.ping_timeout_seconds = 5U;
+    config.block_request_timeout_seconds = 1U;
+    config.max_block_requests_in_flight = 4U;
+
+    assert(runtime.start(config).ok());
+
+    VersionMessage remote;
+    remote.protocol_version =
+        params.p2p_protocol_version;
+    // Deliberately omit the Stage 38 chainwork capability so this fixture
+    // exercises only steady-state inventory/download behavior.
+    remote.services = kServiceNetwork;
+    remote.timestamp =
+        params.genesis.timestamp + 80'000U;
+    remote.nonce = 0x39003900ULL;
+    remote.start_height = 0U;
+    remote.listen_port = 0U;
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            runtime.status().listen_port,
+            remote,
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            return runtime.status().peers == 1U;
+        }
+    ));
+
+    std::vector<InventoryItem> announced;
+    announced.reserve(6U);
+
+    for (Byte i = 1U; i <= 6U; ++i) {
+        Hash256 hash{};
+        hash.front() = i;
+
+        announced.push_back(
+            InventoryItem{
+                .type = kInventoryBlock,
+                .hash = hash,
+            }
+        );
+    }
+
+    assert(connected.session->send_command(
+               "inv",
+               serialize_inventory(announced)) ==
+           PeerError::none);
+
+    WireMessage request;
+    assert(connected.session->receive_command(
+               request) ==
+           PeerError::none);
+    assert(request.command == "getdata");
+
+    const auto requested =
+        parse_inventory(request.payload);
+
+    assert(requested.has_value());
+    assert(requested->size() == 4U);
+
+    for (std::size_t i = 0U;
+         i < requested->size();
+         ++i) {
+        assert((*requested)[i].type ==
+               kInventoryBlock);
+        assert((*requested)[i].hash ==
+               announced[i].hash);
+    }
+
+    // Keep the socket open but intentionally never answer the block request.
+    // The runtime must not let a responsive-looking peer pin block downloads
+    // forever; the independent block-request deadline closes it.
+    assert(wait_until(
+        std::chrono::seconds(6),
+        [&] {
+            return runtime.status().peers == 0U;
+        }
+    ));
+
+    connected.session->close();
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+
 void test_encrypted_stem_transaction_relay()
 {
     using namespace quintum;
@@ -1359,6 +1479,7 @@ int main()
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
     test_chainwork_runtime_prefers_shorter_heavier_peer();
+    test_stalled_block_requests_are_bounded_and_expire();
     test_encrypted_stem_transaction_relay();
     return 0;
 }
