@@ -10,6 +10,7 @@
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -21,6 +22,42 @@
 #include <vector>
 
 namespace quintum::net {
+
+inline constexpr std::uint64_t
+    kMaxReconnectBackoffSeconds{300U};
+
+[[nodiscard]] constexpr std::uint64_t
+reconnect_backoff_delay(
+    std::uint64_t base_seconds,
+    std::uint32_t failures) noexcept
+{
+    if (base_seconds == 0U) {
+        return 0U;
+    }
+
+    std::uint64_t delay =
+        std::min<std::uint64_t>(
+            base_seconds,
+            kMaxReconnectBackoffSeconds
+        );
+
+    for (std::uint32_t i = 0U;
+         i < failures &&
+         delay < kMaxReconnectBackoffSeconds;
+         ++i) {
+        if (delay >
+            kMaxReconnectBackoffSeconds / 2U) {
+            return kMaxReconnectBackoffSeconds;
+        }
+
+        delay *= 2U;
+    }
+
+    return std::min<std::uint64_t>(
+        delay,
+        kMaxReconnectBackoffSeconds
+    );
+}
 
 struct NetworkRuntimeConfig {
     std::string bind_address{"0.0.0.0"};
@@ -353,6 +390,7 @@ private:
     struct ReconnectCandidate {
         PeerAddress address{};
         std::uint64_t next_attempt{0U};
+        std::uint32_t failures{0U};
     };
 
     struct StemRelayState {
