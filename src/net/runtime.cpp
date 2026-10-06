@@ -2430,8 +2430,16 @@ bool NetworkRuntime::process_inventory(
             if (item.type ==
                 kInventoryTransaction) {
                 if (node_.mempool().contains(
-                        item.hash) ||
-                    contains_hash(
+                        item.hash)) {
+                    // Once the transaction is observed in normal diffusion,
+                    // stop hiding any local stem copy immediately.
+                    promote_private_transaction(
+                        item.hash
+                    );
+                    continue;
+                }
+
+                if (contains_hash(
                         peer.
                             requested_transactions,
                         item.hash)) {
@@ -2602,12 +2610,9 @@ bool NetworkRuntime::process_stem_transaction(
             return false;
         }
 
-        // A stem loop is a signal to stop walking and diffuse normally.
-        erase_stem_relay(txid);
-        queue_announcement(
-            kInventoryTransaction,
-            txid
-        );
+        // A stem loop or duplicate means the transaction has lost
+        // its one-way stem property. Diffuse it normally from now on.
+        promote_private_transaction(txid);
         return true;
     }
 
@@ -3292,6 +3297,41 @@ void NetworkRuntime::erase_stem_relay(
         ),
         stem_relays_.end()
     );
+}
+
+void NetworkRuntime::promote_private_transaction(
+    const Hash256& txid)
+{
+    erase_stem_relay(txid);
+
+    std::scoped_lock lock(
+        announcement_mutex_
+    );
+
+    erase_hash(
+        pending_private_transactions_,
+        txid
+    );
+
+    const bool already_queued =
+        std::any_of(
+            announcements_.begin(),
+            announcements_.end(),
+            [&](const PendingAnnouncement& item) {
+                return item.type ==
+                           kInventoryTransaction &&
+                       item.hash == txid;
+            }
+        );
+
+    if (!already_queued) {
+        announcements_.push_back(
+            PendingAnnouncement{
+                .type = kInventoryTransaction,
+                .hash = txid,
+            }
+        );
+    }
 }
 
 std::vector<Hash256>
