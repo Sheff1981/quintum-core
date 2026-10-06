@@ -214,6 +214,14 @@ bool Chainstate::has_block(const Hash256& hash) const
     return block_index_.contains(hash);
 }
 
+bool Chainstate::has_block_body(
+    const Hash256& hash) const noexcept
+{
+    const auto it = block_index_.find(hash);
+    return it != block_index_.end() &&
+           it->second.block.has_value();
+}
+
 bool Chainstate::is_on_active_chain(const Hash256& hash) const
 {
     return std::any_of(
@@ -654,6 +662,54 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     }
 
     return retarget.bits;
+}
+
+ChainConnectResult Chainstate::restore_block_body(
+    const Block& block)
+{
+    ChainConnectResult result;
+
+    if (validate_block_structure(block) !=
+        BlockStructureError::none) {
+        result.error =
+            ChainConnectError::invalid_block_structure;
+        return result;
+    }
+
+    const auto resource_error =
+        consensus::validate_block_resources(
+            block,
+            params_.limits);
+
+    if (resource_error !=
+        consensus::BlockResourceError::none) {
+        result.error =
+            ChainConnectError::resource_limits_exceeded;
+        result.resource_error = resource_error;
+        return result;
+    }
+
+    const auto hash = block_hash(block.header);
+    auto it = block_index_.find(hash);
+
+    if (it == block_index_.end()) {
+        result.error = ChainConnectError::unknown_parent;
+        return result;
+    }
+
+    if (it->second.failed ||
+        has_failed_ancestor(hash)) {
+        result.error = ChainConnectError::invalid_ancestor;
+        return result;
+    }
+
+    if (it->second.block) {
+        result.error = ChainConnectError::duplicate_block;
+        return result;
+    }
+
+    it->second.block = block;
+    return result;
 }
 
 ChainConnectResult Chainstate::connect_block(
