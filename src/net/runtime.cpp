@@ -80,6 +80,19 @@ bool elapsed(
            now - since >= interval;
 }
 
+std::uint64_t deadline_after(
+    std::uint64_t now,
+    std::uint64_t delay) noexcept
+{
+    return now >
+               std::numeric_limits<
+                   std::uint64_t>::max() -
+                   delay
+        ? std::numeric_limits<
+              std::uint64_t>::max()
+        : now + delay;
+}
+
 void append_text(
     Bytes& out,
     std::string_view value)
@@ -1802,17 +1815,20 @@ void NetworkRuntime::maintain_outbound(
             );
             (void)addrman_.save();
 
+            if (it->failures <
+                std::numeric_limits<
+                    std::uint32_t>::max()) {
+                ++it->failures;
+            }
+
             it->next_attempt =
-                now >
-                    std::numeric_limits<
-                        std::uint64_t>::max() -
-                        config_.
-                            reconnect_delay_seconds
-                    ? std::numeric_limits<
-                          std::uint64_t>::max()
-                    : now +
-                          config_.
-                              reconnect_delay_seconds;
+                deadline_after(
+                    now,
+                    reconnect_backoff_delay(
+                        config_.reconnect_delay_seconds,
+                        it->failures
+                    )
+                );
 
             known_address_count_.store(
                 addrman_.size()
@@ -1853,10 +1869,20 @@ void NetworkRuntime::maintain_outbound(
             );
             (void)addrman_.save();
 
+            if (it->failures <
+                std::numeric_limits<
+                    std::uint32_t>::max()) {
+                ++it->failures;
+            }
+
             it->next_attempt =
-                now +
-                config_.
-                    reconnect_delay_seconds;
+                deadline_after(
+                    now,
+                    reconnect_backoff_delay(
+                        config_.reconnect_delay_seconds,
+                        it->failures
+                    )
+                );
             return;
         }
 
@@ -3687,21 +3713,19 @@ void NetworkRuntime::schedule_reconnect(
         );
 
     const std::uint64_t next =
-        now >
-            std::numeric_limits<
-                std::uint64_t>::max() -
-                config_.
-                    reconnect_delay_seconds
-            ? std::numeric_limits<
-                  std::uint64_t>::max()
-            : now +
-                  config_.
-                      reconnect_delay_seconds;
+        deadline_after(
+            now,
+            reconnect_backoff_delay(
+                config_.reconnect_delay_seconds,
+                0U
+            )
+        );
 
     if (it !=
         reconnect_candidates_.end()) {
+        // Never shorten an already-earned backoff window.
         it->next_attempt =
-            std::min(
+            std::max(
                 it->next_attempt,
                 next
             );
@@ -3712,6 +3736,7 @@ void NetworkRuntime::schedule_reconnect(
         ReconnectCandidate{
             .address = address,
             .next_attempt = next,
+            .failures = 0U,
         }
     );
 }
