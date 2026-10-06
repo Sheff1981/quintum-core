@@ -27,6 +27,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSize>
 #include <QStackedWidget>
 #include <QStringList>
@@ -1462,17 +1463,33 @@ QWidget* MainWindow::build_transactions_page()
     transactions_->verticalHeader()->setVisible(
         false
     );
-    transactions_->horizontalHeader()
-        ->setStretchLastSection(true);
-    transactions_->horizontalHeader()
+    transactions_->setWordWrap(false);
+    transactions_->setSortingEnabled(false);
+    transactions_->verticalHeader()
         ->setSectionResizeMode(
-            QHeaderView::ResizeToContents
+            QHeaderView::Fixed
         );
-    transactions_->horizontalHeader()
-        ->setSectionResizeMode(
-            1,
-            QHeaderView::Stretch
-        );
+    transactions_->verticalHeader()
+        ->setDefaultSectionSize(34);
+
+    auto* transaction_header =
+        transactions_->horizontalHeader();
+    transaction_header->setStretchLastSection(
+        false
+    );
+    transaction_header->setSectionResizeMode(
+        QHeaderView::Interactive
+    );
+    transaction_header->setSectionResizeMode(
+        1,
+        QHeaderView::Stretch
+    );
+    transactions_->setColumnWidth(0, 105);
+    transactions_->setColumnWidth(2, 150);
+    transactions_->setColumnWidth(3, 150);
+    transactions_->setColumnWidth(4, 105);
+    transactions_->setColumnWidth(5, 115);
+    transactions_->setColumnWidth(6, 145);
 
     connect(
         transaction_search_,
@@ -2389,149 +2406,7 @@ void MainWindow::apply_snapshot(
         mining_difficulty_->setToolTip({});
     }
 
-    transactions_->setRowCount(
-        static_cast<int>(
-            snapshot.transactions.size()
-        )
-    );
-
-    for (std::size_t i = 0U;
-         i < snapshot.transactions.size();
-         ++i) {
-        const auto& view =
-            snapshot.transactions[i];
-        const auto& tx = view.record;
-        const int row =
-            static_cast<int>(i);
-
-        auto* status_item =
-            new QTableWidgetItem(
-                status_text(tx.status)
-            );
-
-        if (tx.status ==
-            wallet::WalletTransactionStatus::
-                confirmed) {
-            status_item->setForeground(
-                QColor("#079b43")
-            );
-        } else if (
-            tx.status ==
-            wallet::WalletTransactionStatus::
-                unconfirmed) {
-            status_item->setForeground(
-                QColor("#d18200")
-            );
-        } else {
-            status_item->setForeground(
-                QColor("#6c4ec4")
-            );
-        }
-
-        transactions_->setItem(
-            row,
-            0,
-            status_item
-        );
-
-        const QString full_txid =
-            hash_hex(tx.txid);
-        const QString short_txid =
-            full_txid.size() > 18
-                ? full_txid.left(9) +
-                    "..." +
-                    full_txid.right(7)
-                : full_txid;
-
-        auto* txid_item =
-            new QTableWidgetItem(
-                short_txid
-            );
-        txid_item->setToolTip(
-            full_txid
-        );
-        txid_item->setForeground(
-            QColor("#0869e8")
-        );
-
-        transactions_->setItem(
-            row,
-            1,
-            txid_item
-        );
-
-        auto* received_item =
-            new QTableWidgetItem(
-                tx.received > 0U
-                    ? "+" +
-                        format_amount(
-                            tx.received
-                        ) +
-                        " QMU"
-                    : "-"
-            );
-
-        if (tx.received > 0U) {
-            received_item->setForeground(
-                QColor("#079b43")
-            );
-        }
-
-        transactions_->setItem(
-            row,
-            2,
-            received_item
-        );
-
-        transactions_->setItem(
-            row,
-            3,
-            new QTableWidgetItem(
-                tx.spent > 0U
-                    ? "-" +
-                        format_amount(
-                            tx.spent
-                        ) +
-                        " QMU"
-                    : "-"
-            )
-        );
-        transactions_->setItem(
-            row,
-            4,
-            new QTableWidgetItem(
-                tx.fee
-                    ? format_amount(*tx.fee)
-                    : "-"
-            )
-        );
-        transactions_->setItem(
-            row,
-            5,
-            new QTableWidgetItem(
-                QString::number(
-                    tx.confirmations
-                )
-            )
-        );
-        transactions_->setItem(
-            row,
-            6,
-            new QTableWidgetItem(
-                view.label
-                    ? QString::fromStdString(
-                          *view.label
-                      )
-                    : (
-                          tx.coinbase
-                              ? "Mining Reward"
-                              : QString{}
-                      )
-            )
-        );
-    }
-
-    filter_transactions();
+    refresh_transaction_table(snapshot);
 
     address_book_table_->setRowCount(
         static_cast<int>(
@@ -2566,6 +2441,307 @@ void MainWindow::apply_snapshot(
             )
         );
     }
+}
+
+void MainWindow::refresh_transaction_table(
+    const net::WalletDesktopSnapshot& snapshot)
+{
+    if (transactions_ == nullptr) {
+        return;
+    }
+
+    const auto& views =
+        snapshot.transactions;
+
+    bool prefix_matches =
+        transaction_rows_.size() <=
+            views.size();
+
+    if (prefix_matches) {
+        for (std::size_t i = 0U;
+             i < transaction_rows_.size();
+             ++i) {
+            if (transaction_rows_[i] !=
+                views[i].record.txid) {
+                prefix_matches = false;
+                break;
+            }
+        }
+    }
+
+    const bool rebuild =
+        !prefix_matches;
+
+    const QSignalBlocker blocker(
+        transactions_
+    );
+
+    transactions_->setUpdatesEnabled(false);
+
+    const auto write_dynamic =
+        [this](
+            int row,
+            const net::WalletTransactionView& view) {
+            const auto& tx = view.record;
+
+            auto* status_item =
+                transactions_->item(
+                    row,
+                    0
+                );
+
+            if (status_item == nullptr) {
+                status_item =
+                    new QTableWidgetItem;
+                transactions_->setItem(
+                    row,
+                    0,
+                    status_item
+                );
+            }
+
+            status_item->setText(
+                status_text(tx.status)
+            );
+
+            if (tx.status ==
+                wallet::WalletTransactionStatus::
+                    confirmed) {
+                status_item->setForeground(
+                    QColor("#079b43")
+                );
+            } else if (
+                tx.status ==
+                wallet::WalletTransactionStatus::
+                    unconfirmed) {
+                status_item->setForeground(
+                    QColor("#d18200")
+                );
+            } else {
+                status_item->setForeground(
+                    QColor("#6c4ec4")
+                );
+            }
+
+            auto* confirmations_item =
+                transactions_->item(
+                    row,
+                    5
+                );
+
+            if (confirmations_item ==
+                nullptr) {
+                confirmations_item =
+                    new QTableWidgetItem;
+                transactions_->setItem(
+                    row,
+                    5,
+                    confirmations_item
+                );
+            }
+
+            confirmations_item->setText(
+                QString::number(
+                    tx.confirmations
+                )
+            );
+
+            auto* label_item =
+                transactions_->item(
+                    row,
+                    6
+                );
+
+            if (label_item == nullptr) {
+                label_item =
+                    new QTableWidgetItem;
+                transactions_->setItem(
+                    row,
+                    6,
+                    label_item
+                );
+            }
+
+            label_item->setText(
+                view.label
+                    ? QString::fromStdString(
+                          *view.label
+                      )
+                    : (
+                          tx.coinbase
+                              ? "Mining Reward"
+                              : QString{}
+                      )
+            );
+        };
+
+    const auto write_static =
+        [this, &write_dynamic](
+            int row,
+            const net::WalletTransactionView& view) {
+            const auto& tx = view.record;
+
+            write_dynamic(
+                row,
+                view
+            );
+
+            const QString full_txid =
+                hash_hex(tx.txid);
+            const QString short_txid =
+                full_txid.size() > 18
+                    ? full_txid.left(9) +
+                        "..." +
+                        full_txid.right(7)
+                    : full_txid;
+
+            auto* txid_item =
+                new QTableWidgetItem(
+                    short_txid
+                );
+            txid_item->setToolTip(
+                full_txid
+            );
+            txid_item->setForeground(
+                QColor("#0869e8")
+            );
+            transactions_->setItem(
+                row,
+                1,
+                txid_item
+            );
+
+            auto* received_item =
+                new QTableWidgetItem(
+                    tx.received > 0U
+                        ? "+" +
+                            format_amount(
+                                tx.received
+                            ) +
+                            " QMU"
+                        : "-"
+                );
+
+            if (tx.received > 0U) {
+                received_item->setForeground(
+                    QColor("#079b43")
+                );
+            }
+
+            transactions_->setItem(
+                row,
+                2,
+                received_item
+            );
+
+            transactions_->setItem(
+                row,
+                3,
+                new QTableWidgetItem(
+                    tx.spent > 0U
+                        ? "-" +
+                            format_amount(
+                                tx.spent
+                            ) +
+                            " QMU"
+                        : "-"
+                )
+            );
+
+            transactions_->setItem(
+                row,
+                4,
+                new QTableWidgetItem(
+                    tx.fee
+                        ? format_amount(
+                              *tx.fee
+                          )
+                        : "-"
+                )
+            );
+        };
+
+    if (rebuild) {
+        transactions_->clearContents();
+        transactions_->setRowCount(
+            static_cast<int>(
+                views.size()
+            )
+        );
+
+        transaction_rows_.clear();
+        transaction_rows_.reserve(
+            views.size()
+        );
+
+        for (std::size_t i = 0U;
+             i < views.size();
+             ++i) {
+            write_static(
+                static_cast<int>(i),
+                views[i]
+            );
+            transaction_rows_.push_back(
+                views[i].record.txid
+            );
+        }
+    } else {
+        const std::size_t existing =
+            transaction_rows_.size();
+
+        if (views.size() > existing) {
+            transactions_->setRowCount(
+                static_cast<int>(
+                    views.size()
+                )
+            );
+            transaction_rows_.reserve(
+                views.size()
+            );
+        }
+
+        for (std::size_t i = 0U;
+             i < existing;
+             ++i) {
+            write_dynamic(
+                static_cast<int>(i),
+                views[i]
+            );
+        }
+
+        for (std::size_t i = existing;
+             i < views.size();
+             ++i) {
+            write_static(
+                static_cast<int>(i),
+                views[i]
+            );
+            transaction_rows_.push_back(
+                views[i].record.txid
+            );
+        }
+    }
+
+    const bool filter_active =
+        (transaction_search_ != nullptr &&
+         !transaction_search_->text()
+              .trimmed()
+              .isEmpty()) ||
+        (transaction_status_filter_ !=
+             nullptr &&
+         transaction_status_filter_
+                 ->currentText() !=
+             "All statuses");
+
+    if (rebuild ||
+        views.size() !=
+            transaction_rows_.size() ||
+        filter_active) {
+        filter_transactions();
+    }
+
+    transactions_->setUpdatesEnabled(true);
+    transactions_->viewport()->update();
 }
 
 void MainWindow::filter_transactions()
