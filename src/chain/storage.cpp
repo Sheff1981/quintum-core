@@ -1358,10 +1358,11 @@ StorageError ChainstateStore::commit(
             block_hash(
                 scan.blocks[i].header) !=
                 expected_hash ||
+            !index_it->second.block ||
             serialize_block_bytes(
                 scan.blocks[i]) !=
                 serialize_block_bytes(
-                    index_it->second.block)) {
+                    *index_it->second.block)) {
             return StorageError::state_mismatch;
         }
     }
@@ -1407,13 +1408,14 @@ StorageError ChainstateStore::commit(
                 chain.acceptance_order_[i]);
 
         if (index_it ==
-            chain.block_index_.end()) {
+                chain.block_index_.end() ||
+            !index_it->second.block) {
             return StorageError::state_mismatch;
         }
 
         const auto record =
             make_block_record(
-                index_it->second.block);
+                *index_it->second.block);
 
         const auto append_error =
             append_file_synced(
@@ -1644,9 +1646,13 @@ StorageError ChainstateStore::load(
             return StorageError::state_mismatch;
         }
 
+        if (!block_it->second.block) {
+            return StorageError::state_mismatch;
+        }
+
         const auto result =
             active.connect_block(
-                block_it->second.block,
+                *block_it->second.block,
                 std::numeric_limits<
                     std::uint64_t>::max());
 
