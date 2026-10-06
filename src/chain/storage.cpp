@@ -1695,6 +1695,98 @@ StorageError ChainstateStore::load(
         return state_error;
     }
 
+    if (disk.version >= kStorageVersion &&
+        disk.block_generation != 0U) {
+        const auto body_count =
+            static_cast<std::size_t>(
+                std::count_if(
+                    disk.index.begin(),
+                    disk.index.end(),
+                    [](const IndexMeta& meta) {
+                        return meta.body_available;
+                    }));
+
+        auto scan = scan_block_file(
+            generation_blocks_path(
+                directory_,
+                disk.block_generation),
+            body_count,
+            params_);
+        if (scan.error != StorageError::none ||
+            scan.blocks.size() != body_count) {
+            return scan.error != StorageError::none
+                ? scan.error
+                : StorageError::truncated;
+        }
+
+        Chainstate restored{params_};
+        std::size_t body_index{0U};
+
+        for (const auto& meta : disk.index) {
+            std::optional<Block> body;
+            if (meta.body_available) {
+                if (body_index >= scan.blocks.size()) {
+                    return StorageError::truncated;
+                }
+                const auto& candidate =
+                    scan.blocks[body_index++];
+                if (block_hash(candidate.header) !=
+                        meta.hash ||
+                    serialize_block_header(
+                        candidate.header) !=
+                    serialize_block_header(
+                        meta.header)) {
+                    return StorageError::state_mismatch;
+                }
+                body = candidate;
+            }
+
+            restored.acceptance_order_.push_back(
+                meta.hash);
+            restored.block_index_.emplace(
+                meta.hash,
+                BlockIndexEntry{
+                    .block = std::move(body),
+                    .header = meta.header,
+                    .hash = meta.hash,
+                    .parent = meta.parent,
+                    .height = meta.height,
+                    .chain_work = meta.chain_work,
+                    .failed = meta.failed,
+                });
+        }
+
+        restored.chain_.reserve(disk.active.size());
+        for (const auto& stored : disk.active) {
+            const auto index_it =
+                restored.block_index_.find(
+                    stored.hash);
+            if (index_it ==
+                    restored.block_index_.end() ||
+                index_it->second.failed ||
+                index_it->second.height !=
+                    stored.height ||
+                index_it->second.chain_work !=
+                    stored.chain_work) {
+                return StorageError::state_mismatch;
+            }
+            restored.chain_.push_back(
+                ChainEntry{
+                    .hash = stored.hash,
+                    .header =
+                        index_it->second.header,
+                    .height = stored.height,
+                    .chain_work =
+                        stored.chain_work,
+                    .undo = stored.undo,
+                });
+        }
+
+        restored.utxos_.coins_ = disk.utxos;
+        chain = std::move(restored);
+        return StorageError::none;
+    }
+
     auto scan =
         scan_block_file(
             blocks_path(),
