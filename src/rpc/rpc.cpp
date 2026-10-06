@@ -539,6 +539,16 @@ Json dispatch_method(
              status.known_addresses},
             {"localport",
              status.listen_port},
+            {"natmapping",
+             status.nat_mapping_method ==
+                     net::NatMappingMethod::nat_pmp
+                 ? "nat-pmp"
+                 : status.nat_mapping_method ==
+                           net::NatMappingMethod::upnp
+                       ? "upnp"
+                       : "none"},
+            {"externalport",
+             status.nat_external_port},
             {"network", params.name},
         };
     }

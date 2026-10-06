@@ -3,6 +3,7 @@
 #include "net/address.hpp"
 #include "net/compact_block.hpp"
 #include "net/discovery.hpp"
+#include "net/nat_mapping.hpp"
 #include "net/peer.hpp"
 #include "node/node.hpp"
 #include "wallet/fee_policy.hpp"
@@ -37,6 +38,8 @@ struct NetworkRuntimeConfig {
     std::size_t randomx_mining_threads{0U};
     bool randomx_full_memory_mining{false};
     std::vector<PeerAddress> bootstrap_peers{};
+    ProxyRoutes proxies{};
+    bool enable_nat_mapping{false};
     bool wallet_enabled{true};
     std::string wallet_passphrase{};
     std::string wallet_recovery_mnemonic{};
@@ -86,6 +89,10 @@ struct NetworkRuntimeStatus {
     std::size_t peers{0U};
     std::size_t outbound_peers{0U};
     std::size_t known_addresses{0U};
+    NatMappingMethod nat_mapping_method{
+        NatMappingMethod::none
+    };
+    std::uint16_t nat_external_port{0U};
     std::optional<std::uint32_t> height{};
     std::optional<std::uint32_t> peer_best_height{};
     bool synchronizing{false};
@@ -358,6 +365,7 @@ private:
     ) const;
 
     void run_loop() noexcept;
+    void run_nat_loop() noexcept;
     void accept_inbound(std::uint64_t now);
     void maintain_outbound(std::uint64_t now);
     void service_peers(std::uint64_t now);
@@ -450,6 +458,7 @@ private:
     AddrManager addrman_;
     PeerDiscovery discovery_;
     PeerListener listener_;
+    NatPortMapper nat_mapper_{};
 
     std::vector<LivePeer> peers_{};
     std::vector<ReconnectCandidate>
@@ -467,12 +476,18 @@ private:
     std::atomic<std::uint32_t> peer_best_height_{0U};
     std::atomic<bool> have_peer_height_{false};
     std::atomic<std::uint16_t> listen_port_{0U};
+    std::atomic<NatMappingMethod>
+        nat_mapping_method_{
+            NatMappingMethod::none};
+    std::atomic<std::uint16_t>
+        nat_external_port_{0U};
 
     std::uint64_t runtime_nonce_{0U};
     std::uint64_t wallet_mining_nonce_{0U};
     std::uint64_t ping_counter_{0U};
     std::uint64_t next_outbound_attempt_{0U};
     std::thread worker_{};
+    std::thread nat_worker_{};
 };
 
 } // namespace quintum::net

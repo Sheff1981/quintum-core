@@ -135,6 +135,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
           Copy-Item ".\build-gui\Release\QUINTUM.exe" (Join-Path $stage "QUINTUM.exe")
           Copy-Item ".\README.md" (Join-Path $stage "README.md")
+          Copy-Item ".\THIRD_PARTY_NOTICES.md" (Join-Path $stage "THIRD_PARTY_NOTICES.md")
           Copy-Item ".\docs\TESTNET_TESTING.md" (Join-Path $stage "TESTNET_TESTING.md")
 
           $deploy = Join-Path $env:QT_ROOT "bin\windeployqt.exe"

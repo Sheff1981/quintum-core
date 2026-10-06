@@ -21,6 +21,7 @@ mkdir -p     "$portable_root/bin"     "$portable_root/lib"     "$portable_root/p
 install -m 0755 "$binary" "$portable_root/bin/QUINTUM"
 install -m 0755     "$repo_root/packaging/linux/quintum-launcher.sh"     "$portable_root/run-quintum.sh"
 install -m 0644 "$repo_root/README.md" "$portable_root/README.md"
+install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$portable_root/THIRD_PARTY_NOTICES.md"
 install -m 0644 "$repo_root/docs/TESTNET_TESTING.md" "$portable_root/TESTNET_TESTING.md"
 
 shopt -s nullglob

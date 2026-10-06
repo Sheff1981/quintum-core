@@ -106,7 +106,7 @@ The RandomX Testnet uses P2P protocol version 2. Its `version` payload adds the 
 
 This removes the single-seed topology trap: once multiple publicly reachable RandomX nodes have connected, the bootstrap node learns them and introduces later nodes to them. Existing legacy SHA-256 networks remain on protocol version 1 and retain their original 32-byte version payload.
 
-Nodes behind NAT still need an actual inbound mapping for the advertised port to be reachable. Automatic UPnP/NAT-PMP remains a separate deployment item; unreachable advertised endpoints simply fail normal connection attempts and enter retry backoff.
+Nodes behind NAT need an actual inbound mapping for the advertised port to be reachable. Stage 33 now attempts that mapping automatically through NAT-PMP first and UPnP IGD as a fallback; failure is non-fatal and outbound networking continues normally.
 
 The integration suite starts three local RandomX nodes, bootstraps two ordinary nodes through the first node, verifies direct peer discovery, shuts the bootstrap node down, mines a real RandomX block on an ordinary node, relays it directly to the other node, and verifies restart persistence.
 
@@ -153,7 +153,6 @@ The first public Testnet seed node is deployed and externally verified. Remainin
 
 - additional independent/geographically separate seed nodes;
 - deployment of public DNS seed hostnames backed by multiple independently operated nodes;
-- UPnP/NAT-PMP automatic inbound port mapping;
 - production-grade peer reputation/eviction policy.
 
 The runtime now also enforces a per-peer message-rate ceiling (256 messages/second by default). A peer that floods the node beyond this policy is disconnected before its messages can monopolize validation/service work. This limit is networking policy, not consensus, and can be tuned without changing block validity.
@@ -378,3 +377,21 @@ When both peers advertise encrypted transport, the initiator sends a 64-byte sec
 Before the peer session becomes active, both sides prove possession of the negotiated traffic keys with an AEAD-protected `encconf`. After confirmation, every normal QUINTUM wire message is carried inside a bounded ChaCha20-Poly1305 packet. The existing inner message header, command, checksum and payload are encrypted; packet length plus network magic are authenticated as additional data. Monocypher's incremental AEAD ratchets the directional key after each packet, so packet modification or reordering fails authentication and disconnects the peer.
 
 Ephemeral private keys, ECDH material, HKDF intermediates and live AEAD contexts are explicitly wiped when no longer needed. The transport is opportunistic and backward compatible: it authenticates the encrypted session/integrity, not a permanent real-world peer identity. It is BIP324-inspired but intentionally not Bitcoin-BIP324 wire-compatible because QUINTUM preserves its existing `version/verack` negotiation and framing.
+
+
+## Stage 33 proxy, overlay addressing and NAT reachability
+
+Stage 33 extends peer discovery without changing consensus, chain identity, wallet data or the legacy IPv4 wire path.
+
+- `peers.dat` v2 stores typed IPv4, Tor v3 and I2P endpoints while the loader remains backward compatible with v1 and preserves retry/backoff history during migration;
+- legacy `getaddr/addr` remains IPv4-only for old peers;
+- capable peers negotiate `kServiceAddrV2` and use bounded `getaddrv2/addrv2` messages for IPv4/Tor v3/I2P endpoints;
+- Tor and I2P outbound sessions use SOCKS5 domain-name requests so overlay hostnames are resolved by the proxy rather than by the local DNS resolver;
+- Tor/I2P endpoints remain stored in addrman when their proxy is unavailable but are not selected for dialing until the matching route is configured;
+- reconnect, subnet/group diversity, failure backoff, Stage 32 encrypted transport, synchronization and relay use the same routed connection path.
+
+The daemon and desktop accept `--tor-proxy HOST:PORT` and `--i2p-proxy HOST:PORT`. SOCKS5 is currently no-auth only.
+
+For ordinary Internet reachability, Testnet/Mainnet runtimes start a best-effort NAT worker unless `--no-nat` is supplied. It tries NAT-PMP and then UPnP IGD for the node's P2P TCP port, renews NAT-PMP leases, removes mappings on clean shutdown, and never makes startup depend on router support. A NAT-PMP mapping is accepted only when the router maps the same external port that QUINTUM advertises; a mismatched port is removed rather than poisoning peer discovery. Regtest never performs router discovery/mapping.
+
+The RPC/network status reports whether the active mapping method is `nat-pmp`, `upnp` or `none` and reports the external port when present.

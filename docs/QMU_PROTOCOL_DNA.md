@@ -112,10 +112,10 @@ Already implemented or now in-tree:
 - loopback-only cookie-authenticated production JSON-RPC/mining API;
 - negotiated compact block relay with mempool reconstruction and missing-transaction fallback;
 - backward-compatible forward-secret AEAD P2P transport using secp256k1 ElligatorSwift key exchange and ChaCha20-Poly1305 packet authentication.
+- backward-compatible typed peer endpoints, `peers.dat` v1-to-v2 migration, negotiated `addrv2`, SOCKS5-routed Tor v3/I2P peers and best-effort NAT-PMP/UPnP inbound mapping.
 
 Still required before Mainnet freeze:
 
-- proxy/Tor/I2P and automatic NAT mapping;
 - Dandelion++ transaction relay;
 - pruning/fast-sync;
 - light-client filters;

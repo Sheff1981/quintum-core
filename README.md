@@ -98,3 +98,4 @@ QUINTUM Core source code is distributed under the [MIT License](LICENSE).
 The MIT License grants broad rights to use and modify the software, but it does **not** grant trademark rights or permission to present another project, network, product or service as official QUINTUM. Forks and modified versions should use their own distinct name and branding.
 
 See [TRADEMARKS.md](TRADEMARKS.md) for the QUINTUM trademark and brand-use policy.
+Third-party component licenses and required notices are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

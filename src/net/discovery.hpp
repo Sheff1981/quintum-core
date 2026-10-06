@@ -9,6 +9,19 @@
 
 namespace quintum::net {
 
+struct ProxyRoutes {
+    std::optional<Socks5Proxy> tor{};
+    std::optional<Socks5Proxy> i2p{};
+};
+
+[[nodiscard]] PeerHandshakeResult connect_peer_address(
+    const consensus::ChainParams& params,
+    const PeerAddress& address,
+    const VersionMessage& local_version,
+    std::uint32_t timeout_ms,
+    const ProxyRoutes& routes
+);
+
 enum class DiscoveryError {
     none,
     no_candidate,
@@ -78,7 +91,8 @@ public:
         std::uint64_t now,
         std::uint32_t timeout_ms,
         std::size_t max_candidates,
-        std::span<const PeerAddress> excluded = {}
+        std::span<const PeerAddress> excluded = {},
+        ProxyRoutes routes = {}
     );
 
     [[nodiscard]] DiscoveryConnectResult connect_one(
@@ -86,7 +100,8 @@ public:
         const VersionMessage& local_version,
         std::uint64_t now,
         std::uint32_t timeout_ms,
-        std::span<const PeerAddress> excluded = {}
+        std::span<const PeerAddress> excluded = {},
+        ProxyRoutes routes = {}
     );
 
 private:

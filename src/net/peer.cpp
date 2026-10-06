@@ -1,6 +1,7 @@
 #include "net/peer.hpp"
 
 #include "core/serialize.hpp"
+#include "net/socks5.hpp"
 #include "net/v2_transport.hpp"
 
 #include <algorithm>
@@ -743,6 +744,211 @@ std::unique_ptr<V2Transport> inbound_v2_upgrade(
     return transport;
 }
 
+NativeSocket connect_tcp_socket(
+    std::string_view host,
+    std::uint16_t port,
+    std::uint32_t timeout_ms,
+    PeerError& error)
+{
+    error = PeerError::none;
+
+    if (!socket_runtime_ready()) {
+        error = PeerError::socket_runtime_failed;
+        return kInvalidNativeSocket;
+    }
+
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    addrinfo* addresses{nullptr};
+
+    const std::string host_text{host};
+    const std::string port_text =
+        std::to_string(port);
+
+    if (host.empty() || port == 0U ||
+        getaddrinfo(
+            host_text.c_str(),
+            port_text.c_str(),
+            &hints,
+            &addresses) != 0 ||
+        addresses == nullptr) {
+        error = PeerError::resolve_failed;
+        return kInvalidNativeSocket;
+    }
+
+    NativeSocket connected =
+        kInvalidNativeSocket;
+
+    for (addrinfo* current = addresses;
+         current != nullptr;
+         current = current->ai_next) {
+        NativeSocket candidate = ::socket(
+            current->ai_family,
+            current->ai_socktype,
+            current->ai_protocol
+        );
+
+        if (candidate == kInvalidNativeSocket) {
+            continue;
+        }
+
+        if (!set_nonblocking(candidate, true)) {
+            close_native(candidate);
+            continue;
+        }
+
+        const int result = ::connect(
+            candidate,
+            current->ai_addr,
+#ifdef _WIN32
+            static_cast<int>(
+                current->ai_addrlen)
+#else
+            current->ai_addrlen
+#endif
+        );
+
+        bool success = result == 0;
+
+        if (!success &&
+            connect_in_progress(
+                last_socket_error()) &&
+            wait_socket(
+                candidate,
+                true,
+                timeout_ms)) {
+            int socket_error{0};
+#ifdef _WIN32
+            int error_size =
+                static_cast<int>(
+                    sizeof(socket_error));
+            success = getsockopt(
+                candidate,
+                SOL_SOCKET,
+                SO_ERROR,
+                reinterpret_cast<char*>(
+                    &socket_error),
+                &error_size
+            ) == 0 &&
+            socket_error == 0;
+#else
+            socklen_t error_size =
+                static_cast<socklen_t>(
+                    sizeof(socket_error));
+            success = getsockopt(
+                candidate,
+                SOL_SOCKET,
+                SO_ERROR,
+                &socket_error,
+                &error_size
+            ) == 0 &&
+            socket_error == 0;
+#endif
+        }
+
+        if (!success ||
+            !set_nonblocking(
+                candidate,
+                false) ||
+            !set_io_timeout(
+                candidate,
+                timeout_ms)) {
+            close_native(candidate);
+            continue;
+        }
+
+        connected = candidate;
+        break;
+    }
+
+    freeaddrinfo(addresses);
+
+    if (connected == kInvalidNativeSocket) {
+        error = PeerError::connect_failed;
+    }
+
+    return connected;
+}
+
+PeerError negotiate_socks5(
+    NativeSocket socket,
+    std::string_view target_host,
+    std::uint16_t target_port)
+{
+    const auto greeting =
+        socks5_no_auth_greeting();
+
+    if (!send_all(socket, greeting)) {
+        return PeerError::send_failed;
+    }
+
+    std::array<Byte, 2> selection{};
+    if (!receive_exact(socket, selection)) {
+        return PeerError::receive_failed;
+    }
+
+    if (!socks5_no_auth_selected(selection)) {
+        return PeerError::proxy_negotiation_failed;
+    }
+
+    const auto request =
+        socks5_connect_request(
+            target_host,
+            target_port
+        );
+
+    if (!request) {
+        return PeerError::proxy_negotiation_failed;
+    }
+
+    if (!send_all(socket, *request)) {
+        return PeerError::send_failed;
+    }
+
+    std::array<Byte, 4> prefix{};
+    if (!receive_exact(socket, prefix)) {
+        return PeerError::receive_failed;
+    }
+
+    const auto reply =
+        socks5_validate_reply_prefix(prefix);
+
+    if (reply == Socks5Error::rejected) {
+        return PeerError::proxy_rejected;
+    }
+
+    if (reply != Socks5Error::none) {
+        return PeerError::proxy_negotiation_failed;
+    }
+
+    std::size_t remaining{0U};
+
+    if (prefix[3] == 0x01U) {
+        remaining = 4U + 2U;
+    } else if (prefix[3] == 0x04U) {
+        remaining = 16U + 2U;
+    } else {
+        std::array<Byte, 1> length{};
+        if (!receive_exact(socket, length) ||
+            length[0] == 0U) {
+            return PeerError::proxy_negotiation_failed;
+        }
+        remaining =
+            static_cast<std::size_t>(length[0]) +
+            2U;
+    }
+
+    Bytes discard(remaining);
+    if (!receive_exact(socket, discard)) {
+        return PeerError::receive_failed;
+    }
+
+    return PeerError::none;
+}
+
 PeerHandshakeResult outbound_handshake(
     const consensus::ChainParams& params,
     NativeSocket socket,
@@ -1214,7 +1420,14 @@ PeerError PeerSession::request_addresses(
         return PeerError::receive_failed;
     }
 
-    auto error = send_command("getaddr", {});
+    const bool use_v2 =
+        (remote_.services &
+            kServiceAddrV2) != 0U;
+
+    auto error = send_command(
+        use_v2 ? "getaddrv2" : "getaddr",
+        {}
+    );
 
     if (error != PeerError::none) {
         return error;
@@ -1233,29 +1446,43 @@ PeerError PeerSession::request_addresses(
         if (message.command == "ping") {
             const auto nonce =
                 parse_nonce(message.payload);
+
             if (!nonce) {
                 return PeerError::malformed_ping;
             }
 
             const auto pong =
                 serialize_nonce(*nonce);
-            error = send_command("pong", pong);
+
+            error = send_command(
+                "pong",
+                pong
+            );
 
             if (error != PeerError::none) {
                 return error;
             }
+
             continue;
         }
 
-        if (message.command != "addr") {
+        const bool got_v2 =
+            message.command == "addrv2";
+        const bool got_v1 =
+            message.command == "addr";
+
+        if ((!use_v2 && !got_v1) ||
+            (use_v2 && !got_v2)) {
             return PeerError::unexpected_message;
         }
 
-        const auto parsed =
-            parse_addresses(
-                message.payload,
-                allow_local
-            );
+        const auto parsed = got_v2
+            ? parse_addresses_v2(
+                  message.payload,
+                  allow_local)
+            : parse_addresses(
+                  message.payload,
+                  allow_local);
 
         if (!parsed) {
             return PeerError::unexpected_message;
@@ -1288,32 +1515,63 @@ PeerError PeerSession::service_discovery_once(
     if (message.command == "ping") {
         const auto nonce =
             parse_nonce(message.payload);
+
         if (!nonce) {
             return PeerError::malformed_ping;
         }
 
         const auto pong =
             serialize_nonce(*nonce);
-        return send_command("pong", pong);
+
+        return send_command(
+            "pong",
+            pong
+        );
     }
 
-    if (message.command == "getaddr") {
+    if (message.command == "getaddr" ||
+        message.command == "getaddrv2") {
         if (!message.payload.empty()) {
             return PeerError::unexpected_message;
         }
 
-        const auto payload =
-            serialize_addresses(advertised);
+        if (message.command == "getaddrv2" &&
+            (remote_.services &
+                kServiceAddrV2) == 0U) {
+            return PeerError::unexpected_message;
+        }
 
-        return send_command("addr", payload);
+        const bool use_v2 =
+            message.command == "getaddrv2";
+
+        const auto payload = use_v2
+            ? serialize_addresses_v2(
+                  advertised)
+            : serialize_addresses(
+                  advertised);
+
+        return send_command(
+            use_v2 ? "addrv2" : "addr",
+            payload
+        );
     }
 
-    if (message.command == "addr") {
+    if (message.command == "addr" ||
+        message.command == "addrv2") {
+        if (message.command == "addrv2" &&
+            (remote_.services &
+                kServiceAddrV2) == 0U) {
+            return PeerError::unexpected_message;
+        }
+
         const auto parsed =
-            parse_addresses(
-                message.payload,
-                allow_local
-            );
+            message.command == "addrv2"
+                ? parse_addresses_v2(
+                      message.payload,
+                      allow_local)
+                : parse_addresses(
+                      message.payload,
+                      allow_local);
 
         if (!parsed) {
             return PeerError::unexpected_message;
@@ -1591,123 +1849,74 @@ PeerHandshakeResult connect_and_handshake(
     std::uint32_t timeout_ms)
 {
     PeerHandshakeResult out;
-
-    if (!socket_runtime_ready()) {
-        out.error =
-            PeerError::socket_runtime_failed;
-        return out;
-    }
-
-    addrinfo hints{};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-
-    addrinfo* addresses{nullptr};
-
-    const std::string host_text{host};
-    const std::string port_text =
-        std::to_string(port);
-
-    if (getaddrinfo(
-            host_text.c_str(),
-            port_text.c_str(),
-            &hints,
-            &addresses) != 0 ||
-        addresses == nullptr) {
-        out.error = PeerError::resolve_failed;
-        return out;
-    }
+    PeerError dial_error{PeerError::none};
 
     NativeSocket connected =
-        kInvalidNativeSocket;
-
-    for (addrinfo* current = addresses;
-         current != nullptr;
-         current = current->ai_next) {
-        NativeSocket candidate = ::socket(
-            current->ai_family,
-            current->ai_socktype,
-            current->ai_protocol
+        connect_tcp_socket(
+            host,
+            port,
+            timeout_ms,
+            dial_error
         );
-
-        if (candidate == kInvalidNativeSocket) {
-            continue;
-        }
-
-        if (!set_nonblocking(candidate, true)) {
-            close_native(candidate);
-            continue;
-        }
-
-        const int result = ::connect(
-            candidate,
-            current->ai_addr,
-#ifdef _WIN32
-            static_cast<int>(
-                current->ai_addrlen)
-#else
-            current->ai_addrlen
-#endif
-        );
-
-        bool success = result == 0;
-
-        if (!success &&
-            connect_in_progress(
-                last_socket_error()) &&
-            wait_socket(
-                candidate,
-                true,
-                timeout_ms)) {
-            int socket_error{0};
-#ifdef _WIN32
-            int error_size =
-                static_cast<int>(
-                    sizeof(socket_error));
-            success = getsockopt(
-                candidate,
-                SOL_SOCKET,
-                SO_ERROR,
-                reinterpret_cast<char*>(
-                    &socket_error),
-                &error_size
-            ) == 0 &&
-            socket_error == 0;
-#else
-            socklen_t error_size =
-                static_cast<socklen_t>(
-                    sizeof(socket_error));
-            success = getsockopt(
-                candidate,
-                SOL_SOCKET,
-                SO_ERROR,
-                &socket_error,
-                &error_size
-            ) == 0 &&
-            socket_error == 0;
-#endif
-        }
-
-        if (!success ||
-            !set_nonblocking(
-                candidate,
-                false) ||
-            !set_io_timeout(
-                candidate,
-                timeout_ms)) {
-            close_native(candidate);
-            continue;
-        }
-
-        connected = candidate;
-        break;
-    }
-
-    freeaddrinfo(addresses);
 
     if (connected == kInvalidNativeSocket) {
-        out.error = PeerError::connect_failed;
+        out.error = dial_error;
+        return out;
+    }
+
+    out = outbound_handshake(
+        params,
+        connected,
+        local
+    );
+
+    if (!out.ok()) {
+        close_native(connected);
+    }
+
+    return out;
+}
+
+PeerHandshakeResult connect_and_handshake(
+    const consensus::ChainParams& params,
+    std::string_view host,
+    std::uint16_t port,
+    const VersionMessage& local,
+    std::uint32_t timeout_ms,
+    const Socks5Proxy& proxy)
+{
+    PeerHandshakeResult out;
+
+    if (!proxy.valid()) {
+        out.error =
+            PeerError::proxy_negotiation_failed;
+        return out;
+    }
+
+    PeerError dial_error{PeerError::none};
+    NativeSocket connected =
+        connect_tcp_socket(
+            proxy.host,
+            proxy.port,
+            timeout_ms,
+            dial_error
+        );
+
+    if (connected == kInvalidNativeSocket) {
+        out.error = dial_error;
+        return out;
+    }
+
+    const auto proxy_error =
+        negotiate_socks5(
+            connected,
+            host,
+            port
+        );
+
+    if (proxy_error != PeerError::none) {
+        close_native(connected);
+        out.error = proxy_error;
         return out;
     }
 
