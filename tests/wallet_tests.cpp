@@ -791,6 +791,64 @@ void test_wallet_balance_build_sign_confirm_and_recover()
 }
 
 
+void test_wallet_rescan_rejects_pruned_history()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto chain_directory =
+        unique_dir("pruned-chain");
+    const auto wallet_directory =
+        unique_dir("pruned-wallet");
+    const auto& params =
+        consensus::regtest_params();
+    const std::uint64_t now =
+        params.genesis.timestamp + 1'500U;
+
+    NodeRuntime node{
+        params,
+        chain_directory,
+        PrunePolicy{
+            .enabled = true,
+            .keep_recent_blocks = 2U,
+        }
+    };
+    assert(node.start_at(now).ok());
+
+    const auto payout = payout_from_scalar(11U);
+    for (std::uint32_t height = 1U;
+         height <= 3U;
+         ++height) {
+        const auto mined = node.mine_block_at(
+            payout,
+            now + height,
+            4'096U);
+        assert(mined.ok());
+    }
+
+    const auto genesis_hash =
+        node.chain().active_hash(0U);
+    assert(genesis_hash.has_value());
+    assert(node.chain().block(*genesis_hash) == nullptr);
+
+    Wallet wallet{params, wallet_directory};
+    assert(wallet.start().ok());
+
+    Mempool mempool{params};
+    const auto synced =
+        wallet.sync(node.chain(), mempool);
+
+    assert(!synced.ok());
+    assert(synced.error ==
+           WalletSyncError::pruned_history_unavailable);
+    assert(wallet.balance() == WalletBalance{});
+
+    std::error_code ec;
+    std::filesystem::remove_all(chain_directory, ec);
+    std::filesystem::remove_all(wallet_directory, ec);
+}
+
+
 void test_network_runtime_wallet_bridge()
 {
     using namespace quintum;
@@ -1385,6 +1443,7 @@ int main()
     test_wallet_persistence_backup_and_network_binding();
     test_prebacked_keypool_recovers_future_address();
     test_wallet_balance_build_sign_confirm_and_recover();
+    test_wallet_rescan_rejects_pruned_history();
     test_network_runtime_wallet_bridge();
     test_encrypted_wallet_and_hd_recovery();
     test_legacy_wallet_encryption_migration();
