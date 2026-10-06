@@ -38,12 +38,14 @@ constexpr std::array<Byte, 8> kStateMagic{
 constexpr std::array<Byte, 4> kBlockMagic{
     'Q', 'B', 'L', 'K'
 };
-constexpr std::uint32_t kStorageVersion = 1U;
+constexpr std::uint32_t kStorageVersionV1 = 1U;
+constexpr std::uint32_t kStorageVersion = 2U;
 constexpr std::size_t kChecksumSize = 32U;
 constexpr std::uint64_t kMaxCollectionEntries = 100'000'000ULL;
 
 struct IndexMeta {
     Hash256 hash{};
+    BlockHeader header{};
     Hash256 parent{};
     std::uint32_t height{0U};
     Hash256 chain_work{};
@@ -858,7 +860,8 @@ StorageError parse_state_file(
         return StorageError::truncated;
     }
 
-    if (*version != kStorageVersion) {
+    if (*version != kStorageVersionV1 &&
+        *version != kStorageVersion) {
         return StorageError::unsupported_version;
     }
 
@@ -923,6 +926,33 @@ StorageError parse_state_file(
 
         meta.height = *height;
         meta.failed = failed != 0U;
+
+        if (*version >= kStorageVersion) {
+            const auto header_version =
+                reader.little<std::uint32_t>();
+            if (!header_version ||
+                !reader.hash(meta.header.previous_block) ||
+                !reader.hash(meta.header.merkle_root)) {
+                return StorageError::truncated;
+            }
+            meta.header.version = *header_version;
+
+            const auto timestamp =
+                reader.little<std::uint64_t>();
+            const auto bits =
+                reader.little<std::uint32_t>();
+            const auto nonce =
+                reader.little<std::uint64_t>();
+
+            if (!timestamp || !bits || !nonce) {
+                return StorageError::truncated;
+            }
+
+            meta.header.timestamp = *timestamp;
+            meta.header.bits = *bits;
+            meta.header.nonce = *nonce;
+        }
+
         state.index.push_back(std::move(meta));
     }
 
@@ -1436,6 +1466,12 @@ StorageError ChainstateStore::commit(
             it->second.chain_work);
         state.push_back(
             it->second.failed ? 1U : 0U);
+        const auto header_bytes =
+            serialize_block_header(it->second.header);
+        state.insert(
+            state.end(),
+            header_bytes.begin(),
+            header_bytes.end());
     }
 
     append_little_endian(
