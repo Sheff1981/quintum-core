@@ -500,6 +500,65 @@ void test_physical_prune_restart_and_continue()
     std::filesystem::remove_all(directory, ec);
 }
 
+void test_pruned_reorg_within_retained_window()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-pruned-reorg");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 3U,
+    };
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0x80U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto a1 = make_block(h0, 1U, 0x81U);
+    const auto h1 = quintum::block_hash(a1.header);
+    const auto a2 = make_block(h1, 2U, 0x82U);
+    const auto h2 = quintum::block_hash(a2.header);
+    const auto a3 = make_block(h2, 3U, 0x83U);
+    const auto h3 = quintum::block_hash(a3.header);
+    const auto b2 = make_block(h1, 2U, 0x92U);
+    const auto bh2 = quintum::block_hash(b2.header);
+    const auto b3 = make_block(bh2, 3U, 0x93U);
+    const auto bh3 = quintum::block_hash(b3.header);
+    const auto b4 = make_block(bh3, 4U, 0x94U);
+    const auto bh4 = quintum::block_hash(b4.header);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(a1).ok());
+        assert(node.connect_block(a2).ok());
+        assert(node.connect_block(a3).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+        assert(node.chain().tip_hash());
+        assert(*node.chain().tip_hash() == h3);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(restarted.load() == quintum::StorageError::none);
+        assert(restarted.chain().block(h0) == nullptr);
+        assert(restarted.chain().block(h1) != nullptr);
+        const auto reorg = restarted.connect_block(b4);
+        assert(reorg.ok());
+        assert(reorg.chain.activated);
+        assert(reorg.chain.reorganized);
+        assert(restarted.chain().tip_hash());
+        assert(*restarted.chain().tip_hash() == bh4);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 4U);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 void test_prune_policy_boundary()
 {
     const auto params = storage_regtest_params();
