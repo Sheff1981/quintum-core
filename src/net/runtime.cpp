@@ -2522,11 +2522,25 @@ bool NetworkRuntime::process_inventory(
                 if (const auto active_height =
                         node_.chain().active_height(
                             item.hash)) {
-                    peer.reported_height =
-                        std::max(
-                            peer.reported_height,
-                            *active_height
-                        );
+                    const auto local_tip =
+                        node_.chain().tip_hash();
+
+                    // An announcement of our exact active tip is a direct
+                    // observation that the peer has converged to this tip.
+                    // Unlike ordinary older-block inventory, this may
+                    // legitimately lower the peer height after a
+                    // shorter-but-heavier reorg.
+                    if (local_tip &&
+                        *local_tip == item.hash) {
+                        peer.reported_height =
+                            *active_height;
+                    } else {
+                        peer.reported_height =
+                            std::max(
+                                peer.reported_height,
+                                *active_height
+                            );
+                    }
                     continue;
                 }
 
