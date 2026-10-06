@@ -748,6 +748,136 @@ void test_mempool_inventory_catchup()
     std::filesystem::remove_all(dir_b, ec);
 }
 
+void test_hidden_stem_transaction_is_not_disclosed()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir_a =
+        unique_dir("hidden-stem-a");
+    const auto dir_b =
+        unique_dir("hidden-stem-b");
+    const std::uint64_t now =
+        params.genesis.timestamp + 60'000U;
+    const auto payout = payout_script(4U);
+
+    NodeRuntime node_a{params, dir_a};
+    NodeRuntime node_b{params, dir_b};
+
+    assert(node_a.start_at(now).ok());
+    assert(node_b.start_at(now).ok());
+
+    const auto coin =
+        build_shared_mature_chain(
+            node_a,
+            node_b,
+            payout,
+            now
+        );
+
+    const auto spend =
+        make_spend(coin, 4U, 333U);
+    const auto txid =
+        transaction_id(spend);
+
+    assert(node_a.submit_transaction(spend).ok());
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    RelayResult hidden_result;
+    RelayResult public_result;
+
+    std::thread server([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                version(0x1821U, 100U),
+                5'000U
+            );
+
+        if (!accepted.ok()) {
+            hidden_result.error =
+                RelayError::transport_failed;
+            return;
+        }
+
+        WireMessage request;
+        request.command = "mempool";
+
+        const std::array<Hash256, 1> hidden{
+            txid
+        };
+
+        hidden_result =
+            serve_relay_message(
+                *accepted.session,
+                node_a,
+                request,
+                hidden
+            );
+
+        public_result =
+            serve_relay_message(
+                *accepted.session,
+                node_a,
+                request
+            );
+
+        accepted.session->close();
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1822U, 100U),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    WireMessage hidden_message;
+    assert(connected.session->receive_command(
+               hidden_message) ==
+           PeerError::none);
+    assert(hidden_message.command == "inv");
+
+    const auto hidden_inventory =
+        parse_inventory(hidden_message.payload);
+    assert(hidden_inventory.has_value());
+    assert(hidden_inventory->empty());
+
+    WireMessage public_message;
+    assert(connected.session->receive_command(
+               public_message) ==
+           PeerError::none);
+    assert(public_message.command == "inv");
+
+    const auto public_inventory =
+        parse_inventory(public_message.payload);
+    assert(public_inventory.has_value());
+    assert(public_inventory->size() == 1U);
+    assert(public_inventory->front().type ==
+           kInventoryTransaction);
+    assert(public_inventory->front().hash == txid);
+
+    connected.session->close();
+    server.join();
+
+    assert(hidden_result.ok());
+    assert(public_result.ok());
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir_a, ec);
+    std::filesystem::remove_all(dir_b, ec);
+}
+
 } // namespace
 
 int main()
@@ -756,5 +886,6 @@ int main()
     test_live_transaction_and_block_relay();
     test_hidden_stem_transaction_not_served();
     test_mempool_inventory_catchup();
+    test_hidden_stem_transaction_is_not_disclosed();
     return 0;
 }
