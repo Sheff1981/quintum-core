@@ -1367,6 +1367,32 @@ void test_stalled_transaction_requests_are_bounded_and_expire()
                announced[i].hash);
     }
 
+    // Free the first four slots. The two deferred announcements must not be
+    // lost: the runtime should automatically drain them into a second
+    // getdata request.
+    assert(connected.session->send_command(
+               "notfound",
+               serialize_inventory(*requested)) ==
+           PeerError::none);
+
+    WireMessage second_request;
+    assert(connected.session->receive_command(
+               second_request) ==
+           PeerError::none);
+    assert(second_request.command == "getdata");
+
+    const auto second_requested =
+        parse_inventory(second_request.payload);
+
+    assert(second_requested.has_value());
+    assert(second_requested->size() == 2U);
+    assert((*second_requested)[0].hash ==
+           announced[4].hash);
+    assert((*second_requested)[1].hash ==
+           announced[5].hash);
+
+    // Leave the second batch unanswered. Its own deadline must close the
+    // connection instead of letting transaction request state live forever.
     assert(wait_until(
         std::chrono::seconds(6),
         [&] {
