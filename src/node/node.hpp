@@ -113,6 +113,10 @@ public:
         const Transaction& transaction
     );
 
+    [[nodiscard]] NodeSubmitResult restore_block_body(
+        const Block& block
+    );
+
     [[nodiscard]] NodeSubmitResult submit_block(
         const Block& block
     );
