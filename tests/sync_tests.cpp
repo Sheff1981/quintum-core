@@ -810,6 +810,81 @@ void test_ibd_batches_block_requests()
 }
 
 
+void test_chainwork_sync_selection()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    Hash256 light_work{};
+    Hash256 heavy_work{};
+    light_work.back() = 10U;
+    heavy_work.back() = 20U;
+
+    const auto payload =
+        serialize_chain_work(heavy_work);
+    const auto parsed =
+        parse_chain_work(payload);
+
+    assert(parsed.has_value());
+    assert(*parsed == heavy_work);
+
+    Bytes malformed(payload.begin(), payload.end() - 1);
+    assert(!parse_chain_work(malformed).has_value());
+
+    // A shorter peer can still have more cumulative work. Fork choice must
+    // follow work, not height.
+    assert(sync_driver_should_run(
+        light_work,
+        heavy_work,
+        200U,
+        150U,
+        false
+    ));
+
+    // A taller peer can still be the weaker chain. Do not chase it merely
+    // because its height is larger.
+    assert(!sync_driver_should_run(
+        heavy_work,
+        light_work,
+        150U,
+        200U,
+        true
+    ));
+
+    // Equal work uses TCP direction as a deterministic tie-breaker so only
+    // one side drives the synchronous setup exchange.
+    assert(sync_driver_should_run(
+        heavy_work,
+        heavy_work,
+        150U,
+        150U,
+        true
+    ));
+    assert(!sync_driver_should_run(
+        heavy_work,
+        heavy_work,
+        150U,
+        150U,
+        false
+    ));
+
+    // Legacy peers without the capability preserve Stage 37 behavior.
+    assert(sync_driver_should_run(
+        light_work,
+        std::nullopt,
+        10U,
+        11U,
+        false
+    ));
+    assert(!sync_driver_should_run(
+        light_work,
+        std::nullopt,
+        11U,
+        10U,
+        true
+    ));
+}
+
 void test_full_known_header_batch_is_not_treated_as_stalled()
 {
     using namespace quintum::net;
@@ -837,6 +912,7 @@ int main()
     test_heavier_remote_branch_reorg();
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
+    test_chainwork_sync_selection();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }

@@ -1093,6 +1093,164 @@ void test_higher_outbound_peer_updates_lower_inbound()
     );
 }
 
+void test_chainwork_runtime_prefers_shorter_heavier_peer()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto params =
+        consensus::regtest_params();
+
+    // Test-only difficulty schedule: every second block retargets. A fast
+    // two-block branch therefore accumulates more work than a deliberately
+    // slower four-block branch. Production/testnet parameters are untouched.
+    params.pow.target_spacing_seconds = 10U;
+    params.pow.retarget_interval = 2U;
+    params.pow.allow_min_difficulty_blocks = false;
+    params.pow.no_retargeting = false;
+
+    const auto heavy_dir =
+        unique_dir("chainwork-heavy-short");
+    const auto light_dir =
+        unique_dir("chainwork-light-tall");
+
+    const std::uint64_t genesis_time =
+        params.genesis.timestamp;
+    const auto payout = payout_script(29U);
+
+    Hash256 heavy_tip{};
+    Hash256 heavy_work{};
+    Hash256 light_work{};
+
+    {
+        NodeRuntime heavy{params, heavy_dir};
+        NodeRuntime light{params, light_dir};
+
+        assert(heavy.start_at(genesis_time + 10'000U).ok());
+        assert(light.start_at(genesis_time + 10'000U).ok());
+
+        const auto heavy_one =
+            heavy.mine_block_at(
+                payout,
+                genesis_time + 1U,
+                65'536U
+            );
+        assert(heavy_one.ok());
+
+        const auto heavy_two =
+            heavy.mine_block_at(
+                payout,
+                genesis_time + 2U,
+                65'536U
+            );
+        assert(heavy_two.ok());
+        assert(heavy.chain().height() ==
+               std::optional<std::uint32_t>{2U});
+
+        for (const std::uint64_t timestamp : {
+                 genesis_time + 20U,
+                 genesis_time + 30U,
+                 genesis_time + 50U,
+                 genesis_time + 60U}) {
+            const auto mined =
+                light.mine_block_at(
+                    payout,
+                    timestamp,
+                    65'536U
+                );
+            assert(mined.ok());
+        }
+
+        assert(light.chain().height() ==
+               std::optional<std::uint32_t>{4U});
+
+        heavy_tip = *heavy.chain().tip_hash();
+        heavy_work = heavy.chain().cumulative_work();
+        light_work = light.chain().cumulative_work();
+
+        // The entire point of this fixture: height and accumulated PoW point
+        // in opposite directions.
+        assert(light_work < heavy_work);
+    }
+
+    NetworkRuntimeConfig light_config;
+    light_config.bind_address = "127.0.0.1";
+    light_config.listen_port = 0U;
+    light_config.allow_local_peers = true;
+    light_config.target_outbound = 0U;
+    light_config.wallet_enabled = false;
+    light_config.accept_poll_ms = 10U;
+    light_config.io_timeout_ms = 5'000U;
+    light_config.ping_interval_seconds = 30U;
+    light_config.ping_timeout_seconds = 5U;
+
+    NetworkRuntime light{params, light_dir};
+    assert(light.start(light_config).ok());
+    assert(light.status().height ==
+           std::optional<std::uint32_t>{4U});
+
+    NetworkRuntimeConfig heavy_config =
+        light_config;
+    heavy_config.target_outbound = 1U;
+    heavy_config.outbound_retry_seconds = 1U;
+    heavy_config.reconnect_delay_seconds = 1U;
+    heavy_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 = *parse_ipv4("127.0.0.1"),
+            .port = light.status().listen_port,
+            .services = 1U,
+            .last_seen = genesis_time + 100U,
+        }
+    );
+
+    NetworkRuntime heavy{params, heavy_dir};
+    assert(heavy.start(heavy_config).ok());
+    assert(heavy.status().height ==
+           std::optional<std::uint32_t>{2U});
+
+    // The outbound node is shorter but heavier. Height-only setup would make
+    // it request the weaker height-4 branch while the inbound node stayed
+    // passive. Chainwork negotiation must reverse the sync direction so the
+    // taller/weaker node reorganizes to the height-2 heavier tip.
+    assert(wait_until(
+        std::chrono::seconds(20),
+        [&] {
+            const auto low_work = light.status();
+            const auto high_work = heavy.status();
+
+            return low_work.height ==
+                       std::optional<std::uint32_t>{2U} &&
+                   low_work.tip ==
+                       std::optional<Hash256>{heavy_tip} &&
+                   low_work.tip == high_work.tip &&
+                   low_work.peers == 1U &&
+                   high_work.outbound_peers == 1U;
+        }
+    ));
+
+    assert(light.cumulative_work() == heavy_work);
+    assert(heavy.cumulative_work() == heavy_work);
+
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            const auto heavy_status = heavy.status();
+            return heavy_status.peer_best_height ==
+                       std::optional<std::uint32_t>{2U} &&
+                   !heavy_status.synchronizing &&
+                   heavy_status.sync_progress == 1.0;
+        }
+    ));
+
+    heavy.stop();
+    light.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(heavy_dir, ec);
+    std::filesystem::remove_all(light_dir, ec);
+}
+
+
 void test_encrypted_stem_transaction_relay()
 {
     using namespace quintum;
@@ -1200,6 +1358,7 @@ int main()
     test_continuous_runtime_sync_relay_reconnect();
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
+    test_chainwork_runtime_prefers_shorter_heavier_peer();
     test_encrypted_stem_transaction_relay();
     return 0;
 }
