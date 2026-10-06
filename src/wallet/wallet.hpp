@@ -107,6 +107,7 @@ enum class WalletSyncError {
     chain_not_ready,
     height_overflow,
     active_chain_inconsistent,
+    pruned_history_unavailable,
     amount_overflow,
     store_failed,
 };
