@@ -1738,7 +1738,7 @@ QWidget* MainWindow::build_mining_page()
             "Current difficulty",
             "▥",
             "amber",
-            "Live difficulty display will follow the active-chain header metric.",
+            "Active-chain difficulty. 1.0 is the easiest target allowed by this network.",
             mining_difficulty_
         ),
         1
@@ -2350,6 +2350,45 @@ void MainWindow::apply_snapshot(
         " QMU/kB"
     );
 
+    if (status.difficulty) {
+        const double value =
+            *status.difficulty;
+
+        mining_difficulty_->setText(
+            value < 1'000'000.0
+                ? QString::number(
+                      value,
+                      'f',
+                      value < 10.0 ? 4 : 2
+                  )
+                : QString::number(
+                      value,
+                      'g',
+                      6
+                  )
+        );
+
+        if (status.difficulty_bits) {
+            mining_difficulty_->setToolTip(
+                QString("Active tip bits: 0x%1")
+                    .arg(
+                        static_cast<qulonglong>(
+                            *status.difficulty_bits
+                        ),
+                        8,
+                        16,
+                        QChar('0')
+                    )
+                    .toUpper()
+            );
+        } else {
+            mining_difficulty_->setToolTip({});
+        }
+    } else {
+        mining_difficulty_->setText("—");
+        mining_difficulty_->setToolTip({});
+    }
+
     transactions_->setRowCount(
         static_cast<int>(
             snapshot.transactions.size()
@@ -2957,6 +2996,9 @@ void MainWindow::toggle_mining()
     if (mining_timer_->isActive()) {
         mining_timer_->stop();
         mining_state_->setText("Ready");
+        mining_hashrate_->setText(
+            "0.00 H/s"
+        );
         mining_button_->setText(
             "Start mining"
         );
