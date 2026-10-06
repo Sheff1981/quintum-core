@@ -39,7 +39,8 @@ constexpr std::array<Byte, 4> kBlockMagic{
     'Q', 'B', 'L', 'K'
 };
 constexpr std::uint32_t kStorageVersionV1 = 1U;
-constexpr std::uint32_t kStorageVersion = 2U;
+constexpr std::uint32_t kStorageVersionV2 = 2U;
+constexpr std::uint32_t kStorageVersion = 3U;
 constexpr std::size_t kChecksumSize = 32U;
 constexpr std::uint64_t kMaxCollectionEntries = 100'000'000ULL;
 
@@ -50,6 +51,7 @@ struct IndexMeta {
     std::uint32_t height{0U};
     Hash256 chain_work{};
     bool failed{false};
+    bool body_available{true};
 };
 
 struct ActiveMeta {
@@ -862,6 +864,7 @@ StorageError parse_state_file(
     }
 
     if (*version != kStorageVersionV1 &&
+        *version != kStorageVersionV2 &&
         *version != kStorageVersion) {
         return StorageError::unsupported_version;
     }
@@ -930,7 +933,7 @@ StorageError parse_state_file(
         meta.height = *height;
         meta.failed = failed != 0U;
 
-        if (*version >= kStorageVersion) {
+        if (*version >= kStorageVersionV2) {
             const auto header_version =
                 reader.little<std::uint32_t>();
             if (!header_version ||
@@ -954,6 +957,16 @@ StorageError parse_state_file(
             meta.header.timestamp = *timestamp;
             meta.header.bits = *bits;
             meta.header.nonce = *nonce;
+        }
+
+        if (*version >= kStorageVersion) {
+            Byte body_available{0U};
+            if (!reader.byte(body_available) ||
+                body_available > 1U) {
+                return StorageError::truncated;
+            }
+            meta.body_available =
+                body_available != 0U;
         }
 
         state.index.push_back(std::move(meta));
@@ -1477,6 +1490,8 @@ StorageError ChainstateStore::commit(
             state.end(),
             header_bytes.begin(),
             header_bytes.end());
+        state.push_back(
+            it->second.block ? 1U : 0U);
     }
 
     append_little_endian(
