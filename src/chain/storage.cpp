@@ -60,6 +60,7 @@ struct ActiveMeta {
 };
 
 struct DiskState {
+    std::uint32_t version{kStorageVersionV1};
     std::vector<IndexMeta> index{};
     std::vector<ActiveMeta> active{};
     std::map<OutPoint, Coin, OutPointLess> utxos{};
@@ -865,6 +866,8 @@ StorageError parse_state_file(
         return StorageError::unsupported_version;
     }
 
+    state.version = *version;
+
     Byte network{0U};
     std::array<Byte, 4> message_start{};
     Byte genesis_enforced{0U};
@@ -1571,24 +1574,18 @@ StorageError ChainstateStore::load(
             return StorageError::state_mismatch;
         }
 
-        // v1 snapshots did not persist headers. The block log is verified
-        // before replay, so it is the authoritative migration source.
-        const auto stored_header_bytes =
-            serialize_block_header(
-                disk.index[i].header);
+        // v1 snapshots did not persist headers. The verified block log is
+        // the authoritative migration source. v2 must match exactly.
         const auto block_header_bytes =
             serialize_block_header(block.header);
-        const auto default_header_bytes =
-            serialize_block_header(
-                BlockHeader{});
 
-        if (stored_header_bytes !=
-                block_header_bytes &&
-            stored_header_bytes !=
-                default_header_bytes) {
+        if (disk.version == kStorageVersionV1) {
+            disk.index[i].header = block.header;
+        } else if (serialize_block_header(
+                       disk.index[i].header) !=
+                   block_header_bytes) {
             return StorageError::state_mismatch;
         }
-        disk.index[i].header = block.header;
 
         const auto result =
             replay.connect_block(
