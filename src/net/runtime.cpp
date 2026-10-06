@@ -605,6 +605,24 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     }
 
     out.tip = node_.chain().tip_hash();
+
+    if (out.height) {
+        const auto header =
+            node_.chain().active_header(
+                *out.height
+            );
+
+        if (header) {
+            out.difficulty_bits =
+                header->bits;
+            out.difficulty =
+                consensus::difficulty_from_bits(
+                    header->bits,
+                    params_.pow.pow_limit_bits
+                );
+        }
+    }
+
     out.mempool_transactions =
         node_.mempool().size();
     out.min_relay_fee_rate_per_kb =
@@ -694,6 +712,24 @@ NetworkRuntime::desktop_snapshot() const
 
     out.status.tip =
         node_.chain().tip_hash();
+
+    if (out.status.height) {
+        const auto header =
+            node_.chain().active_header(
+                *out.status.height
+            );
+
+        if (header) {
+            out.status.difficulty_bits =
+                header->bits;
+            out.status.difficulty =
+                consensus::difficulty_from_bits(
+                    header->bits,
+                    params_.pow.pow_limit_bits
+                );
+        }
+    }
+
     out.status.mempool_transactions =
         node_.mempool().size();
     out.status.min_relay_fee_rate_per_kb =
