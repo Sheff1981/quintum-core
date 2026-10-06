@@ -82,6 +82,22 @@ struct SyncServiceResult {
     }
 };
 
+[[nodiscard]] Bytes serialize_chain_work(
+    const Hash256& work
+);
+
+[[nodiscard]] std::optional<Hash256> parse_chain_work(
+    std::span<const Byte> payload
+);
+
+[[nodiscard]] bool sync_driver_should_run(
+    const Hash256& local_work,
+    const std::optional<Hash256>& remote_work,
+    std::uint32_t local_height,
+    std::uint32_t remote_height,
+    bool outbound
+) noexcept;
+
 [[nodiscard]] std::vector<Hash256> build_block_locator(
     const Chainstate& chain
 );
