@@ -122,6 +122,14 @@ public:
         std::uint64_t now
     );
 
+    // A persisted retry deadline may be hours in the future after repeated
+    // failures. Bootstrap endpoints must get one fresh startup opportunity
+    // without discarding their failure history.
+    void make_retry_eligible(
+        const PeerAddress& address,
+        std::uint64_t now
+    );
+
     [[nodiscard]] std::optional<PeerAddress> select(
         std::uint64_t now,
         std::span<const PeerAddress> excluded = {},
