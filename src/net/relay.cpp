@@ -682,6 +682,26 @@ RelayResult serve_relay_message(
         return out;
     }
 
+    const std::size_t block_requests =
+        static_cast<std::size_t>(
+            std::count_if(
+                inventory->begin(),
+                inventory->end(),
+                [](const InventoryItem& item) {
+                    return item.type ==
+                               kInventoryBlock ||
+                           item.type ==
+                               kInventoryCompactBlock;
+                }
+            )
+        );
+
+    if (block_requests >
+        kMaxBlockDownloadItems) {
+        out.error = RelayError::malformed_message;
+        return out;
+    }
+
     std::vector<InventoryItem> missing;
 
     for (const auto& item : *inventory) {
