@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 
 namespace quintum {
@@ -98,6 +99,10 @@ public:
     [[nodiscard]] const Chainstate& chain() const noexcept;
     [[nodiscard]] const ChainstateStore& store() const noexcept;
 
+    [[nodiscard]] PersistentConnectResult restore_block_body(
+        const Block& block
+    );
+
     [[nodiscard]] PersistentConnectResult connect_block(
         const Block& block
     );
@@ -109,8 +114,18 @@ public:
     [[nodiscard]] PersistentDisconnectResult disconnect_tip();
 
 private:
+    [[nodiscard]] ChainConnectResult restore_cached_bodies(
+        Chainstate& staged
+    ) const;
+
+    void remember_if_pruned(
+        const Block& block,
+        const ChainConnectResult& result
+    );
+
     Chainstate chain_;
     ChainstateStore store_;
+    std::map<Hash256, Block> recovery_blocks_{};
 };
 
 } // namespace quintum
