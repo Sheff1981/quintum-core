@@ -813,6 +813,21 @@ SyncResult sync_from_peer(
         return out;
     }
 
+    node.clear_block_body_recovery();
+
+    struct RecoveryCacheGuard {
+        NodeRuntime& node;
+
+        ~RecoveryCacheGuard()
+        {
+            node.clear_block_body_recovery();
+        }
+    };
+
+    [[maybe_unused]] RecoveryCacheGuard recovery_guard{
+        node
+    };
+
     std::optional<Hash256> continuation;
 
     for (;;) {
