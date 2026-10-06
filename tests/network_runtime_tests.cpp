@@ -1252,6 +1252,22 @@ void test_chainwork_runtime_prefers_shorter_heavier_peer()
 }
 
 
+void test_reconnect_backoff_grows_and_caps()
+{
+    using namespace quintum::net;
+
+    assert(reconnect_backoff_delay(5U, 0U) == 5U);
+    assert(reconnect_backoff_delay(5U, 1U) == 10U);
+    assert(reconnect_backoff_delay(5U, 2U) == 20U);
+    assert(reconnect_backoff_delay(5U, 3U) == 40U);
+    assert(reconnect_backoff_delay(5U, 6U) ==
+           kMaxReconnectBackoffSeconds);
+    assert(reconnect_backoff_delay(500U, 0U) ==
+           kMaxReconnectBackoffSeconds);
+    assert(reconnect_backoff_delay(0U, 10U) == 0U);
+}
+
+
 void test_stalled_block_requests_are_bounded_and_expire()
 {
     using namespace quintum;
@@ -1479,6 +1495,7 @@ int main()
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
     test_chainwork_runtime_prefers_shorter_heavier_peer();
+    test_reconnect_backoff_grows_and_caps();
     test_stalled_block_requests_are_bounded_and_expire();
     test_encrypted_stem_transaction_relay();
     return 0;
