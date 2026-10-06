@@ -181,15 +181,14 @@ AddrStoreError PeerDiscovery::initialize(
         return loaded;
     }
 
-    if (loaded == AddrStoreError::none &&
-        addrman_.size() != 0U) {
-        return AddrStoreError::none;
-    }
+    const auto dns = dns_seeds(network);
+    const auto hardcoded =
+        hardcoded_seeds(network);
 
     std::size_t added{0U};
 
     added += bootstrap_dns_seeds(
-        dns_seeds(network),
+        dns,
         now
     );
     added += bootstrap_hardcoded(
@@ -197,7 +196,13 @@ AddrStoreError PeerDiscovery::initialize(
         now
     );
 
-    if (added == 0U) {
+    // peers.dat intentionally persists retry/backoff state, but a bootstrap
+    // endpoint must not stay suppressed for hours across an application
+    // restart. bootstrap_seeds() makes existing fixed seeds eligible for one
+    // immediate startup attempt without erasing their failure counters.
+    if (added == 0U &&
+        dns.empty() &&
+        hardcoded.empty()) {
         return AddrStoreError::none;
     }
 
@@ -223,7 +228,17 @@ std::size_t PeerDiscovery::bootstrap_seeds(
             .last_seen = now,
         };
 
-        if (addrman_.add(address)) {
+        const bool inserted =
+            addrman_.add(address);
+
+        // A persisted seed may have a long exponential-backoff deadline.
+        // Give it one startup retry while preserving its failure count.
+        addrman_.make_retry_eligible(
+            address,
+            now
+        );
+
+        if (inserted) {
             ++added;
         }
     }
