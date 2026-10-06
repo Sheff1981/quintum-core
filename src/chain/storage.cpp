@@ -63,6 +63,7 @@ struct ActiveMeta {
 
 struct DiskState {
     std::uint32_t version{kStorageVersionV1};
+    std::uint64_t block_generation{0U};
     std::vector<IndexMeta> index{};
     std::vector<ActiveMeta> active{};
     std::map<OutPoint, Coin, OutPointLess> utxos{};
@@ -895,6 +896,15 @@ StorageError parse_state_file(
         return StorageError::wrong_network;
     }
 
+    if (*version >= kStorageVersion) {
+        const auto generation =
+            reader.little<std::uint64_t>();
+        if (!generation) {
+            return StorageError::truncated;
+        }
+        state.block_generation = *generation;
+    }
+
     const auto block_count =
         reader.little<std::uint64_t>();
 
@@ -1519,6 +1529,11 @@ StorageError ChainstateStore::commit(
     append_hash(
         state,
         params_.genesis.hash);
+    // Generation 0 keeps compatibility with blocks.dat. Pruned commits will
+    // advance this only after a complete generation file has been synced.
+    append_little_endian(
+        state,
+        static_cast<std::uint64_t>(0U));
 
     append_little_endian(
         state,
