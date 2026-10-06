@@ -1,6 +1,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/runtime.hpp"
+#include "net/relay.hpp"
 #include "node/node.hpp"
 
 #include <cassert>
@@ -140,6 +141,81 @@ MatureCoin prepare_chain_data(
 
     assert(*server.chain().height() == 105U);
     assert(*client.chain().height() == 100U);
+
+    return mature;
+}
+
+MatureCoin prepare_equal_chain_data(
+    const quintum::consensus::ChainParams& params,
+    const std::filesystem::path& first_dir,
+    const std::filesystem::path& second_dir,
+    const std::filesystem::path& third_dir,
+    std::uint64_t base_time,
+    const quintum::Bytes& payout)
+{
+    using namespace quintum;
+
+    NodeRuntime first{params, first_dir};
+    NodeRuntime second{params, second_dir};
+    NodeRuntime third{params, third_dir};
+
+    assert(first.start_at(base_time).ok());
+    assert(second.start_at(base_time).ok());
+    assert(third.start_at(base_time).ok());
+
+    MatureCoin mature;
+
+    for (std::uint32_t height = 1U;
+         height <= 100U;
+         ++height) {
+        const auto mined =
+            first.mine_block_at(
+                payout,
+                base_time +
+                    static_cast<std::uint64_t>(
+                        height),
+                4'096U
+            );
+
+        assert(mined.ok());
+        assert(mined.height == height);
+
+        if (height == 1U) {
+            mature.txid =
+                transaction_id(
+                    mined.block.transactions.front()
+                );
+            mature.output =
+                mined.block.transactions.front()
+                    .outputs.front();
+        }
+
+        const auto second_result =
+            second.submit_block_at(
+                mined.block,
+                base_time +
+                    static_cast<std::uint64_t>(
+                        height)
+            );
+        const auto third_result =
+            third.submit_block_at(
+                mined.block,
+                base_time +
+                    static_cast<std::uint64_t>(
+                        height)
+            );
+
+        assert(second_result.ok());
+        assert(third_result.ok());
+    }
+
+    assert(*first.chain().height() == 100U);
+    assert(*second.chain().height() == 100U);
+    assert(*third.chain().height() == 100U);
+    assert(first.chain().tip_hash() ==
+           second.chain().tip_hash());
+    assert(first.chain().tip_hash() ==
+           third.chain().tip_hash());
 
     return mature;
 }
@@ -699,6 +775,205 @@ void test_continuous_runtime_sync_relay_reconnect()
 }
 
 
+void test_dandelion_three_node_relay_and_block_confirmation()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+
+    const auto origin_dir =
+        unique_dir("dandelion-origin");
+    const auto middle_dir =
+        unique_dir("dandelion-middle");
+    const auto edge_dir =
+        unique_dir("dandelion-edge");
+
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 50'000U;
+
+    const auto payout =
+        payout_script(13U);
+
+    const MatureCoin coin =
+        prepare_equal_chain_data(
+            params,
+            origin_dir,
+            middle_dir,
+            edge_dir,
+            base_time,
+            payout
+        );
+
+    NetworkRuntimeConfig base_config;
+    base_config.bind_address =
+        "127.0.0.1";
+    base_config.listen_port = 0U;
+    base_config.allow_local_peers = true;
+    base_config.accept_poll_ms = 10U;
+    base_config.io_timeout_ms = 5'000U;
+    base_config.outbound_retry_seconds = 1U;
+    base_config.reconnect_delay_seconds = 1U;
+    base_config.ping_interval_seconds = 30U;
+    base_config.ping_timeout_seconds = 5U;
+    base_config.enable_dandelion_relay = true;
+    base_config.dandelion_fluff_percent = 0U;
+    base_config.dandelion_embargo_min_seconds = 2U;
+    base_config.dandelion_embargo_jitter_seconds = 0U;
+
+    NetworkRuntimeConfig edge_config =
+        base_config;
+    edge_config.target_outbound = 0U;
+
+    NetworkRuntime edge{
+        params,
+        edge_dir
+    };
+    assert(edge.start(edge_config).ok());
+
+    NetworkRuntimeConfig middle_config =
+        base_config;
+    middle_config.target_outbound = 1U;
+    middle_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 =
+                *parse_ipv4("127.0.0.1"),
+            .port =
+                edge.status().listen_port,
+            .services = 1U,
+            .last_seen = base_time,
+        }
+    );
+
+    NetworkRuntime middle{
+        params,
+        middle_dir
+    };
+    assert(middle.start(middle_config).ok());
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            return middle.status().
+                       outbound_peers == 1U &&
+                   edge.status().peers >= 1U;
+        }
+    ));
+
+    NetworkRuntimeConfig origin_config =
+        base_config;
+    origin_config.target_outbound = 1U;
+    origin_config.bootstrap_peers.push_back(
+        PeerAddress{
+            .ipv4 =
+                *parse_ipv4("127.0.0.1"),
+            .port =
+                middle.status().listen_port,
+            .services = 1U,
+            .last_seen = base_time,
+        }
+    );
+
+    NetworkRuntime origin{
+        params,
+        origin_dir
+    };
+    assert(origin.start(origin_config).ok());
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            return origin.status().
+                       outbound_peers == 1U &&
+                   middle.status().peers >= 2U;
+        }
+    ));
+
+    constexpr Amount fee{777U};
+    const auto spend =
+        make_spend(
+            coin,
+            13U,
+            fee
+        );
+    const Hash256 txid =
+        transaction_id(spend);
+
+    const auto submitted =
+        origin.submit_transaction(
+            spend
+        );
+
+    assert(submitted.ok());
+    assert(submitted.mempool.fee == fee);
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            return middle.
+                       has_mempool_transaction(
+                           txid) &&
+                   edge.
+                       has_mempool_transaction(
+                           txid);
+        }
+    ));
+
+    const auto mined =
+        edge.mine_mempool_block_at(
+            payout,
+            base_time + 1'000U,
+            4'096U
+        );
+
+    assert(mined.ok());
+    assert(mined.height == 101U);
+    assert(mined.total_fees == fee);
+
+    assert(wait_until(
+        std::chrono::seconds(10),
+        [&] {
+            const auto a = origin.status();
+            const auto b = middle.status();
+            const auto c = edge.status();
+
+            return a.height ==
+                       std::optional<std::uint32_t>{
+                           101U} &&
+                   b.height ==
+                       std::optional<std::uint32_t>{
+                           101U} &&
+                   c.height ==
+                       std::optional<std::uint32_t>{
+                           101U} &&
+                   a.tip == c.tip &&
+                   b.tip == c.tip &&
+                   a.mempool_transactions == 0U &&
+                   b.mempool_transactions == 0U &&
+                   c.mempool_transactions == 0U;
+        }
+    ));
+
+    origin.stop();
+    middle.stop();
+    edge.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        origin_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        middle_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        edge_dir,
+        ec
+    );
+}
+
 void test_higher_outbound_peer_updates_lower_inbound()
 {
     using namespace quintum;
@@ -818,6 +1093,103 @@ void test_higher_outbound_peer_updates_lower_inbound()
     );
 }
 
+void test_encrypted_stem_transaction_relay()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("stem-runtime-server");
+    const auto mirror_dir =
+        unique_dir("stem-runtime-mirror");
+    const std::uint64_t base_time =
+        params.genesis.timestamp + 70'000U;
+    const auto payout = payout_script(23U);
+
+    const auto coin =
+        prepare_chain_data(
+            params,
+            server_dir,
+            mirror_dir,
+            base_time,
+            payout
+        );
+
+    NetworkRuntime server{
+        params,
+        server_dir
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.enable_dandelion_relay = true;
+    config.dandelion_fluff_percent = 0U;
+    config.dandelion_embargo_min_seconds = 2U;
+    config.dandelion_embargo_jitter_seconds = 0U;
+
+    const auto started =
+        server.start(config);
+    assert(started.ok());
+    assert(server.status().height ==
+           std::optional<std::uint32_t>{105U});
+
+    VersionMessage version;
+    version.protocol_version =
+        params.p2p_protocol_version;
+    version.services =
+        kServiceNetwork |
+        kServiceEncryptedTransport |
+        kServiceDandelionRelay;
+    version.timestamp = base_time + 1'000U;
+    version.nonce = 0x34123412ULL;
+    version.start_height = 105U;
+    version.listen_port = 0U;
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            server.status().listen_port,
+            version,
+            5'000U
+        );
+
+    assert(connected.ok());
+    assert(connected.session->encrypted());
+
+    const auto spend =
+        make_spend(coin, 23U, 444U);
+    const auto txid =
+        transaction_id(spend);
+
+    assert(connected.session->send_command(
+               "stemtx",
+               serialize_transaction_payload(spend)) ==
+           PeerError::none);
+
+    assert(wait_until(
+        std::chrono::seconds(8),
+        [&] {
+            return server.has_mempool_transaction(
+                txid
+            );
+        }
+    ));
+
+    connected.session->close();
+    server.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(mirror_dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -826,6 +1198,8 @@ int main()
     test_walletless_seed_runtime_creates_no_wallet();
     test_peer_message_flood_is_disconnected();
     test_continuous_runtime_sync_relay_reconnect();
+    test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
+    test_encrypted_stem_transaction_relay();
     return 0;
 }

@@ -94,7 +94,8 @@ parse_transaction_payload(
 [[nodiscard]] RelayResult serve_relay_message(
     PeerSession& peer,
     const NodeRuntime& node,
-    const WireMessage& message
+    const WireMessage& message,
+    std::span<const Hash256> hidden_transactions = {}
 );
 
 [[nodiscard]] RelayResult serve_relay_once(

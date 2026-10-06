@@ -395,3 +395,29 @@ The daemon and desktop accept `--tor-proxy HOST:PORT` and `--i2p-proxy HOST:PORT
 For ordinary Internet reachability, Testnet/Mainnet runtimes start a best-effort NAT worker unless `--no-nat` is supplied. It tries NAT-PMP and then UPnP IGD for the node's P2P TCP port, renews NAT-PMP leases, removes mappings on clean shutdown, and never makes startup depend on router support. A NAT-PMP mapping is accepted only when the router maps the same external port that QUINTUM advertises; a mismatched port is removed rather than poisoning peer discovery. Regtest never performs router discovery/mapping.
 
 The RPC/network status reports whether the active mapping method is `nat-pmp`, `upnp` or `none` and reports the external port when present.
+
+
+## Stage 34 Dandelion-style transaction relay
+
+Stage 34 changes only non-consensus propagation of unconfirmed transactions.
+
+New nodes advertise `kServiceDandelionRelay`. A locally originated transaction is not immediately announced to every peer. When a capable **encrypted** outbound peer exists, the node sends the complete validated transaction to one selected outbound peer using `stemtx`. The stem phase is allowed only over the Stage 32 encrypted transport; otherwise QUINTUM falls back to the normal compatible relay path. The origin keeps one randomly selected outbound stem route for a bounded epoch and rotates it afterwards.
+
+A node receiving `stemtx` validates the transaction through the normal mempool/UTXO/signature path. It then either:
+
+- forwards the transaction to one other capable outbound peer during the stem phase; or
+- transitions it to the existing `inv -> getdata -> tx` diffusion path (fluff phase).
+
+The transition probability is randomized. A duplicate stem transaction is treated as a possible loop and is fluffed instead of being forwarded indefinitely.
+
+### Liveness and abuse resistance
+
+Every successfully stem-forwarded transaction receives a randomized embargo deadline. If the private path stalls or a peer falsely advertises support and drops the transaction, the node eventually falls back to ordinary inventory diffusion. If no capable outbound peer exists, the node fluffs immediately.
+
+Stem-phase transactions remain in the local mempool for validation/mining but are temporarily excluded from ordinary peer `mempool` inventory and standard transaction `getdata` replies. This prevents another peer from bypassing the stem phase by querying the ordinary relay interface.
+
+The normal per-peer message-rate ceiling remains active and `stemtx` has an additional lower per-peer rate ceiling.
+
+Legacy peers are fully compatible: they never receive `stemtx`; when no capable outbound route exists, the existing transaction relay is used unchanged.
+
+Stage 34 does not alter transaction serialization, signatures, fees, UTXO rules, block validation, PoW, mining rewards or chain selection. It reduces direct source-IP correlation during transaction propagation; it is not blockchain-level amount/address privacy and should not be described as full transaction anonymity.

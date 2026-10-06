@@ -542,6 +542,17 @@ void NetworkRuntime::stop() noexcept
     }
     peers_.clear();
     reconnect_candidates_.clear();
+    stem_relays_.clear();
+    origin_stem_route_.reset();
+    origin_stem_epoch_deadline_ = 0U;
+
+    {
+        std::scoped_lock lock(
+            announcement_mutex_
+        );
+        announcements_.clear();
+        pending_private_transactions_.clear();
+    }
 
     peer_count_.store(0U);
     outbound_count_.store(0U);
@@ -792,8 +803,7 @@ NetworkRuntime::submit_transaction(
     }
 
     if (out.ok()) {
-        queue_announcement(
-            kInventoryTransaction,
+        queue_private_transaction(
             out.mempool.txid
         );
     }
@@ -1112,8 +1122,7 @@ NetworkRuntime::confirm_send(
     }
 
     if (out.ok()) {
-        queue_announcement(
-            kInventoryTransaction,
+        queue_private_transaction(
             out.node.mempool.txid
         );
     }
@@ -1139,8 +1148,7 @@ NetworkRuntime::send_to_address_auto_fee(
     }
 
     if (out.ok()) {
-        queue_announcement(
-            kInventoryTransaction,
+        queue_private_transaction(
             out.node.mempool.txid
         );
     }
@@ -1204,8 +1212,7 @@ NetworkRuntime::send_to_address(
         }
     }
 
-    queue_announcement(
-        kInventoryTransaction,
+    queue_private_transaction(
         out.node.mempool.txid
     );
 
@@ -1547,7 +1554,10 @@ VersionMessage NetworkRuntime::local_version(
             kServiceNetwork |
             kServiceCompactBlocks |
             kServiceEncryptedTransport |
-            kServiceAddrV2,
+            kServiceAddrV2 |
+            (config_.enable_dandelion_relay
+                 ? kServiceDandelionRelay
+                 : 0U),
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
@@ -1644,7 +1654,9 @@ void NetworkRuntime::run_loop() noexcept
 
             accept_inbound(now);
             maintain_outbound(now);
+            flush_private_transactions(now);
             service_peers(now);
+            service_stem_embargo(now);
             flush_announcements();
             prune_closed(now);
 
@@ -2124,6 +2136,7 @@ void NetworkRuntime::service_peers(
                 1U)) {
             peer.message_window_started = now;
             peer.messages_in_window = 0U;
+            peer.stem_transactions_in_window = 0U;
         }
 
         if (peer.messages_in_window <
@@ -2136,6 +2149,22 @@ void NetworkRuntime::service_peers(
                 config_.max_messages_per_second) {
             peer.session.close();
             continue;
+        }
+
+        if (message.command == "stemtx") {
+            if (peer.stem_transactions_in_window <
+                std::numeric_limits<std::uint32_t>::max()) {
+                ++peer.stem_transactions_in_window;
+            }
+
+            if (config_.
+                    max_stem_transactions_per_second > 0U &&
+                peer.stem_transactions_in_window >
+                    config_.
+                        max_stem_transactions_per_second) {
+                peer.session.close();
+                continue;
+            }
         }
 
         if (!process_message(
@@ -2264,12 +2293,16 @@ bool NetworkRuntime::process_message(
 
     if (message.command == "getdata" ||
         message.command == "mempool") {
+        const auto hidden =
+            hidden_transaction_ids();
+
         std::scoped_lock lock(state_mutex_);
 
         return serve_relay_message(
                    peer.session,
                    node_,
-                   message
+                   message,
+                   hidden
                ).ok();
     }
 
@@ -2284,6 +2317,14 @@ bool NetworkRuntime::process_message(
         return process_inventory(
             peer,
             message
+        );
+    }
+
+    if (message.command == "stemtx") {
+        return process_stem_transaction(
+            peer,
+            message,
+            now
         );
     }
 
@@ -2389,8 +2430,16 @@ bool NetworkRuntime::process_inventory(
             if (item.type ==
                 kInventoryTransaction) {
                 if (node_.mempool().contains(
-                        item.hash) ||
-                    contains_hash(
+                        item.hash)) {
+                    // Once the transaction is observed in normal diffusion,
+                    // stop hiding any local stem copy immediately.
+                    promote_private_transaction(
+                        item.hash
+                    );
+                    continue;
+                }
+
+                if (contains_hash(
                         peer.
                             requested_transactions,
                         item.hash)) {
@@ -2511,6 +2560,85 @@ bool NetworkRuntime::process_transaction(
         kInventoryTransaction,
         txid
     );
+
+    return true;
+}
+
+bool NetworkRuntime::process_stem_transaction(
+    LivePeer& peer,
+    const WireMessage& message,
+    std::uint64_t now)
+{
+    if (!config_.enable_dandelion_relay ||
+        !peer.session.encrypted() ||
+        (peer.session.remote_version().services &
+         kServiceDandelionRelay) == 0U) {
+        return false;
+    }
+
+    const auto transaction =
+        parse_transaction_payload(
+            message.payload,
+            params_.limits
+        );
+
+    if (!transaction) {
+        return false;
+    }
+
+    const Hash256 txid =
+        transaction_id(*transaction);
+
+    NodeTransactionResult submitted;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+        submitted =
+            node_.submit_transaction(
+                *transaction
+            );
+
+        if (submitted.ok() &&
+            !sync_wallet_locked()) {
+            return false;
+        }
+    }
+
+    if (!submitted.ok()) {
+        if (submitted.mempool.error !=
+            MempoolError::duplicate) {
+            return false;
+        }
+
+        // A stem loop or duplicate means the transaction has lost
+        // its one-way stem property. Diffuse it normally from now on.
+        promote_private_transaction(txid);
+        return true;
+    }
+
+    const auto random =
+        secure_dandelion_random();
+
+    if (!random ||
+        dandelion_should_fluff(
+            *random,
+            config_.dandelion_fluff_percent)) {
+        queue_announcement(
+            kInventoryTransaction,
+            txid
+        );
+        return true;
+    }
+
+    if (!relay_stem_transaction(
+            txid,
+            &peer,
+            now)) {
+        queue_announcement(
+            kInventoryTransaction,
+            txid
+        );
+    }
 
     return true;
 }
@@ -2918,6 +3046,355 @@ bool NetworkRuntime::process_received_block(
     );
 
     return true;
+}
+
+void NetworkRuntime::flush_private_transactions(
+    std::uint64_t now)
+{
+    std::vector<Hash256> pending;
+
+    {
+        std::scoped_lock lock(
+            announcement_mutex_
+        );
+        pending.swap(
+            pending_private_transactions_
+        );
+    }
+
+    for (const auto& txid : pending) {
+        if (!config_.enable_dandelion_relay ||
+            !relay_stem_transaction(
+                txid,
+                nullptr,
+                now)) {
+            queue_announcement(
+                kInventoryTransaction,
+                txid
+            );
+        }
+    }
+}
+
+void NetworkRuntime::service_stem_embargo(
+    std::uint64_t now)
+{
+    std::vector<Hash256> expired;
+    std::vector<StemRelayState> surviving;
+    surviving.reserve(stem_relays_.size());
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        for (const auto& relay :
+             stem_relays_) {
+            if (!node_.mempool().contains(
+                    relay.txid)) {
+                continue;
+            }
+
+            if (relay.embargo_deadline <=
+                now) {
+                expired.push_back(
+                    relay.txid
+                );
+                continue;
+            }
+
+            surviving.push_back(relay);
+        }
+    }
+
+    stem_relays_ =
+        std::move(surviving);
+
+    for (const auto& txid : expired) {
+        queue_announcement(
+            kInventoryTransaction,
+            txid
+        );
+    }
+}
+
+bool NetworkRuntime::relay_stem_transaction(
+    const Hash256& txid,
+    LivePeer* source,
+    std::uint64_t now)
+{
+    std::vector<std::size_t> candidates;
+    candidates.reserve(peers_.size());
+
+    for (std::size_t i = 0U;
+         i < peers_.size();
+         ++i) {
+        auto& peer = peers_[i];
+
+        if (!peer.session.valid() ||
+            !peer.session.encrypted() ||
+            !peer.address ||
+            &peer == source ||
+            (peer.session.remote_version().services &
+             kServiceDandelionRelay) == 0U) {
+            continue;
+        }
+
+        candidates.push_back(i);
+    }
+
+    if (candidates.empty()) {
+        return false;
+    }
+
+    std::optional<std::size_t> selected;
+
+    if (source == nullptr &&
+        origin_stem_route_ &&
+        now < origin_stem_epoch_deadline_) {
+        for (const auto candidate :
+             candidates) {
+            const auto& address =
+                peers_[candidate].address;
+
+            if (address &&
+                same_endpoint(
+                    *address,
+                    *origin_stem_route_)) {
+                selected = candidate;
+                break;
+            }
+        }
+    }
+
+    if (!selected) {
+        const auto route_random =
+            secure_dandelion_random();
+
+        if (!route_random) {
+            return false;
+        }
+
+        selected =
+            candidates[
+                static_cast<std::size_t>(
+                    *route_random %
+                    static_cast<std::uint64_t>(
+                        candidates.size()
+                    )
+                )
+            ];
+
+        if (source == nullptr) {
+            origin_stem_route_ =
+                peers_[*selected].address;
+
+            const std::uint64_t epoch =
+                config_.dandelion_epoch_seconds;
+
+            origin_stem_epoch_deadline_ =
+                now >
+                    std::numeric_limits<
+                        std::uint64_t>::max() -
+                        epoch
+                    ? std::numeric_limits<
+                          std::uint64_t>::max()
+                    : now + epoch;
+        }
+    }
+
+    // A private relay without fresh randomness for its embargo would
+    // become distinguishable and predictable. Fail closed to normal
+    // diffusion before transmitting the stem.
+    const auto delay_random =
+        secure_dandelion_random();
+
+    if (!delay_random) {
+        return false;
+    }
+
+    const std::uint64_t delay =
+        dandelion_embargo_delay(
+            *delay_random,
+            config_.
+                dandelion_embargo_min_seconds,
+            config_.
+                dandelion_embargo_jitter_seconds
+        );
+
+    const std::uint64_t deadline =
+        now >
+            std::numeric_limits<
+                std::uint64_t>::max() -
+                delay
+            ? std::numeric_limits<
+                  std::uint64_t>::max()
+            : now + delay;
+
+    std::optional<Transaction> transaction;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+
+        const Transaction* value =
+            node_.mempool().transaction(
+                txid
+            );
+
+        if (value == nullptr) {
+            // The transaction may already have been mined. Nothing to relay.
+            return true;
+        }
+
+        transaction = *value;
+    }
+
+    const auto payload =
+        serialize_transaction_payload(
+            *transaction
+        );
+
+    auto& destination =
+        peers_[*selected];
+
+    if (destination.session.send_command(
+            "stemtx",
+            payload) !=
+        PeerError::none) {
+        destination.session.close();
+        return false;
+    }
+
+    const auto existing =
+        std::find_if(
+            stem_relays_.begin(),
+            stem_relays_.end(),
+            [&](const StemRelayState& relay) {
+                return relay.txid == txid;
+            }
+        );
+
+    if (existing ==
+        stem_relays_.end()) {
+        stem_relays_.push_back(
+            StemRelayState{
+                .txid = txid,
+                .embargo_deadline = deadline,
+            }
+        );
+    } else {
+        existing->embargo_deadline =
+            deadline;
+    }
+
+    return true;
+}
+
+void NetworkRuntime::erase_stem_relay(
+    const Hash256& txid)
+{
+    stem_relays_.erase(
+        std::remove_if(
+            stem_relays_.begin(),
+            stem_relays_.end(),
+            [&](const StemRelayState& relay) {
+                return relay.txid == txid;
+            }
+        ),
+        stem_relays_.end()
+    );
+}
+
+void NetworkRuntime::promote_private_transaction(
+    const Hash256& txid)
+{
+    erase_stem_relay(txid);
+
+    std::scoped_lock lock(
+        announcement_mutex_
+    );
+
+    erase_hash(
+        pending_private_transactions_,
+        txid
+    );
+
+    const bool already_queued =
+        std::any_of(
+            announcements_.begin(),
+            announcements_.end(),
+            [&](const PendingAnnouncement& item) {
+                return item.type ==
+                           kInventoryTransaction &&
+                       item.hash == txid;
+            }
+        );
+
+    if (!already_queued) {
+        announcements_.push_back(
+            PendingAnnouncement{
+                .type = kInventoryTransaction,
+                .hash = txid,
+            }
+        );
+    }
+}
+
+std::vector<Hash256>
+NetworkRuntime::hidden_transaction_ids()
+{
+    std::vector<Hash256> hidden;
+    hidden.reserve(
+        stem_relays_.size()
+    );
+
+    for (const auto& relay :
+         stem_relays_) {
+        hidden.push_back(relay.txid);
+    }
+
+    {
+        std::scoped_lock lock(
+            announcement_mutex_
+        );
+
+        hidden.reserve(
+            hidden.size() +
+            pending_private_transactions_.size()
+        );
+
+        for (const auto& txid :
+             pending_private_transactions_) {
+            if (!contains_hash(
+                    hidden,
+                    txid)) {
+                hidden.push_back(txid);
+            }
+        }
+    }
+
+    return hidden;
+}
+
+void NetworkRuntime::queue_private_transaction(
+    const Hash256& txid)
+{
+    if (!config_.enable_dandelion_relay) {
+        queue_announcement(
+            kInventoryTransaction,
+            txid
+        );
+        return;
+    }
+
+    std::scoped_lock lock(
+        announcement_mutex_
+    );
+
+    if (!contains_hash(
+            pending_private_transactions_,
+            txid)) {
+        pending_private_transactions_.
+            push_back(txid);
+    }
 }
 
 void NetworkRuntime::flush_announcements()
