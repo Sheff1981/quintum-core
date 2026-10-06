@@ -191,6 +191,14 @@ private:
         std::uint32_t candidate_height,
         const HeaderIndexOverlay* overlay = nullptr
     ) const;
+    [[nodiscard]] HeaderValidationResult
+    validate_header_candidate(
+        const BlockHeader& header,
+        const BlockIndexEntry* parent,
+        std::uint32_t height,
+        std::uint64_t adjusted_time,
+        const HeaderIndexOverlay* overlay = nullptr
+    ) const;
 
     consensus::ChainParams params_{};
     UtxoSet utxos_{};
