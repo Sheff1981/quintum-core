@@ -438,6 +438,284 @@ void test_heavier_remote_branch_reorg()
 }
 
 
+void test_pruned_deep_reorg_redownloads_missing_bodies()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("pruned-deep-reorg-server");
+    const auto client_dir =
+        unique_dir("pruned-deep-reorg-client");
+
+    const PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 2U,
+    };
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 40'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{
+        params,
+        client_dir,
+        policy
+    };
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    // Establish an identical chain through height 3.
+    mine_blocks(
+        server,
+        payout_script(5U),
+        now,
+        3U
+    );
+
+    {
+        PeerListener listener{params};
+        assert(listener.listen(
+                   "127.0.0.1",
+                   0U) ==
+               PeerError::none);
+
+        SyncError server_error{
+            SyncError::transport_failed
+        };
+
+        std::thread server_thread([&] {
+            serve_requests(
+                listener,
+                server.chain(),
+                version(0x1721U, 3U),
+                4U,
+                server_error
+            );
+        });
+
+        auto connected =
+            connect_and_handshake(
+                params,
+                "127.0.0.1",
+                listener.local_port(),
+                version(0x1722U, 0U),
+                5'000U
+            );
+        assert(connected.ok());
+
+        const auto synced =
+            sync_from_peer(
+                *connected.session,
+                client,
+                now + 50U
+            );
+        assert(synced.ok());
+        assert(synced.blocks_accepted == 3U);
+
+        connected.session->close();
+        server_thread.join();
+        assert(server_error == SyncError::none);
+    }
+
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    // Client builds branch A to height 8. Server builds branch B only to
+    // height 6 first, so B remains a side branch on the client.
+    mine_blocks(
+        client,
+        payout_script(6U),
+        now + 100U,
+        5U
+    );
+    mine_blocks(
+        server,
+        payout_script(7U),
+        now + 200U,
+        3U
+    );
+
+    assert(client.chain().height() &&
+           *client.chain().height() == 8U);
+    assert(server.chain().height() &&
+           *server.chain().height() == 6U);
+
+    std::array<Hash256, 3> old_side_hashes{};
+    for (std::uint32_t height = 4U;
+         height <= 6U;
+         ++height) {
+        const auto hash =
+            server.chain().active_hash(height);
+        assert(hash);
+        old_side_hashes[
+            static_cast<std::size_t>(
+                height - 4U)] = *hash;
+    }
+
+    {
+        PeerListener listener{params};
+        assert(listener.listen(
+                   "127.0.0.1",
+                   0U) ==
+               PeerError::none);
+
+        SyncError server_error{
+            SyncError::transport_failed
+        };
+
+        std::thread server_thread([&] {
+            serve_requests(
+                listener,
+                server.chain(),
+                version(0x1731U, 6U),
+                4U,
+                server_error
+            );
+        });
+
+        auto connected =
+            connect_and_handshake(
+                params,
+                "127.0.0.1",
+                listener.local_port(),
+                version(0x1732U, 8U),
+                5'000U
+            );
+        assert(connected.ok());
+
+        const auto synced =
+            sync_from_peer(
+                *connected.session,
+                client,
+                now + 350U
+            );
+
+        assert(synced.ok());
+        assert(synced.headers_received == 3U);
+        assert(synced.blocks_requested == 3U);
+        assert(synced.blocks_accepted == 3U);
+        assert(!synced.reorganized);
+
+        connected.session->close();
+        server_thread.join();
+        assert(server_error == SyncError::none);
+    }
+
+    for (const auto& hash : old_side_hashes) {
+        assert(client.chain().has_block(hash));
+        assert(!client.chain().has_block_body(hash));
+    }
+
+    // Restart deliberately drops the transient recovery cache. The block
+    // metadata remains on disk, but the old side-branch bodies are gone.
+    {
+        NodeRuntime restarted{
+            params,
+            client_dir,
+            policy
+        };
+        assert(restarted.start_at(
+            now + 400U).ok());
+
+        for (const auto& hash :
+             old_side_hashes) {
+            assert(
+                restarted.chain().
+                    has_block(hash));
+            assert(
+                !restarted.chain().
+                    has_block_body(hash));
+        }
+
+        // Branch B now becomes heavier than branch A.
+        mine_blocks(
+            server,
+            payout_script(7U),
+            now + 500U,
+            3U
+        );
+        assert(server.chain().height() &&
+               *server.chain().height() == 9U);
+
+        PeerListener listener{params};
+        assert(listener.listen(
+                   "127.0.0.1",
+                   0U) ==
+               PeerError::none);
+
+        SyncError server_error{
+            SyncError::transport_failed
+        };
+
+        std::thread server_thread([&] {
+            serve_requests(
+                listener,
+                server.chain(),
+                version(0x1741U, 9U),
+                7U,
+                server_error
+            );
+        });
+
+        auto connected =
+            connect_and_handshake(
+                params,
+                "127.0.0.1",
+                listener.local_port(),
+                version(0x1742U, 8U),
+                5'000U
+            );
+        assert(connected.ok());
+
+        const auto synced =
+            sync_from_peer(
+                *connected.session,
+                restarted,
+                now + 600U
+            );
+
+        assert(synced.ok());
+        assert(synced.headers_received == 6U);
+        assert(synced.blocks_requested == 6U);
+        assert(synced.block_bodies_restored == 3U);
+        assert(synced.blocks_accepted == 3U);
+        assert(synced.reorganized);
+
+        connected.session->close();
+        server_thread.join();
+        assert(server_error == SyncError::none);
+
+        assert(restarted.chain().height() ==
+               server.chain().height());
+        assert(restarted.chain().tip_hash() ==
+               server.chain().tip_hash());
+    }
+
+    // The successful reorg must survive another restart from pruned storage.
+    {
+        NodeRuntime verified{
+            params,
+            client_dir,
+            policy
+        };
+        assert(verified.start_at(
+            now + 700U).ok());
+        assert(verified.chain().height() ==
+               server.chain().height());
+        assert(verified.chain().tip_hash() ==
+               server.chain().tip_hash());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(client_dir, ec);
+}
+
+
 void test_full_known_header_batch_is_not_treated_as_stalled()
 {
     using namespace quintum::net;
@@ -463,6 +741,7 @@ int main()
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
     test_heavier_remote_branch_reorg();
+    test_pruned_deep_reorg_redownloads_missing_bodies();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }
