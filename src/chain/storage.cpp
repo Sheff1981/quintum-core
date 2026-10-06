@@ -1757,7 +1757,11 @@ StorageError ChainstateStore::load(
         }
 
         restored.chain_.reserve(disk.active.size());
-        for (const auto& stored : disk.active) {
+        for (std::size_t active_index = 0U;
+             active_index < disk.active.size();
+             ++active_index) {
+            const auto& stored =
+                disk.active[active_index];
             const auto index_it =
                 restored.block_index_.find(
                     stored.hash);
@@ -1767,7 +1771,13 @@ StorageError ChainstateStore::load(
                 index_it->second.height !=
                     stored.height ||
                 index_it->second.chain_work !=
-                    stored.chain_work) {
+                    stored.chain_work ||
+                stored.height != active_index ||
+                (active_index == 0U
+                     ? index_it->second.parent != Hash256{}
+                     : index_it->second.parent !=
+                           disk.active[
+                               active_index - 1U].hash)) {
                 return StorageError::state_mismatch;
             }
             restored.chain_.push_back(
