@@ -813,6 +813,21 @@ SyncResult sync_from_peer(
         return out;
     }
 
+    node.clear_block_body_recovery();
+
+    struct RecoveryCacheGuard {
+        NodeRuntime& node;
+
+        ~RecoveryCacheGuard()
+        {
+            node.clear_block_body_recovery();
+        }
+    };
+
+    [[maybe_unused]] RecoveryCacheGuard recovery_guard{
+        node
+    };
+
     std::optional<Hash256> continuation;
 
     for (;;) {
@@ -932,7 +947,12 @@ SyncResult sync_from_peer(
             const Hash256 expected_hash =
                 block_hash(header);
 
-            if (node.chain().has_block(
+            const bool metadata_known =
+                node.chain().has_block(
+                    expected_hash);
+
+            if (metadata_known &&
+                node.chain().has_block_body(
                     expected_hash)) {
                 continue;
             }
@@ -1006,10 +1026,14 @@ SyncResult sync_from_peer(
             }
 
             const auto submitted =
-                node.submit_block_at(
-                    *block,
-                    adjusted_time
-                );
+                metadata_known
+                    ? node.restore_block_body(
+                          *block
+                      )
+                    : node.submit_block_at(
+                          *block,
+                          adjusted_time
+                      );
 
             out.submit_error = submitted.error;
             out.chain_error =
@@ -1029,7 +1053,12 @@ SyncResult sync_from_peer(
                 return out;
             }
 
-            ++out.blocks_accepted;
+            if (metadata_known) {
+                ++out.block_bodies_restored;
+            } else {
+                ++out.blocks_accepted;
+            }
+
             out.reorganized =
                 out.reorganized ||
                 submitted.connect.chain.reorganized;

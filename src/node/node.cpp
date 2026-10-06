@@ -131,6 +131,31 @@ NodeTransactionResult NodeRuntime::submit_transaction(
     return out;
 }
 
+NodeSubmitResult NodeRuntime::restore_block_body(
+    const Block& block)
+{
+    NodeSubmitResult out;
+
+    if (!started_) {
+        out.error = NodeSubmitError::not_started;
+        return out;
+    }
+
+    out.connect =
+        persistent_.restore_block_body(block);
+
+    if (!out.connect.chain.ok()) {
+        out.error = NodeSubmitError::chain_rejected;
+    }
+
+    return out;
+}
+
+void NodeRuntime::clear_block_body_recovery() noexcept
+{
+    persistent_.clear_block_body_recovery();
+}
+
 NodeSubmitResult NodeRuntime::submit_block(
     const Block& block)
 {

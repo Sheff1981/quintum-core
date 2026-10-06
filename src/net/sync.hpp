@@ -61,6 +61,7 @@ struct SyncResult {
     std::size_t headers_received{0U};
     std::size_t blocks_requested{0U};
     std::size_t blocks_accepted{0U};
+    std::size_t block_bodies_restored{0U};
     bool reorganized{false};
 
     [[nodiscard]] bool ok() const noexcept

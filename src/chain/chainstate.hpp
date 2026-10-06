@@ -108,6 +108,7 @@ public:
     [[nodiscard]] Hash256 cumulative_work() const noexcept;
     [[nodiscard]] const UtxoSet& utxos() const noexcept;
     [[nodiscard]] bool has_block(const Hash256& hash) const;
+    [[nodiscard]] bool has_block_body(const Hash256& hash) const noexcept;
     [[nodiscard]] bool is_on_active_chain(const Hash256& hash) const;
     [[nodiscard]] std::optional<Hash256> active_hash(
         std::uint32_t height
@@ -126,6 +127,12 @@ public:
     ) const;
     [[nodiscard]] std::optional<Hash256>
     next_randomx_seed_key() const;
+
+    // Restores the body of an already-known block whose metadata survived
+    // pruning. This does not change the active chain by itself.
+    [[nodiscard]] ChainConnectResult restore_block_body(
+        const Block& block
+    );
 
     // Accepts active-tip extensions and side-branch blocks. A side branch is
     // activated only when its cumulative valid work becomes strictly greater.
