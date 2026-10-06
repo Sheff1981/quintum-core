@@ -1244,6 +1244,24 @@ Bytes make_block_record(const Block& block)
     return record;
 }
 
+StorageError write_block_records_synced(
+    const std::filesystem::path& path,
+    const std::vector<const Block*>& blocks)
+{
+    Bytes bytes;
+    for (const auto* block : blocks) {
+        if (block == nullptr) {
+            return StorageError::state_mismatch;
+        }
+        const auto record = make_block_record(*block);
+        bytes.insert(
+            bytes.end(),
+            record.begin(),
+            record.end());
+    }
+    return write_file_synced(path, bytes);
+}
+
 } // namespace
 
 ChainstateStore::ChainstateStore(
@@ -1321,6 +1339,49 @@ StorageError ChainstateStore::commit(
 
     if (ec) {
         return StorageError::io_error;
+    }
+
+    if (prune_policy_.enabled) {
+        const auto status = prune_status(chain);
+        std::vector<const Block*> retained;
+        retained.reserve(chain.acceptance_order_.size());
+
+        for (const auto& hash : chain.acceptance_order_) {
+            const auto it = chain.block_index_.find(hash);
+            if (it == chain.block_index_.end()) {
+                return StorageError::state_mismatch;
+            }
+
+            const bool keep =
+                !status.prune_height ||
+                it->second.height > *status.prune_height;
+
+            if (keep) {
+                if (!it->second.block) {
+                    return StorageError::state_mismatch;
+                }
+                retained.push_back(&*it->second.block);
+            }
+        }
+
+        auto temporary_blocks = blocks_path();
+        temporary_blocks += ".prune.tmp";
+        const auto write_error =
+            write_block_records_synced(
+                temporary_blocks,
+                retained);
+        if (write_error != StorageError::none) {
+            return write_error;
+        }
+
+        // State/body availability is committed below. Keep the old blocks
+        // file authoritative until the matching state snapshot is ready.
+        std::filesystem::remove(
+            temporary_blocks,
+            ec);
+        if (ec) {
+            return StorageError::io_error;
+        }
     }
 
     std::size_t committed_count{0U};
