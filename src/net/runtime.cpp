@@ -3165,18 +3165,18 @@ bool NetworkRuntime::relay_stem_transaction(
         }
     }
 
-    const auto random =
-        secure_dandelion_random();
-
     if (!selected) {
-        if (!random) {
+        const auto route_random =
+            secure_dandelion_random();
+
+        if (!route_random) {
             return false;
         }
 
         selected =
             candidates[
                 static_cast<std::size_t>(
-                    *random %
+                    *route_random %
                     static_cast<std::uint64_t>(
                         candidates.size()
                     )
@@ -3201,8 +3201,33 @@ bool NetworkRuntime::relay_stem_transaction(
         }
     }
 
-    const std::uint64_t random_value =
-        random.value_or(0U);
+    // A private relay without fresh randomness for its embargo would
+    // become distinguishable and predictable. Fail closed to normal
+    // diffusion before transmitting the stem.
+    const auto delay_random =
+        secure_dandelion_random();
+
+    if (!delay_random) {
+        return false;
+    }
+
+    const std::uint64_t delay =
+        dandelion_embargo_delay(
+            *delay_random,
+            config_.
+                dandelion_embargo_min_seconds,
+            config_.
+                dandelion_embargo_jitter_seconds
+        );
+
+    const std::uint64_t deadline =
+        now >
+            std::numeric_limits<
+                std::uint64_t>::max() -
+                delay
+            ? std::numeric_limits<
+                  std::uint64_t>::max()
+            : now + delay;
 
     std::optional<Transaction> transaction;
 
@@ -3237,27 +3262,6 @@ bool NetworkRuntime::relay_stem_transaction(
         destination.session.close();
         return false;
     }
-
-    const auto delay_random =
-        secure_dandelion_random();
-
-    const std::uint64_t delay =
-        dandelion_embargo_delay(
-            delay_random.value_or(random_value),
-            config_.
-                dandelion_embargo_min_seconds,
-            config_.
-                dandelion_embargo_jitter_seconds
-        );
-
-    const std::uint64_t deadline =
-        now >
-            std::numeric_limits<
-                std::uint64_t>::max() -
-                delay
-            ? std::numeric_limits<
-                  std::uint64_t>::max()
-            : now + delay;
 
     const auto existing =
         std::find_if(
