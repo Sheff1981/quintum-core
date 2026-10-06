@@ -95,7 +95,8 @@ class NodeRuntime {
 public:
     NodeRuntime(
         const consensus::ChainParams& params,
-        std::filesystem::path directory
+        std::filesystem::path directory,
+        PrunePolicy prune_policy = {}
     );
 
     [[nodiscard]] NodeStartResult start();
