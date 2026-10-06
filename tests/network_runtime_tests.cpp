@@ -1231,6 +1231,17 @@ void test_chainwork_runtime_prefers_shorter_heavier_peer()
     assert(light.cumulative_work() == heavy_work);
     assert(heavy.cumulative_work() == heavy_work);
 
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            const auto heavy_status = heavy.status();
+            return heavy_status.peer_best_height ==
+                       std::optional<std::uint32_t>{2U} &&
+                   !heavy_status.synchronizing &&
+                   heavy_status.sync_progress == 1.0;
+        }
+    ));
+
     heavy.stop();
     light.stop();
 
