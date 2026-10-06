@@ -1695,6 +1695,23 @@ StorageError ChainstateStore::commit(
         return StorageError::io_error;
     }
 
+    // The new snapshot is now authoritative. Only after this durable
+    // switch is it safe to remove the generation referenced by the
+    // previous snapshot. Cleanup failure is non-fatal: keeping an
+    // obsolete generation wastes disk space but cannot corrupt state.
+    if (prune_policy_.enabled &&
+        have_previous_state &&
+        previous_state.block_generation != next_generation) {
+        const auto obsolete_path =
+            generation_blocks_path(
+                directory_,
+                previous_state.block_generation);
+        std::error_code cleanup_ec;
+        (void)std::filesystem::remove(
+            obsolete_path,
+            cleanup_ec);
+    }
+
     return StorageError::none;
 }
 
