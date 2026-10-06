@@ -102,6 +102,7 @@ public:
     [[nodiscard]] PersistentConnectResult restore_block_body(
         const Block& block
     );
+    void clear_block_body_recovery() noexcept;
 
     [[nodiscard]] PersistentConnectResult connect_block(
         const Block& block
