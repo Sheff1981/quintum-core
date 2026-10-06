@@ -55,6 +55,7 @@ public:
     // Reconstructs and revalidates state from disk. The destination is changed
     // only after the complete snapshot and block log have been verified.
     [[nodiscard]] StorageError load(Chainstate& chain) const;
+    void apply_pruning(Chainstate& chain) const noexcept;
 
 private:
     std::filesystem::path directory_{};
