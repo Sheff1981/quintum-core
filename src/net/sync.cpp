@@ -1066,10 +1066,21 @@ SyncResult sync_from_peer(
                 return out;
             }
 
-            if (consensus::check_proof_of_work(
+            // SHA-style PoW can be verified from a header alone.
+            // RandomX cannot: its consensus hash depends on the epoch seed
+            // derived from chain history. Using check_proof_of_work() here
+            // would incorrectly validate RandomX headers with block_hash()
+            // and disconnect a syncing RandomX peer before block 1.
+            //
+            // For RandomX, the downloaded block is still fully validated by
+            // NodeRuntime/Chainstate before acceptance, including the correct
+            // RandomX seed, target, expected difficulty and all block rules.
+            if (node.chain().params().pow.pow_algorithm !=
+                    consensus::PowAlgorithm::randomx_v2 &&
+                consensus::check_proof_of_work(
                     header,
                     node.chain().params().pow) !=
-                consensus::PowCheckError::none) {
+                    consensus::PowCheckError::none) {
                 out.error = SyncError::invalid_header_pow;
                 return out;
             }
