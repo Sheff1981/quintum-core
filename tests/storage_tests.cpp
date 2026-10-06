@@ -487,6 +487,13 @@ void test_physical_prune_restart_and_continue()
         assert(restarted.connect_block(b4).ok());
         assert(restarted.chain().height());
         assert(*restarted.chain().height() == 4U);
+
+        // A successful second pruned commit switches the snapshot to
+        // generation 5 and may only then delete generation 4.
+        assert(!std::filesystem::exists(
+            directory / "blocks.4.dat"));
+        assert(std::filesystem::exists(
+            directory / "blocks.5.dat"));
     }
 
     std::error_code ec;
