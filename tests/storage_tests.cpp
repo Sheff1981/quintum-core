@@ -2,6 +2,8 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/monetary.hpp"
 #include "consensus/pow.hpp"
+#include "consensus/tx_auth.hpp"
+#include "crypto/secp256k1.hpp"
 #include "primitives/block.hpp"
 
 #include <cassert>
@@ -63,6 +65,38 @@ quintum::Block make_block(
             block.header,
             10'000U);
 
+    assert(mined.found());
+    return block;
+}
+
+quintum::crypto::PrivateKey pruning_test_key()
+{
+    quintum::crypto::PrivateKey key{};
+    key.back() = 1U;
+    return key;
+}
+
+quintum::Bytes pruning_test_script()
+{
+    const auto public_key =
+        quintum::crypto::derive_public_key(pruning_test_key());
+    assert(public_key);
+    return quintum::consensus::make_p2pk_locking_script(*public_key);
+}
+
+quintum::Block make_block_with_transactions(
+    const quintum::Hash256& previous,
+    std::uint32_t height,
+    std::vector<quintum::Transaction> transactions)
+{
+    quintum::Block block;
+    block.header.previous_block = previous;
+    block.header.timestamp = 1'700'000'000ULL + height;
+    block.header.bits = 0x2100ffffU;
+    block.transactions = std::move(transactions);
+    quintum::update_merkle_root(block);
+    const auto mined =
+        quintum::consensus::mine_header(block.header, 10'000U);
     assert(mined.found());
     return block;
 }
@@ -494,6 +528,100 @@ void test_physical_prune_restart_and_continue()
             directory / "blocks.4.dat"));
         assert(std::filesystem::exists(
             directory / "blocks.5.dat"));
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
+void test_spend_utxo_from_pruned_block_after_restart()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-pruned-utxo-spend");
+    const quintum::PrunePolicy policy{
+        .enabled = true,
+        .keep_recent_blocks = 2U,
+    };
+
+    quintum::Transaction funding_coinbase;
+    funding_coinbase.inputs.push_back(quintum::TxInput{
+        .unlocking_script = {0x01U, 0x00U, 0x00U, 0x00U, 0x00U, 0xa0U},
+    });
+    funding_coinbase.outputs.push_back(quintum::TxOutput{
+        .value = quintum::consensus::block_subsidy(0U),
+        .locking_script = pruning_test_script(),
+    });
+
+    quintum::Hash256 tip{};
+    const auto funding_txid =
+        quintum::transaction_id(funding_coinbase);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory, policy};
+        quintum::Hash256 zero{};
+        const auto genesis = make_block_with_transactions(
+            zero, 0U, {funding_coinbase});
+        const auto genesis_hash =
+            quintum::block_hash(genesis.header);
+        assert(node.connect_block(genesis).ok());
+        tip = genesis_hash;
+
+        for (std::uint32_t height = 1U;
+             height <= 100U;
+             ++height) {
+            const auto block =
+                make_block(tip, height,
+                           static_cast<quintum::Byte>(height));
+            assert(node.connect_block(block).ok());
+            tip = quintum::block_hash(block.header);
+        }
+
+        assert(node.chain().block(genesis_hash) == nullptr);
+        assert(node.chain().utxos().contains(
+            quintum::OutPoint{.txid = funding_txid, .index = 0U}));
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory, policy};
+        assert(restarted.load() == quintum::StorageError::none);
+
+        const quintum::OutPoint funding{
+            .txid = funding_txid,
+            .index = 0U,
+        };
+        assert(restarted.chain().utxos().contains(funding));
+
+        quintum::Transaction spend;
+        spend.inputs.push_back(quintum::TxInput{
+            .previous_output = funding,
+        });
+        spend.outputs.push_back(quintum::TxOutput{
+            .value = funding_coinbase.outputs.front().value - 100U,
+            .locking_script = pruning_test_script(),
+        });
+        assert(
+            quintum::consensus::sign_p2pk_input(
+                spend,
+                0U,
+                funding_coinbase.outputs.front(),
+                pruning_test_key()) ==
+            quintum::consensus::InputAuthError::none);
+
+        const auto block101 = make_block_with_transactions(
+            tip,
+            101U,
+            {
+                make_coinbase(101U, 0xb1U),
+                spend,
+            });
+        const auto result =
+            restarted.connect_block(block101);
+        assert(result.ok());
+        assert(result.chain.total_fees == 100U);
+        assert(!restarted.chain().utxos().contains(funding));
     }
 
     std::error_code ec;
