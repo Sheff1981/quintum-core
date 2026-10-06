@@ -1,4 +1,5 @@
 #include "chain/storage.hpp"
+#include "consensus/pow.hpp"
 
 #include "core/serialize.hpp"
 #include "crypto/sha256.hpp"
