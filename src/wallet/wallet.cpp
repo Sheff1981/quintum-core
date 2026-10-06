@@ -1991,8 +1991,15 @@ WalletSyncResult Wallet::sync(
         const Block* block =
             chain.block(*active_hash);
 
-        if (block == nullptr ||
-            !apply_confirmed_block_to_index(
+        if (block == nullptr) {
+            reset_index_state();
+            out.error =
+                WalletSyncError::
+                    pruned_history_unavailable;
+            return out;
+        }
+
+        if (!apply_confirmed_block_to_index(
                 *block,
                 *active_hash,
                 static_cast<std::uint32_t>(
