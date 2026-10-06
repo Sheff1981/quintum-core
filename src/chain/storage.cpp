@@ -1202,9 +1202,11 @@ Bytes make_block_record(const Block& block)
 
 ChainstateStore::ChainstateStore(
     std::filesystem::path directory,
-    const consensus::ChainParams& params)
+    const consensus::ChainParams& params,
+    PrunePolicy prune_policy)
     : directory_(std::move(directory)),
-      params_(params)
+      params_(params),
+      prune_policy_(prune_policy)
 {
 }
 
@@ -1222,6 +1224,35 @@ std::filesystem::path ChainstateStore::blocks_path() const
 std::filesystem::path ChainstateStore::state_path() const
 {
     return directory_ / "chainstate.dat";
+}
+
+const PrunePolicy& ChainstateStore::prune_policy() const noexcept
+{
+    return prune_policy_;
+}
+
+PruneStatus ChainstateStore::prune_status(
+    const Chainstate& chain) const noexcept
+{
+    PruneStatus out{
+        .enabled = prune_policy_.enabled,
+        .keep_recent_blocks = prune_policy_.keep_recent_blocks,
+    };
+
+    if (!prune_policy_.enabled ||
+        prune_policy_.keep_recent_blocks == 0U) {
+        return out;
+    }
+
+    const auto height = chain.height();
+    if (!height ||
+        *height < prune_policy_.keep_recent_blocks) {
+        return out;
+    }
+
+    out.prune_height =
+        *height - prune_policy_.keep_recent_blocks;
+    return out;
 }
 
 StorageError ChainstateStore::commit(
@@ -1635,9 +1666,13 @@ StorageError ChainstateStore::load(
 
 PersistentChainstate::PersistentChainstate(
     const consensus::ChainParams& params,
-    std::filesystem::path directory)
+    std::filesystem::path directory,
+    PrunePolicy prune_policy)
     : chain_(params),
-      store_(std::move(directory), params)
+      store_(
+          std::move(directory),
+          params,
+          prune_policy)
 {
 }
 
