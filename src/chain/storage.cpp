@@ -2216,6 +2216,11 @@ PersistentChainstate::restore_block_body(
     };
 }
 
+void PersistentChainstate::clear_block_body_recovery() noexcept
+{
+    recovery_blocks_.clear();
+}
+
 PersistentConnectResult
 PersistentChainstate::connect_block(
     const Block& block)
