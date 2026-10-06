@@ -1795,8 +1795,8 @@ QWidget* MainWindow::build_mining_page()
 
     auto* performance =
         make_section_heading(
-            "Performance mode",
-            "CPU-friendly desktop mining. QUINTUM stays responsive while testing real PoW on ordinary computers."
+            "RandomX performance",
+            "Full-memory RandomX is preferred automatically; systems without enough RAM fall back safely to light mode."
         );
     control_layout->addWidget(
         performance,
