@@ -1342,6 +1342,23 @@ PruneStatus ChainstateStore::prune_status(
     return out;
 }
 
+void ChainstateStore::apply_pruning(
+    Chainstate& chain) const noexcept
+{
+    const auto status = prune_status(chain);
+    if (!status.prune_height) {
+        return;
+    }
+
+    for (auto& [hash, entry] :
+         chain.block_index_) {
+        (void)hash;
+        if (entry.height <= *status.prune_height) {
+            entry.block.reset();
+        }
+    }
+}
+
 StorageError ChainstateStore::commit(
     const Chainstate& chain) const
 {
@@ -2031,6 +2048,7 @@ PersistentChainstate::connect_block(
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 
@@ -2062,6 +2080,7 @@ PersistentChainstate::connect_block(
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 
@@ -2090,6 +2109,7 @@ PersistentChainstate::disconnect_tip()
 
     if (storage_error ==
         StorageError::none) {
+        store_.apply_pruning(staged);
         chain_ = std::move(staged);
     }
 
