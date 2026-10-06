@@ -1022,6 +1022,75 @@ void test_real_peer_discovery_chain()
     std::filesystem::remove_all(dir_b, ec);
 }
 
+void test_initialize_reenables_persisted_hardcoded_seed()
+{
+    using namespace quintum::net;
+
+    const auto dir =
+        unique_dir("persisted-seed-retry");
+    const auto& params =
+        quintum::consensus::randomx_testnet_params();
+
+    const auto seed_ip =
+        parse_ipv4("212.193.15.139");
+    assert(seed_ip.has_value());
+
+    const PeerAddress seed{
+        .ipv4 = *seed_ip,
+        .port = 39444U,
+        .services = 1U,
+        .last_seen = 1'000U,
+    };
+
+    {
+        AddrManager manager{
+            params,
+            dir,
+            false
+        };
+
+        assert(manager.add(seed));
+
+        manager.mark_failure(
+            seed,
+            1'000U
+        );
+
+        assert(manager.entries().size() == 1U);
+        assert(manager.entries().front().failures == 1U);
+        assert(manager.entries().front().next_attempt == 1'060U);
+        assert(manager.save() == AddrStoreError::none);
+    }
+
+    AddrManager restarted{
+        params,
+        dir,
+        false
+    };
+    PeerDiscovery discovery{restarted};
+
+    // Before this regression fix, initialize() returned immediately for a
+    // non-empty peers.dat, leaving the fixed seed blocked until 1060.
+    assert(discovery.initialize(
+               quintum::consensus::Network::randomx_testnet,
+               1'001U) ==
+           AddrStoreError::none);
+
+    assert(restarted.entries().size() == 1U);
+    assert(restarted.entries().front().failures == 1U);
+    assert(restarted.entries().front().next_attempt <= 1'001U);
+
+    const auto selected =
+        restarted.select(1'001U);
+
+    assert(selected.has_value());
+    assert(selected->ipv4 == *seed_ip);
+    assert(selected->port == 39444U);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 void test_connect_any_skips_failed_peer()
 {
     using namespace quintum::net;
@@ -1130,6 +1199,7 @@ int main()
     test_addrman_public_subnet_diversity();
     test_real_addrv2_exchange();
     test_real_peer_discovery_chain();
+    test_initialize_reenables_persisted_hardcoded_seed();
     test_connect_any_skips_failed_peer();
     return 0;
 }
