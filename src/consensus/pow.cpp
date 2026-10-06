@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -241,6 +242,77 @@ std::uint32_t encode_compact_target(const Hash256& target)
 
     return (exponent << 24U) | (mantissa & 0x007fffffU);
 }
+
+std::optional<double> difficulty_from_bits(
+    std::uint32_t bits,
+    std::uint32_t pow_limit_bits) noexcept
+{
+    const auto current =
+        decode_compact_target(bits);
+    const auto limit =
+        decode_compact_target(
+            pow_limit_bits
+        );
+
+    if (!current.valid() ||
+        !limit.valid()) {
+        return std::nullopt;
+    }
+
+    if (std::lexicographical_compare(
+            limit.target.begin(),
+            limit.target.end(),
+            current.target.begin(),
+            current.target.end())) {
+        return std::nullopt;
+    }
+
+    const std::uint32_t current_exponent =
+        bits >> 24U;
+    const std::uint32_t current_mantissa =
+        bits & 0x007fffffU;
+    const std::uint32_t limit_exponent =
+        pow_limit_bits >> 24U;
+    const std::uint32_t limit_mantissa =
+        pow_limit_bits & 0x007fffffU;
+
+    if (current_mantissa == 0U ||
+        limit_mantissa == 0U) {
+        return std::nullopt;
+    }
+
+    long double ratio =
+        static_cast<long double>(
+            limit_mantissa
+        ) /
+        static_cast<long double>(
+            current_mantissa
+        );
+
+    const int exponent_delta =
+        static_cast<int>(
+            limit_exponent
+        ) -
+        static_cast<int>(
+            current_exponent
+        );
+
+    ratio = std::ldexp(
+        ratio,
+        exponent_delta * 8
+    );
+
+    const double value =
+        static_cast<double>(ratio);
+
+    if (!std::isfinite(value) ||
+        value < 1.0) {
+        return std::nullopt;
+    }
+
+    return value;
+}
+
 
 bool hash_meets_target(
     const Hash256& hash,
