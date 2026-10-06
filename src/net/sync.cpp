@@ -8,12 +8,75 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 namespace quintum::net {
 namespace {
 
 constexpr std::size_t kHeaderSize = 88U;
+constexpr std::size_t kMaxInterleavedSyncMessages = 64U;
+
+PeerError receive_sync_response(
+    PeerSession& peer,
+    std::string_view expected_command,
+    bool allow_notfound,
+    WireMessage& message)
+{
+    for (std::size_t skipped = 0U;
+         skipped <= kMaxInterleavedSyncMessages;
+         ++skipped) {
+        WireMessage candidate;
+        const auto error =
+            peer.receive_command(candidate);
+
+        if (error != PeerError::none) {
+            return error;
+        }
+
+        if (candidate.command == expected_command ||
+            (allow_notfound &&
+             candidate.command == "notfound")) {
+            message = std::move(candidate);
+            return PeerError::none;
+        }
+
+        // Live block announcements can legitimately arrive while a peer is
+        // serving our synchronous IBD request. They are advisory: the next
+        // getheaders round will discover the same (or a newer) tip.
+        if (candidate.command == "inv" ||
+            candidate.command == "pong") {
+            continue;
+        }
+
+        // Keep liveness traffic independent from the request/response sync
+        // stream so a ping cannot tear down an otherwise healthy peer.
+        if (candidate.command == "ping") {
+            const auto nonce =
+                parse_nonce(candidate.payload);
+
+            if (!nonce) {
+                return PeerError::malformed_ping;
+            }
+
+            const auto pong =
+                peer.send_command(
+                    "pong",
+                    serialize_nonce(*nonce)
+                );
+
+            if (pong != PeerError::none) {
+                return pong;
+            }
+
+            continue;
+        }
+
+        return PeerError::unexpected_message;
+    }
+
+    return PeerError::unexpected_message;
+}
 
 class Reader {
 public:
@@ -948,7 +1011,12 @@ SyncResult sync_from_peer(
 
         WireMessage response;
         out.peer_error =
-            peer.receive_command(response);
+            receive_sync_response(
+                peer,
+                "headers",
+                false,
+                response
+            );
 
         if (out.peer_error != PeerError::none) {
             out.error = SyncError::transport_failed;
@@ -1080,7 +1148,10 @@ SyncResult sync_from_peer(
 
                 WireMessage block_message;
                 out.peer_error =
-                    peer.receive_command(
+                    receive_sync_response(
+                        peer,
+                        "block",
+                        true,
                         block_message
                     );
 
