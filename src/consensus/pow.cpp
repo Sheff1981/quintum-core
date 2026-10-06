@@ -581,7 +581,7 @@ MiningResult mine_randomx_header_parallel(
         bool initialized{false};
         Hash256 seed{};
         std::size_t workers{0U};
-        bool full_memory{false};
+        bool requested_full_memory{false};
         std::unique_ptr<
             crypto::RandomXMiningContext
         > context{};
@@ -598,7 +598,7 @@ MiningResult mine_randomx_header_parallel(
     if (!cache.initialized ||
         cache.seed != seed_key ||
         cache.workers != bounded_workers ||
-        cache.full_memory != full_memory ||
+        cache.requested_full_memory != full_memory ||
         cache.context == nullptr ||
         !cache.context->valid()) {
         auto replacement =
@@ -612,6 +612,24 @@ MiningResult mine_randomx_header_parallel(
                 full_memory
             );
 
+        // Prefer upstream RandomX fast/full-memory mining. On machines
+        // that cannot allocate the ~2 GiB Dataset, keep consensus and
+        // mining available by falling back to the identical light-mode
+        // hash path instead of failing the mining session.
+        if (!replacement->valid() &&
+            full_memory) {
+            replacement =
+                std::make_unique<
+                    crypto::RandomXMiningContext
+                >(
+                    std::span<const Byte>{
+                        seed_key
+                    },
+                    bounded_workers,
+                    false
+                );
+        }
+
         if (!replacement->valid()) {
             result.status =
                 MineStatus::hashing_failed;
@@ -620,7 +638,8 @@ MiningResult mine_randomx_header_parallel(
 
         cache.seed = seed_key;
         cache.workers = bounded_workers;
-        cache.full_memory = full_memory;
+        cache.requested_full_memory =
+            full_memory;
         cache.context =
             std::move(replacement);
         cache.initialized = true;
