@@ -16,6 +16,8 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 **Encrypted transport implemented in Stage 32:** capable peers upgrade after `version/verack` using ephemeral secp256k1 ElligatorSwift ECDH, network-domain-separated HKDF-SHA256 directional keys, encrypted key confirmation and ratcheted ChaCha20-Poly1305 AEAD packets. Legacy peers remain compatible; authentication protects the negotiated session and packet integrity rather than asserting a permanent peer identity.
 
+**Network reachability implemented in Stage 33:** addrman now migrates legacy `peers.dat` v1 to typed v2 records, capable peers exchange IPv4/Tor v3/I2P endpoints over negotiated `addrv2`, Tor/I2P dial through SOCKS5 without local DNS resolution, and ordinary public runtimes attempt best-effort NAT-PMP/UPnP inbound port mapping with clean shutdown and non-fatal fallback. Legacy IPv4 `addr` peers remain compatible.
+
 ## M4 — Wallet
 **Core implemented in Stage 20:** OS-CSPRNG key generation, network-specific address encoding, receive/send, explicit fees, coin selection, signing, balances and keypool-based backup/recovery.
 
@@ -42,7 +44,7 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 ## M7 — Public testnet
 **Stage 29 live deployment verified:** the first public Testnet seed `212.193.15.139:38444` is deployed as a persistent Ubuntu/systemd node; a fresh Windows installer defaults to Testnet, discovers the seed without manual IP configuration, completes a live peer connection, mines real PoW blocks and relays them over the public Internet. Two Windows-mined blocks were independently accepted and durably persisted by the VPS; both machines reached height 2 and the VPS recovered the same height from disk after reopening the datadir.
 
-Remaining Testnet work: additional independent/geographically separate nodes, DNS seeds, live wallet transaction/confirmation testing, public multi-node fork/reorg testing, disconnect/reconnect soak, NAT traversal and longer adversarial operation.
+Remaining Testnet work: additional independent/geographically separate nodes, DNS seeds, live wallet transaction/confirmation testing, public multi-node fork/reorg testing, disconnect/reconnect soak and longer adversarial operation.
 
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.

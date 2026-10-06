@@ -16,6 +16,7 @@ inline constexpr std::uint32_t kPeerAddressProtocolVersion = 2U;
 inline constexpr std::uint64_t kServiceNetwork = 1ULL << 0U;
 inline constexpr std::uint64_t kServiceCompactBlocks = 1ULL << 1U;
 inline constexpr std::uint64_t kServiceEncryptedTransport = 1ULL << 2U;
+inline constexpr std::uint64_t kServiceAddrV2 = 1ULL << 3U;
 inline constexpr std::size_t kMessageHeaderSize = 24U;
 inline constexpr std::uint32_t kMaxMessagePayload = 2'000'000U;
 

@@ -28,17 +28,27 @@ namespace {
 constexpr std::array<Byte, 8> kPeerMagic{
     'Q', 'P', 'E', 'E', 'R', 'S', '1', 0
 };
-constexpr std::uint32_t kPeerStoreVersion = 1U;
+constexpr std::uint32_t kLegacyPeerStoreVersion = 1U;
+constexpr std::uint32_t kPeerStoreVersion = 2U;
 constexpr std::size_t kChecksumSize = 32U;
-constexpr std::size_t kPeerRecordSize =
+constexpr std::size_t kLegacyPeerRecordSize =
     4U + 2U + 8U + 8U + 8U + 8U + 8U + 4U;
+constexpr std::size_t kMaxEndpointBytes = 64U;
 
 bool same_endpoint(
     const PeerAddress& a,
     const PeerAddress& b) noexcept
 {
-    return a.ipv4 == b.ipv4 &&
-           a.port == b.port;
+    if (a.network != b.network ||
+        a.port != b.port) {
+        return false;
+    }
+
+    if (a.network == AddressNetwork::ipv4) {
+        return a.ipv4 == b.ipv4;
+    }
+
+    return a.host == b.host;
 }
 
 bool excluded_endpoint(
@@ -54,45 +64,110 @@ bool excluded_endpoint(
     );
 }
 
-std::uint32_t ipv4_group(
-    std::uint32_t ipv4) noexcept
+std::uint64_t address_group(
+    const PeerAddress& address) noexcept
 {
-    // Public-peer diversity group. /16 is deliberately coarse enough to
-    // stop one provider/subnet from dominating addrman while still allowing
-    // many independent hosts from a large ISP or hosting network.
-    return ipv4 >> 16U;
+    const auto network =
+        static_cast<std::uint64_t>(
+            static_cast<std::uint8_t>(
+                address.network));
+
+    if (address.network ==
+        AddressNetwork::ipv4) {
+        return (network << 56U) |
+               static_cast<std::uint64_t>(
+                   address.ipv4 >> 16U);
+    }
+
+    std::uint64_t group = network << 56U;
+    const std::size_t count =
+        std::min<std::size_t>(
+            address.host.size(),
+            4U
+        );
+
+    for (std::size_t i = 0U;
+         i < count;
+         ++i) {
+        group |=
+            static_cast<std::uint64_t>(
+                static_cast<unsigned char>(
+                    address.host[i]))
+            << (48U - 8U * i);
+    }
+
+    return group;
 }
 
 bool excluded_group(
     const PeerAddress& value,
     std::span<const PeerAddress> excluded) noexcept
 {
-    const auto group = ipv4_group(value.ipv4);
+    const auto group =
+        address_group(value);
 
     return std::any_of(
         excluded.begin(),
         excluded.end(),
         [&](const PeerAddress& item) {
-            return ipv4_group(item.ipv4) == group;
+            return address_group(item) == group;
         }
     );
 }
 
 std::size_t group_count(
     std::span<const AddrInfo> entries,
-    std::uint32_t group) noexcept
+    std::uint64_t group) noexcept
 {
     return static_cast<std::size_t>(
         std::count_if(
             entries.begin(),
             entries.end(),
             [&](const AddrInfo& info) {
-                return ipv4_group(
-                           info.address.ipv4) ==
+                return address_group(
+                           info.address) ==
                        group;
             }
         )
     );
+}
+
+bool valid_base32(
+    std::string_view value) noexcept
+{
+    return std::all_of(
+        value.begin(),
+        value.end(),
+        [](char ch) {
+            return (ch >= 'a' && ch <= 'z') ||
+                   (ch >= '2' && ch <= '7');
+        }
+    );
+}
+
+bool valid_overlay_host(
+    AddressNetwork network,
+    std::string_view host) noexcept
+{
+    if (network == AddressNetwork::tor_v3) {
+        constexpr std::string_view suffix{".onion"};
+
+        return host.size() == 62U &&
+               host.ends_with(suffix) &&
+               valid_base32(
+                   host.substr(0U, 56U));
+    }
+
+    if (network == AddressNetwork::i2p) {
+        constexpr std::string_view suffix{".b32.i2p"};
+
+        return host.size() == 60U &&
+               host.ends_with(suffix) &&
+               valid_base32(
+                   host.substr(0U, 52U));
+    }
+
+    return false;
 }
 
 std::uint64_t failure_delay(
@@ -243,11 +318,45 @@ std::string format_ipv4(
            std::to_string(address & 0xffU);
 }
 
+std::string format_peer_host(
+    const PeerAddress& address)
+{
+    if (address.network ==
+        AddressNetwork::ipv4) {
+        return format_ipv4(address.ipv4);
+    }
+
+    return address.host;
+}
+
+bool is_overlay_address(
+    const PeerAddress& address) noexcept
+{
+    return address.network ==
+               AddressNetwork::tor_v3 ||
+           address.network ==
+               AddressNetwork::i2p;
+}
+
 bool valid_peer_address(
     const PeerAddress& address,
     bool allow_local) noexcept
 {
     if (address.port == 0U) {
+        return false;
+    }
+
+    if (is_overlay_address(address)) {
+        return address.ipv4 == 0U &&
+               valid_overlay_host(
+                   address.network,
+                   address.host
+               );
+    }
+
+    if (address.network !=
+            AddressNetwork::ipv4 ||
+        !address.host.empty()) {
         return false;
     }
 
@@ -281,39 +390,58 @@ bool valid_peer_address(
 Bytes serialize_addresses(
     std::span<const PeerAddress> addresses)
 {
-    const std::size_t count =
+    std::vector<PeerAddress> ipv4_only;
+    ipv4_only.reserve(
         std::min<std::size_t>(
             addresses.size(),
             kMaxAddrMessageEntries
-        );
+        )
+    );
+
+    for (const auto& address : addresses) {
+        if (address.network !=
+                AddressNetwork::ipv4) {
+            continue;
+        }
+
+        ipv4_only.push_back(address);
+
+        if (ipv4_only.size() ==
+            kMaxAddrMessageEntries) {
+            break;
+        }
+    }
 
     Bytes out;
     out.reserve(
-        compact_size_serialized_size(count) +
-        count * (4U + 2U + 8U + 8U)
+        compact_size_serialized_size(
+            ipv4_only.size()) +
+        ipv4_only.size() *
+            (4U + 2U + 8U + 8U)
     );
 
     append_compact_size(
         out,
-        static_cast<std::uint64_t>(count)
+        static_cast<std::uint64_t>(
+            ipv4_only.size())
     );
 
-    for (std::size_t i = 0U; i < count; ++i) {
+    for (const auto& address : ipv4_only) {
         append_little_endian(
             out,
-            addresses[i].ipv4
+            address.ipv4
         );
         append_little_endian(
             out,
-            addresses[i].port
+            address.port
         );
         append_little_endian(
             out,
-            addresses[i].services
+            address.services
         );
         append_little_endian(
             out,
-            addresses[i].last_seen
+            address.last_seen
         );
     }
 
@@ -411,6 +539,230 @@ parse_addresses(
     return out;
 }
 
+Bytes serialize_addresses_v2(
+    std::span<const PeerAddress> addresses)
+{
+    const std::size_t count =
+        std::min<std::size_t>(
+            addresses.size(),
+            kMaxAddrMessageEntries
+        );
+
+    Bytes out;
+    append_compact_size(
+        out,
+        static_cast<std::uint64_t>(count)
+    );
+
+    for (std::size_t i = 0U;
+         i < count;
+         ++i) {
+        const auto& address = addresses[i];
+
+        out.push_back(
+            static_cast<Byte>(
+                address.network)
+        );
+
+        if (address.network ==
+            AddressNetwork::ipv4) {
+            append_compact_size(out, 4U);
+            out.push_back(static_cast<Byte>(
+                (address.ipv4 >> 24U) & 0xffU));
+            out.push_back(static_cast<Byte>(
+                (address.ipv4 >> 16U) & 0xffU));
+            out.push_back(static_cast<Byte>(
+                (address.ipv4 >> 8U) & 0xffU));
+            out.push_back(static_cast<Byte>(
+                address.ipv4 & 0xffU));
+        } else {
+            const std::size_t address_length =
+                address.network ==
+                    AddressNetwork::tor_v3
+                    ? 56U
+                    : 52U;
+
+            append_compact_size(
+                out,
+                static_cast<std::uint64_t>(
+                    address_length)
+            );
+
+            for (std::size_t j = 0U;
+                 j < address_length &&
+                 j < address.host.size();
+                 ++j) {
+                out.push_back(
+                    static_cast<Byte>(
+                        static_cast<unsigned char>(
+                            address.host[j]))
+                );
+            }
+        }
+
+        append_little_endian(
+            out,
+            address.port
+        );
+        append_little_endian(
+            out,
+            address.services
+        );
+        append_little_endian(
+            out,
+            address.last_seen
+        );
+    }
+
+    return out;
+}
+
+std::optional<std::vector<PeerAddress>>
+parse_addresses_v2(
+    std::span<const Byte> payload,
+    bool allow_local)
+{
+    std::size_t offset{0U};
+    const auto count =
+        read_compact_size(payload, offset);
+
+    if (!count ||
+        *count > kMaxAddrMessageEntries) {
+        return std::nullopt;
+    }
+
+    std::vector<PeerAddress> out;
+    out.reserve(static_cast<std::size_t>(*count));
+
+    for (std::uint64_t i = 0U;
+         i < *count;
+         ++i) {
+        if (offset >= payload.size()) {
+            return std::nullopt;
+        }
+
+        const auto network =
+            static_cast<AddressNetwork>(
+                payload[offset++]);
+
+        const auto address_length =
+            read_compact_size(
+                payload,
+                offset
+            );
+
+        if (!address_length ||
+            *address_length >
+                kMaxEndpointBytes ||
+            *address_length >
+                payload.size() - offset) {
+            return std::nullopt;
+        }
+
+        PeerAddress address;
+        address.network = network;
+
+        if (network == AddressNetwork::ipv4) {
+            if (*address_length != 4U) {
+                return std::nullopt;
+            }
+
+            address.ipv4 =
+                (static_cast<std::uint32_t>(
+                     payload[offset]) << 24U) |
+                (static_cast<std::uint32_t>(
+                     payload[offset + 1U]) << 16U) |
+                (static_cast<std::uint32_t>(
+                     payload[offset + 2U]) << 8U) |
+                static_cast<std::uint32_t>(
+                    payload[offset + 3U]);
+        } else if (
+            network == AddressNetwork::tor_v3 ||
+            network == AddressNetwork::i2p) {
+            const std::size_t expected =
+                network == AddressNetwork::tor_v3
+                    ? 56U
+                    : 52U;
+
+            if (*address_length != expected) {
+                return std::nullopt;
+            }
+
+            address.host.assign(
+                reinterpret_cast<const char*>(
+                    payload.data() + offset),
+                static_cast<std::size_t>(
+                    *address_length)
+            );
+
+            address.host +=
+                network == AddressNetwork::tor_v3
+                    ? ".onion"
+                    : ".b32.i2p";
+        } else {
+            return std::nullopt;
+        }
+
+        offset +=
+            static_cast<std::size_t>(
+                *address_length);
+
+        const auto port =
+            read_little_endian<std::uint16_t>(
+                payload,
+                offset
+            );
+        const auto services =
+            read_little_endian<std::uint64_t>(
+                payload,
+                offset
+            );
+        const auto last_seen =
+            read_little_endian<std::uint64_t>(
+                payload,
+                offset
+            );
+
+        if (!port || !services || !last_seen) {
+            return std::nullopt;
+        }
+
+        address.port = *port;
+        address.services = *services;
+        address.last_seen = *last_seen;
+
+        if (!valid_peer_address(
+                address,
+                allow_local)) {
+            continue;
+        }
+
+        const bool duplicate =
+            std::any_of(
+                out.begin(),
+                out.end(),
+                [&](const PeerAddress& item) {
+                    return same_endpoint(
+                        item,
+                        address
+                    );
+                }
+            );
+
+        if (!duplicate) {
+            out.push_back(
+                std::move(address)
+            );
+        }
+    }
+
+    if (offset != payload.size()) {
+        return std::nullopt;
+    }
+
+    return out;
+}
+
 AddrManager::AddrManager(
     const consensus::ChainParams& params,
     std::filesystem::path directory,
@@ -491,11 +843,13 @@ AddrStoreError AddrManager::load()
             checksum.begin(),
             checksum.end(),
             bytes.end() -
-                static_cast<std::ptrdiff_t>(kChecksumSize))) {
+                static_cast<std::ptrdiff_t>(
+                    kChecksumSize))) {
         return AddrStoreError::corrupt;
     }
 
     std::size_t offset{0U};
+
     if (!std::equal(
             kPeerMagic.begin(),
             kPeerMagic.end(),
@@ -509,16 +863,18 @@ AddrStoreError AddrManager::load()
             body,
             offset
         );
+
     if (!version ||
-        *version != kPeerStoreVersion) {
+        (*version != kLegacyPeerStoreVersion &&
+         *version != kPeerStoreVersion)) {
         return AddrStoreError::corrupt;
     }
 
     if (offset >= body.size()) {
         return AddrStoreError::corrupt;
     }
-    const Byte network = body[offset++];
 
+    const Byte network = body[offset++];
     const Byte expected_network =
         static_cast<Byte>(params_.network);
 
@@ -527,36 +883,132 @@ AddrStoreError AddrManager::load()
     }
 
     if (offset + params_.message_start.size() >
-        body.size() ||
+            body.size() ||
         !std::equal(
             params_.message_start.begin(),
             params_.message_start.end(),
             body.begin() +
-                static_cast<std::ptrdiff_t>(offset))) {
+                static_cast<std::ptrdiff_t>(
+                    offset))) {
         return AddrStoreError::wrong_network;
     }
+
     offset += params_.message_start.size();
 
     const auto count =
         read_compact_size(body, offset);
+
     if (!count ||
-        *count > kMaxAddrManagerEntries ||
+        *count > kMaxAddrManagerEntries) {
+        return AddrStoreError::corrupt;
+    }
+
+    if (*version ==
+            kLegacyPeerStoreVersion &&
         *count >
             static_cast<std::uint64_t>(
                 (body.size() - offset) /
-                kPeerRecordSize)) {
+                kLegacyPeerRecordSize)) {
         return AddrStoreError::corrupt;
     }
 
     std::vector<AddrInfo> loaded;
     loaded.reserve(static_cast<std::size_t>(*count));
 
-    for (std::uint64_t i = 0U; i < *count; ++i) {
-        const auto ipv4 =
-            read_little_endian<std::uint32_t>(
-                body,
-                offset
-            );
+    for (std::uint64_t i = 0U;
+         i < *count;
+         ++i) {
+        PeerAddress address;
+
+        if (*version ==
+            kLegacyPeerStoreVersion) {
+            const auto ipv4 =
+                read_little_endian<std::uint32_t>(
+                    body,
+                    offset
+                );
+
+            if (!ipv4) {
+                return AddrStoreError::corrupt;
+            }
+
+            address.ipv4 = *ipv4;
+            address.network =
+                AddressNetwork::ipv4;
+        } else {
+            if (offset >= body.size()) {
+                return AddrStoreError::corrupt;
+            }
+
+            address.network =
+                static_cast<AddressNetwork>(
+                    body[offset++]);
+
+            const auto address_length =
+                read_compact_size(
+                    body,
+                    offset
+                );
+
+            if (!address_length ||
+                *address_length >
+                    kMaxEndpointBytes ||
+                *address_length >
+                    body.size() - offset) {
+                return AddrStoreError::corrupt;
+            }
+
+            if (address.network ==
+                AddressNetwork::ipv4) {
+                if (*address_length != 4U) {
+                    return AddrStoreError::corrupt;
+                }
+
+                address.ipv4 =
+                    (static_cast<std::uint32_t>(
+                         body[offset]) << 24U) |
+                    (static_cast<std::uint32_t>(
+                         body[offset + 1U]) << 16U) |
+                    (static_cast<std::uint32_t>(
+                         body[offset + 2U]) << 8U) |
+                    static_cast<std::uint32_t>(
+                        body[offset + 3U]);
+            } else if (
+                address.network ==
+                    AddressNetwork::tor_v3 ||
+                address.network ==
+                    AddressNetwork::i2p) {
+                const std::size_t expected =
+                    address.network ==
+                        AddressNetwork::tor_v3
+                        ? 56U
+                        : 52U;
+
+                if (*address_length != expected) {
+                    return AddrStoreError::corrupt;
+                }
+
+                address.host.assign(
+                    reinterpret_cast<const char*>(
+                        body.data() + offset),
+                    static_cast<std::size_t>(
+                        *address_length)
+                );
+
+                address.host +=
+                    address.network ==
+                        AddressNetwork::tor_v3
+                        ? ".onion"
+                        : ".b32.i2p";
+            } else {
+                return AddrStoreError::corrupt;
+            }
+
+            offset +=
+                static_cast<std::size_t>(
+                    *address_length);
+        }
+
         const auto port =
             read_little_endian<std::uint16_t>(
                 body,
@@ -593,20 +1045,19 @@ AddrStoreError AddrManager::load()
                 offset
             );
 
-        if (!ipv4 || !port || !services ||
+        if (!port || !services ||
             !last_seen || !last_attempt ||
             !last_success || !next_attempt ||
             !failures) {
             return AddrStoreError::corrupt;
         }
 
+        address.port = *port;
+        address.services = *services;
+        address.last_seen = *last_seen;
+
         AddrInfo info{
-            .address = PeerAddress{
-                .ipv4 = *ipv4,
-                .port = *port,
-                .services = *services,
-                .last_seen = *last_seen,
-            },
+            .address = std::move(address),
             .last_attempt = *last_attempt,
             .last_success = *last_success,
             .next_attempt = *next_attempt,
@@ -622,8 +1073,8 @@ AddrStoreError AddrManager::load()
         if (!allow_local_ &&
             group_count(
                 loaded,
-                ipv4_group(
-                    info.address.ipv4)) >=
+                address_group(
+                    info.address)) >=
                 kMaxAddrEntriesPerIpv4Group) {
             continue;
         }
@@ -639,8 +1090,11 @@ AddrStoreError AddrManager::load()
                     );
                 }
             );
+
         if (!duplicate) {
-            loaded.push_back(info);
+            loaded.push_back(
+                std::move(info)
+            );
         }
     }
 
@@ -659,6 +1113,7 @@ AddrStoreError AddrManager::save() const
         directory_,
         ec
     );
+
     if (ec) {
         return AddrStoreError::io_error;
     }
@@ -683,10 +1138,55 @@ AddrStoreError AddrManager::save() const
     );
 
     for (const auto& info : entries_) {
-        append_little_endian(
-            body,
-            info.address.ipv4
+        if (!valid_peer_address(
+                info.address,
+                allow_local_)) {
+            return AddrStoreError::corrupt;
+        }
+
+        body.push_back(
+            static_cast<Byte>(
+                info.address.network)
         );
+
+        if (info.address.network ==
+            AddressNetwork::ipv4) {
+            append_compact_size(body, 4U);
+            body.push_back(static_cast<Byte>(
+                (info.address.ipv4 >> 24U) &
+                0xffU));
+            body.push_back(static_cast<Byte>(
+                (info.address.ipv4 >> 16U) &
+                0xffU));
+            body.push_back(static_cast<Byte>(
+                (info.address.ipv4 >> 8U) &
+                0xffU));
+            body.push_back(static_cast<Byte>(
+                info.address.ipv4 & 0xffU));
+        } else {
+            const std::size_t address_length =
+                info.address.network ==
+                    AddressNetwork::tor_v3
+                    ? 56U
+                    : 52U;
+
+            append_compact_size(
+                body,
+                static_cast<std::uint64_t>(
+                    address_length)
+            );
+
+            for (std::size_t i = 0U;
+                 i < address_length;
+                 ++i) {
+                body.push_back(
+                    static_cast<Byte>(
+                        static_cast<unsigned char>(
+                            info.address.host[i]))
+                );
+            }
+        }
+
         append_little_endian(
             body,
             info.address.port
@@ -806,7 +1306,7 @@ bool AddrManager::add(
     if (!allow_local_ &&
         group_count(
             entries_,
-            ipv4_group(address.ipv4)) >=
+            address_group(address)) >=
             kMaxAddrEntriesPerIpv4Group) {
         return false;
     }
@@ -877,7 +1377,9 @@ void AddrManager::mark_failure(
 
 std::optional<PeerAddress> AddrManager::select(
     std::uint64_t now,
-    std::span<const PeerAddress> excluded) const
+    std::span<const PeerAddress> excluded,
+    bool allow_tor,
+    bool allow_i2p) const
 {
     const auto choose =
         [&](bool require_diverse_group)
@@ -885,7 +1387,13 @@ std::optional<PeerAddress> AddrManager::select(
         const AddrInfo* best{nullptr};
 
         for (const auto& entry : entries_) {
-            if (entry.next_attempt > now ||
+            if ((entry.address.network ==
+                     AddressNetwork::tor_v3 &&
+                 !allow_tor) ||
+                (entry.address.network ==
+                     AddressNetwork::i2p &&
+                 !allow_i2p) ||
+                entry.next_attempt > now ||
                 excluded_endpoint(
                     entry.address,
                     excluded) ||
@@ -954,7 +1462,7 @@ std::vector<PeerAddress> AddrManager::addresses(
         return out;
     }
 
-    std::vector<std::uint32_t> groups;
+    std::vector<std::uint64_t> groups;
     groups.reserve(count);
 
     // First pass advertises one peer per /16, making addr exchange less
@@ -965,8 +1473,8 @@ std::vector<PeerAddress> AddrManager::addresses(
         }
 
         const auto group =
-            ipv4_group(
-                entry.address.ipv4);
+            address_group(
+                entry.address);
 
         if (std::find(
                 groups.begin(),

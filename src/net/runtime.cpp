@@ -35,8 +35,16 @@ bool same_endpoint(
     const PeerAddress& a,
     const PeerAddress& b) noexcept
 {
-    return a.ipv4 == b.ipv4 &&
-           a.port == b.port;
+    if (a.network != b.network ||
+        a.port != b.port) {
+        return false;
+    }
+
+    if (a.network == AddressNetwork::ipv4) {
+        return a.ipv4 == b.ipv4;
+    }
+
+    return a.host == b.host;
 }
 
 bool contains_hash(
@@ -483,13 +491,31 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         return out;
     }
 
+    if (config_.enable_nat_mapping) {
+        try {
+            nat_worker_ = std::thread(
+                [this] {
+                    run_nat_loop();
+                }
+            );
+        } catch (...) {
+            // Automatic reachability is best-effort. Failure to create
+            // its worker must never prevent the node from operating.
+            nat_mapping_method_.store(
+                NatMappingMethod::none
+            );
+            nat_external_port_.store(0U);
+        }
+    }
+
     return out;
 }
 
 void NetworkRuntime::stop() noexcept
 {
     if (!running_.load() &&
-        !worker_.joinable()) {
+        !worker_.joinable() &&
+        !nat_worker_.joinable()) {
         return;
     }
 
@@ -498,6 +524,16 @@ void NetworkRuntime::stop() noexcept
     if (worker_.joinable()) {
         worker_.join();
     }
+
+    if (nat_worker_.joinable()) {
+        nat_worker_.join();
+    }
+
+    nat_mapper_.unmap();
+    nat_mapping_method_.store(
+        NatMappingMethod::none
+    );
+    nat_external_port_.store(0U);
 
     listener_.close();
 
@@ -529,6 +565,10 @@ NetworkRuntimeStatus NetworkRuntime::status() const
         outbound_count_.load();
     out.known_addresses =
         known_address_count_.load();
+    out.nat_mapping_method =
+        nat_mapping_method_.load();
+    out.nat_external_port =
+        nat_external_port_.load();
 
     std::scoped_lock lock(state_mutex_);
 
@@ -609,6 +649,10 @@ NetworkRuntime::desktop_snapshot() const
         outbound_count_.load();
     out.status.known_addresses =
         known_address_count_.load();
+    out.status.nat_mapping_method =
+        nat_mapping_method_.load();
+    out.status.nat_external_port =
+        nat_external_port_.load();
 
     std::scoped_lock lock(state_mutex_);
 
@@ -1502,7 +1546,8 @@ VersionMessage NetworkRuntime::local_version(
         .services =
             kServiceNetwork |
             kServiceCompactBlocks |
-            kServiceEncryptedTransport,
+            kServiceEncryptedTransport |
+            kServiceAddrV2,
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
@@ -1514,6 +1559,80 @@ VersionMessage NetworkRuntime::local_version(
                     : std::uint16_t{0U}
             ),
     };
+}
+
+void NetworkRuntime::run_nat_loop() noexcept
+{
+    constexpr std::uint64_t retry_seconds{300U};
+    constexpr std::uint64_t renew_seconds{3'600U};
+
+    std::uint64_t next_retry{0U};
+    std::uint64_t next_renew{0U};
+
+    try {
+        while (!stop_requested_.load()) {
+            const std::uint64_t now =
+                unix_time_now();
+
+            if (!nat_mapper_.active()) {
+                if (now >= next_retry) {
+                    const auto mapped =
+                        nat_mapper_.map_tcp(
+                            listen_port_.load()
+                        );
+
+                    if (mapped.ok()) {
+                        nat_mapping_method_.store(
+                            mapped.method
+                        );
+                        nat_external_port_.store(
+                            mapped.external_port
+                        );
+                        next_renew =
+                            now + renew_seconds;
+                    } else {
+                        nat_mapping_method_.store(
+                            NatMappingMethod::none
+                        );
+                        nat_external_port_.store(0U);
+                        next_retry =
+                            now + retry_seconds;
+                    }
+                }
+            } else if (
+                nat_mapper_.method() ==
+                    NatMappingMethod::nat_pmp &&
+                now >= next_renew) {
+                if (nat_mapper_.renew()) {
+                    nat_external_port_.store(
+                        nat_mapper_.external_port()
+                    );
+                    next_renew =
+                        now + renew_seconds;
+                } else {
+                    nat_mapper_.unmap();
+                    nat_mapping_method_.store(
+                        NatMappingMethod::none
+                    );
+                    nat_external_port_.store(0U);
+                    next_retry =
+                        now + retry_seconds;
+                }
+            }
+
+            std::this_thread::sleep_for(
+                std::chrono::seconds(1)
+            );
+        }
+    } catch (...) {
+        // NAT traversal must not terminate the node.
+    }
+
+    nat_mapper_.unmap();
+    nat_mapping_method_.store(
+        NatMappingMethod::none
+    );
+    nat_external_port_.store(0U);
 }
 
 void NetworkRuntime::run_loop() noexcept
@@ -1550,6 +1669,7 @@ void NetworkRuntime::run_loop() noexcept
     }
 
     running_.store(false);
+    stop_requested_.store(true);
 }
 
 void NetworkRuntime::accept_inbound(
@@ -1654,13 +1774,12 @@ void NetworkRuntime::maintain_outbound(
         }
 
         auto connected =
-            connect_and_handshake(
+            connect_peer_address(
                 params_,
-                format_ipv4(
-                    it->address.ipv4),
-                it->address.port,
+                it->address,
                 local_version(now),
-                config_.io_timeout_ms
+                config_.io_timeout_ms,
+                config_.proxies
             );
 
         if (!connected.ok()) {
@@ -1756,7 +1875,8 @@ void NetworkRuntime::maintain_outbound(
             local_version(now),
             now,
             config_.io_timeout_ms,
-            excluded
+            excluded,
+            config_.proxies
         );
 
     known_address_count_.store(
@@ -2063,31 +2183,57 @@ bool NetworkRuntime::process_message(
         return true;
     }
 
-    if (message.command == "getaddr") {
+    if (message.command == "getaddr" ||
+        message.command == "getaddrv2") {
         if (!message.payload.empty()) {
+            return false;
+        }
+
+        const bool use_v2 =
+            message.command == "getaddrv2";
+
+        if (use_v2 &&
+            (peer.session.remote_version().services &
+                kServiceAddrV2) == 0U) {
             return false;
         }
 
         const auto addresses =
             addrman_.addresses();
 
-        const auto payload =
-            serialize_addresses(addresses);
+        const auto payload = use_v2
+            ? serialize_addresses_v2(addresses)
+            : serialize_addresses(addresses);
 
         return peer.session.send_command(
-                   "addr",
+                   use_v2 ? "addrv2" : "addr",
                    payload) ==
                PeerError::none;
     }
 
-    if (message.command == "addr") {
-        const auto parsed =
-            parse_addresses(
-                message.payload,
-                config_.allow_local_peers ||
-                    params_.network ==
-                        consensus::Network::regtest
-            );
+    if (message.command == "addr" ||
+        message.command == "addrv2") {
+        const bool use_v2 =
+            message.command == "addrv2";
+
+        if (use_v2 &&
+            (peer.session.remote_version().services &
+                kServiceAddrV2) == 0U) {
+            return false;
+        }
+
+        const bool allow_local =
+            config_.allow_local_peers ||
+            params_.network ==
+                consensus::Network::regtest;
+
+        const auto parsed = use_v2
+            ? parse_addresses_v2(
+                  message.payload,
+                  allow_local)
+            : parse_addresses(
+                  message.payload,
+                  allow_local);
 
         if (!parsed) {
             return false;

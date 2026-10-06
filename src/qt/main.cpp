@@ -2,6 +2,7 @@
 
 #include "consensus/chainparams.hpp"
 #include "crypto/random.hpp"
+#include "net/socks5.hpp"
 
 #include <QApplication>
 #include <QByteArray>
@@ -535,6 +536,20 @@ int main(int argc, char* argv[])
         "installer-hold-test",
         "Run a disposable wallet and remain open for installer update testing."
     };
+    const QCommandLineOption tor_proxy{
+        "tor-proxy",
+        "Route Tor v3 peers through SOCKS5 HOST:PORT.",
+        "HOST:PORT"
+    };
+    const QCommandLineOption i2p_proxy{
+        "i2p-proxy",
+        "Route I2P peers through SOCKS5 HOST:PORT.",
+        "HOST:PORT"
+    };
+    const QCommandLineOption no_nat{
+        "no-nat",
+        "Disable automatic NAT-PMP/UPnP port mapping."
+    };
 
     parser.addOption(mainnet);
     parser.addOption(testnet);
@@ -543,6 +558,9 @@ int main(int argc, char* argv[])
     parser.addOption(datadir);
     parser.addOption(smoke_test);
     parser.addOption(installer_hold_test);
+    parser.addOption(tor_proxy);
+    parser.addOption(i2p_proxy);
+    parser.addOption(no_nat);
     parser.process(app);
 
     const int selected_networks =
@@ -583,6 +601,45 @@ int main(int argc, char* argv[])
     } else if (parser.isSet(regtest)) {
         network =
             quintum::consensus::Network::regtest;
+    }
+
+    std::optional<quintum::net::Socks5Proxy>
+        tor_route;
+    std::optional<quintum::net::Socks5Proxy>
+        i2p_route;
+
+    if (parser.isSet(tor_proxy)) {
+        tor_route =
+            quintum::net::parse_socks5_proxy(
+                parser.value(tor_proxy)
+                    .toStdString()
+            );
+
+        if (!tor_route) {
+            QMessageBox::critical(
+                nullptr,
+                "Invalid Tor proxy",
+                "--tor-proxy must use HOST:PORT."
+            );
+            return 2;
+        }
+    }
+
+    if (parser.isSet(i2p_proxy)) {
+        i2p_route =
+            quintum::net::parse_socks5_proxy(
+                parser.value(i2p_proxy)
+                    .toStdString()
+            );
+
+        if (!i2p_route) {
+            QMessageBox::critical(
+                nullptr,
+                "Invalid I2P proxy",
+                "--i2p-proxy must use HOST:PORT."
+            );
+            return 2;
+        }
     }
 
     const auto& params =
@@ -873,6 +930,14 @@ int main(int argc, char* argv[])
     }
 
     quintum::net::NetworkRuntimeConfig config;
+    config.enable_nat_mapping =
+        !parser.isSet(no_nat) &&
+        network !=
+            quintum::consensus::Network::regtest;
+    config.proxies.tor =
+        std::move(tor_route);
+    config.proxies.i2p =
+        std::move(i2p_route);
     config.wallet_passphrase =
         setup.password;
     config.wallet_recovery_mnemonic =

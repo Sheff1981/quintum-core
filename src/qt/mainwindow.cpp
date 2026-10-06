@@ -2280,10 +2280,30 @@ void MainWindow::apply_snapshot(
         QString("●●  Peers: %1")
             .arg(status.peers)
     );
-    status_connection_->setText(
+    QString node_status =
         status.running
             ? "●  Node: running"
-            : "●  Node: stopped"
+            : "●  Node: stopped";
+
+    if (status.running &&
+        status.nat_mapping_method !=
+            net::NatMappingMethod::none) {
+        const QString method =
+            status.nat_mapping_method ==
+                    net::NatMappingMethod::nat_pmp
+                ? "NAT-PMP"
+                : "UPnP";
+
+        node_status +=
+            QString(" • %1:%2")
+                .arg(method)
+                .arg(
+                    status.nat_external_port
+                );
+    }
+
+    status_connection_->setText(
+        node_status
     );
     status_connection_->setObjectName(
         status.running

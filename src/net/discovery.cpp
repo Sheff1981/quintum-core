@@ -107,6 +107,63 @@ std::vector<std::uint32_t> resolve_ipv4_addresses(
 
 } // namespace
 
+PeerHandshakeResult connect_peer_address(
+    const consensus::ChainParams& params,
+    const PeerAddress& address,
+    const VersionMessage& local_version,
+    std::uint32_t timeout_ms,
+    const ProxyRoutes& routes)
+{
+    const std::string host =
+        format_peer_host(address);
+
+    if (address.network ==
+        AddressNetwork::tor_v3) {
+        if (!routes.tor) {
+            PeerHandshakeResult out;
+            out.error =
+                PeerError::proxy_negotiation_failed;
+            return out;
+        }
+
+        return connect_and_handshake(
+            params,
+            host,
+            address.port,
+            local_version,
+            timeout_ms,
+            *routes.tor
+        );
+    }
+
+    if (address.network ==
+        AddressNetwork::i2p) {
+        if (!routes.i2p) {
+            PeerHandshakeResult out;
+            out.error =
+                PeerError::proxy_negotiation_failed;
+            return out;
+        }
+
+        return connect_and_handshake(
+            params,
+            host,
+            address.port,
+            local_version,
+            timeout_ms,
+            *routes.i2p
+        );
+    }
+
+    return connect_and_handshake(
+        params,
+        host,
+        address.port,
+        local_version,
+        timeout_ms
+    );
+}
+
 PeerDiscovery::PeerDiscovery(
     AddrManager& addrman) noexcept
     : addrman_(addrman)
@@ -251,7 +308,8 @@ PeerDiscovery::connect_any(
     std::uint64_t now,
     std::uint32_t timeout_ms,
     std::size_t max_candidates,
-    std::span<const PeerAddress> excluded)
+    std::span<const PeerAddress> excluded,
+    ProxyRoutes routes)
 {
     DiscoveryConnectResult last;
 
@@ -268,7 +326,8 @@ PeerDiscovery::connect_any(
             local_version,
             now,
             timeout_ms,
-            excluded
+            excluded,
+            routes
         );
 
         if (current.ok()) {
@@ -294,12 +353,18 @@ PeerDiscovery::connect_one(
     const VersionMessage& local_version,
     std::uint64_t now,
     std::uint32_t timeout_ms,
-    std::span<const PeerAddress> excluded)
+    std::span<const PeerAddress> excluded,
+    ProxyRoutes routes)
 {
     DiscoveryConnectResult out;
 
     const auto selected =
-        addrman_.select(now, excluded);
+        addrman_.select(
+            now,
+            excluded,
+            routes.tor.has_value(),
+            routes.i2p.has_value()
+        );
 
     if (!selected) {
         out.error = DiscoveryError::no_candidate;
@@ -310,12 +375,12 @@ PeerDiscovery::connect_one(
     addrman_.mark_attempt(*selected, now);
 
     auto connected =
-        connect_and_handshake(
+        connect_peer_address(
             params,
-            format_ipv4(selected->ipv4),
-            selected->port,
+            *selected,
             local_version,
-            timeout_ms
+            timeout_ms,
+            routes
         );
 
     if (!connected.ok()) {

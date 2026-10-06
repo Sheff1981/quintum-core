@@ -2,6 +2,7 @@
 
 #include "net/address.hpp"
 #include "net/protocol.hpp"
+#include "net/socks5.hpp"
 #include "net/v2_transport.hpp"
 
 #include <cstddef>
@@ -35,6 +36,8 @@ enum class PeerError {
     unexpected_message,
     malformed_ping,
     encryption_failed,
+    proxy_negotiation_failed,
+    proxy_rejected,
 };
 
 class PeerSession {
@@ -174,6 +177,15 @@ private:
     std::uint16_t port,
     const VersionMessage& local,
     std::uint32_t timeout_ms
+);
+
+[[nodiscard]] PeerHandshakeResult connect_and_handshake(
+    const consensus::ChainParams& params,
+    std::string_view host,
+    std::uint16_t port,
+    const VersionMessage& local,
+    std::uint32_t timeout_ms,
+    const Socks5Proxy& proxy
 );
 
 class ConnectionManager {

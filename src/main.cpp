@@ -3,6 +3,7 @@
 #include "crypto/secp256k1.hpp"
 #include "crypto/random.hpp"
 #include "net/runtime.hpp"
+#include "net/socks5.hpp"
 #include "rpc/server.hpp"
 
 #include <array>
@@ -205,6 +206,9 @@ void print_usage()
         << " [--datadir PATH]"
         << " [--listen-port N]"
         << " [--rpc [--rpc-port N]]"
+        << " [--tor-proxy HOST:PORT]"
+        << " [--i2p-proxy HOST:PORT]"
+        << " [--no-nat]"
         << " [--disable-wallet]"
         << " [--new-address]"
         << " [--send-to ADDRESS --amount ATOMIC [--fee ATOMIC]]"
@@ -234,6 +238,9 @@ int main(int argc, char* argv[])
     std::optional<std::uint16_t> listen_port;
     bool rpc_requested{false};
     std::optional<std::uint16_t> rpc_port;
+    std::optional<net::Socks5Proxy> tor_proxy;
+    std::optional<net::Socks5Proxy> i2p_proxy;
+    bool nat_mapping_enabled{true};
     std::optional<crypto::PublicKey> miner_public_key;
     bool new_address_requested{false};
     std::optional<std::string> send_to;
@@ -319,6 +326,39 @@ int main(int argc, char* argv[])
 
             rpc_port = parsed_port;
             rpc_requested = true;
+            continue;
+        }
+
+        if (arg == "--tor-proxy" ||
+            arg == "--i2p-proxy") {
+            if (i + 1 >= argc) {
+                std::cerr
+                    << "Missing proxy HOST:PORT\n";
+                return 2;
+            }
+
+            const auto proxy =
+                net::parse_socks5_proxy(
+                    argv[++i]
+                );
+
+            if (!proxy) {
+                std::cerr
+                    << "Invalid proxy HOST:PORT\n";
+                return 2;
+            }
+
+            if (arg == "--tor-proxy") {
+                tor_proxy = *proxy;
+            } else {
+                i2p_proxy = *proxy;
+            }
+
+            continue;
+        }
+
+        if (arg == "--no-nat") {
+            nat_mapping_enabled = false;
             continue;
         }
 
@@ -516,6 +556,13 @@ int main(int argc, char* argv[])
 
     net::NetworkRuntimeConfig network_config;
     network_config.listen_port = listen_port;
+    network_config.proxies.tor =
+        std::move(tor_proxy);
+    network_config.proxies.i2p =
+        std::move(i2p_proxy);
+    network_config.enable_nat_mapping =
+        nat_mapping_enabled &&
+        network != consensus::Network::regtest;
     network_config.wallet_enabled =
         !disable_wallet_requested;
     network_config.wallet_passphrase =

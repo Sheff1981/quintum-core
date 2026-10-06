@@ -17,8 +17,16 @@ inline constexpr std::size_t kMaxAddrMessageEntries = 1'000U;
 inline constexpr std::size_t kMaxAddrManagerEntries = 50'000U;
 inline constexpr std::size_t kMaxAddrEntriesPerIpv4Group = 64U;
 
+enum class AddressNetwork : std::uint8_t {
+    ipv4 = 0x01U,
+    tor_v3 = 0x04U,
+    i2p = 0x05U,
+};
+
 struct PeerAddress {
     std::uint32_t ipv4{0U};
+    AddressNetwork network{AddressNetwork::ipv4};
+    std::string host{};
     std::uint16_t port{0U};
     std::uint64_t services{0U};
     std::uint64_t last_seen{0U};
@@ -35,6 +43,14 @@ struct PeerAddress {
     std::uint32_t address
 );
 
+[[nodiscard]] std::string format_peer_host(
+    const PeerAddress& address
+);
+
+[[nodiscard]] bool is_overlay_address(
+    const PeerAddress& address
+) noexcept;
+
 [[nodiscard]] bool valid_peer_address(
     const PeerAddress& address,
     bool allow_local
@@ -46,6 +62,16 @@ struct PeerAddress {
 
 [[nodiscard]] std::optional<std::vector<PeerAddress>>
 parse_addresses(
+    std::span<const Byte> payload,
+    bool allow_local
+);
+
+[[nodiscard]] Bytes serialize_addresses_v2(
+    std::span<const PeerAddress> addresses
+);
+
+[[nodiscard]] std::optional<std::vector<PeerAddress>>
+parse_addresses_v2(
     std::span<const Byte> payload,
     bool allow_local
 );
@@ -98,7 +124,9 @@ public:
 
     [[nodiscard]] std::optional<PeerAddress> select(
         std::uint64_t now,
-        std::span<const PeerAddress> excluded = {}
+        std::span<const PeerAddress> excluded = {},
+        bool allow_tor = true,
+        bool allow_i2p = true
     ) const;
 
     [[nodiscard]] std::vector<PeerAddress> addresses(

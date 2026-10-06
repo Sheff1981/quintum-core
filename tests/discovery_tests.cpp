@@ -1,4 +1,5 @@
 #include "consensus/chainparams.hpp"
+#include "crypto/sha256.hpp"
 #include "net/address.hpp"
 #include "net/discovery.hpp"
 #include "net/peer.hpp"
@@ -45,6 +46,16 @@ quintum::net::VersionMessage version(
     };
 }
 
+quintum::net::VersionMessage addrv2_version(
+    std::uint64_t nonce,
+    std::uint32_t height)
+{
+    auto value = version(nonce, height);
+    value.services |=
+        quintum::net::kServiceAddrV2;
+    return value;
+}
+
 quintum::net::PeerAddress local_address(
     std::uint16_t port,
     std::uint64_t seen = 1'790'970'000ULL)
@@ -59,6 +70,325 @@ quintum::net::PeerAddress local_address(
         .services = 1U,
         .last_seen = seen,
     };
+}
+
+quintum::net::PeerAddress tor_address(
+    std::uint16_t port,
+    std::uint64_t seen = 1'790'970'000ULL)
+{
+    return quintum::net::PeerAddress{
+        .network =
+            quintum::net::AddressNetwork::tor_v3,
+        .host =
+            std::string(56U, 'a') + ".onion",
+        .port = port,
+        .services = 1U,
+        .last_seen = seen,
+    };
+}
+
+quintum::net::PeerAddress i2p_address(
+    std::uint16_t port,
+    std::uint64_t seen = 1'790'970'000ULL)
+{
+    return quintum::net::PeerAddress{
+        .network =
+            quintum::net::AddressNetwork::i2p,
+        .host =
+            std::string(52U, 'b') + ".b32.i2p",
+        .port = port,
+        .services = 1U,
+        .last_seen = seen,
+    };
+}
+
+void write_legacy_peer_store(
+    const quintum::consensus::ChainParams& params,
+    const std::filesystem::path& path,
+    const quintum::net::PeerAddress& peer)
+{
+    using namespace quintum;
+
+    Bytes body{
+        'Q', 'P', 'E', 'E', 'R', 'S', '1', 0
+    };
+
+    append_little_endian(
+        body,
+        std::uint32_t{1U}
+    );
+    body.push_back(
+        static_cast<Byte>(params.network)
+    );
+    body.insert(
+        body.end(),
+        params.message_start.begin(),
+        params.message_start.end()
+    );
+
+    append_compact_size(body, 1U);
+    append_little_endian(body, peer.ipv4);
+    append_little_endian(body, peer.port);
+    append_little_endian(body, peer.services);
+    append_little_endian(body, peer.last_seen);
+    append_little_endian(body, std::uint64_t{300U});
+    append_little_endian(body, std::uint64_t{250U});
+    append_little_endian(body, std::uint64_t{360U});
+    append_little_endian(body, std::uint32_t{2U});
+
+    const auto checksum =
+        crypto::double_sha256(body);
+
+    body.insert(
+        body.end(),
+        checksum.begin(),
+        checksum.end()
+    );
+
+    std::filesystem::create_directories(
+        path.parent_path()
+    );
+
+    std::ofstream out(
+        path,
+        std::ios::binary |
+        std::ios::trunc
+    );
+
+    assert(out.good());
+    out.write(
+        reinterpret_cast<const char*>(
+            body.data()),
+        static_cast<std::streamsize>(
+            body.size())
+    );
+    out.close();
+    assert(out.good());
+}
+
+void test_addrv2_codec()
+{
+    using namespace quintum::net;
+
+    const auto ipv4 =
+        parse_ipv4("203.0.113.7");
+    assert(ipv4.has_value());
+
+    const PeerAddress public_peer{
+        .ipv4 = *ipv4,
+        .port = 39444U,
+        .services = 1U,
+        .last_seen = 100U,
+    };
+
+    const auto tor =
+        tor_address(39444U, 101U);
+    const auto i2p =
+        i2p_address(39444U, 102U);
+
+    assert(valid_peer_address(tor, false));
+    assert(valid_peer_address(i2p, false));
+    assert(is_overlay_address(tor));
+    assert(is_overlay_address(i2p));
+    assert(format_peer_host(tor) == tor.host);
+    assert(format_peer_host(i2p) == i2p.host);
+
+    const std::array<PeerAddress, 3> values{
+        public_peer,
+        tor,
+        i2p
+    };
+
+    const auto payload =
+        serialize_addresses_v2(values);
+    const auto decoded =
+        parse_addresses_v2(
+            payload,
+            false
+        );
+
+    assert(decoded.has_value());
+    assert(decoded->size() == 3U);
+    assert((*decoded)[0] == public_peer);
+    assert((*decoded)[1] == tor);
+    assert((*decoded)[2] == i2p);
+
+    const auto legacy =
+        serialize_addresses(values);
+    const auto legacy_decoded =
+        parse_addresses(
+            legacy,
+            false
+        );
+
+    assert(legacy_decoded.has_value());
+    assert(legacy_decoded->size() == 1U);
+    assert(legacy_decoded->front() ==
+           public_peer);
+
+    auto malformed = payload;
+    assert(malformed.size() > 2U);
+    malformed[1] = 0xffU;
+    assert(!parse_addresses_v2(
+        malformed,
+        false
+    ));
+}
+
+void test_addrman_v1_to_v2_migration()
+{
+    using namespace quintum::net;
+
+    const auto dir =
+        unique_dir("v1-migration");
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    const auto ipv4 =
+        parse_ipv4("127.0.0.1");
+    assert(ipv4.has_value());
+
+    const PeerAddress legacy{
+        .ipv4 = *ipv4,
+        .port = 49130U,
+        .services = 7U,
+        .last_seen = 200U,
+    };
+
+    AddrManager manager{
+        params,
+        dir,
+        true
+    };
+
+    write_legacy_peer_store(
+        params,
+        manager.path(),
+        legacy
+    );
+
+    assert(manager.load() ==
+           AddrStoreError::none);
+    assert(manager.size() == 1U);
+    assert(manager.entries()[0].address ==
+           legacy);
+    assert(manager.entries()[0].last_attempt ==
+           300U);
+    assert(manager.entries()[0].last_success ==
+           250U);
+    assert(manager.entries()[0].next_attempt ==
+           360U);
+    assert(manager.entries()[0].failures ==
+           2U);
+
+    assert(manager.save() ==
+           AddrStoreError::none);
+
+    std::ifstream migrated(
+        manager.path(),
+        std::ios::binary
+    );
+    assert(migrated.good());
+
+    std::array<unsigned char, 12> prefix{};
+    migrated.read(
+        reinterpret_cast<char*>(
+            prefix.data()),
+        static_cast<std::streamsize>(
+            prefix.size())
+    );
+    assert(migrated.good());
+
+    const std::uint32_t version =
+        static_cast<std::uint32_t>(
+            prefix[8]) |
+        (static_cast<std::uint32_t>(
+             prefix[9]) << 8U) |
+        (static_cast<std::uint32_t>(
+             prefix[10]) << 16U) |
+        (static_cast<std::uint32_t>(
+             prefix[11]) << 24U);
+
+    assert(version == 2U);
+
+    AddrManager reloaded{
+        params,
+        dir,
+        true
+    };
+
+    assert(reloaded.load() ==
+           AddrStoreError::none);
+    assert(reloaded.size() == 1U);
+    assert(reloaded.entries()[0].address ==
+           legacy);
+    assert(reloaded.entries()[0].failures ==
+           2U);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+void test_addrman_overlay_persistence()
+{
+    using namespace quintum::net;
+
+    const auto dir =
+        unique_dir("overlay-persist");
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    AddrManager manager{
+        params,
+        dir,
+        true
+    };
+
+    const auto tor =
+        tor_address(39444U, 500U);
+    const auto i2p =
+        i2p_address(39444U, 501U);
+
+    assert(manager.add(tor));
+    assert(manager.add(i2p));
+    manager.mark_failure(tor, 600U);
+    manager.mark_success(i2p, 601U);
+
+    assert(manager.save() ==
+           AddrStoreError::none);
+
+    AddrManager reloaded{
+        params,
+        dir,
+        true
+    };
+
+    assert(reloaded.load() ==
+           AddrStoreError::none);
+    assert(reloaded.size() == 2U);
+
+    bool saw_tor{false};
+    bool saw_i2p{false};
+
+    for (const auto& info :
+         reloaded.entries()) {
+        if (info.address == tor) {
+            saw_tor = true;
+            assert(info.failures == 1U);
+        }
+
+        if (info.address == i2p) {
+            saw_i2p = true;
+            assert(info.failures == 0U);
+            assert(info.last_success == 601U);
+        }
+    }
+
+    assert(saw_tor);
+    assert(saw_i2p);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }
 
 void test_address_codec()
@@ -446,6 +776,85 @@ void test_addrman_public_subnet_diversity()
     );
 }
 
+void test_real_addrv2_exchange()
+{
+    using namespace quintum::net;
+
+    const auto& params =
+        quintum::consensus::regtest_params();
+
+    PeerListener listener{params};
+
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    const std::array<PeerAddress, 2>
+        advertised{
+            tor_address(39444U, 7'000U),
+            i2p_address(39444U, 7'001U),
+        };
+
+    PeerError server_error{
+        PeerError::accept_failed
+    };
+
+    std::thread server([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                addrv2_version(
+                    0xa201U,
+                    10U),
+                5'000U
+            );
+
+        server_error = accepted.error;
+
+        if (!accepted.ok()) {
+            return;
+        }
+
+        server_error =
+            accepted.session->
+                service_discovery_once(
+                    advertised,
+                    true
+                );
+
+        accepted.session->close();
+    });
+
+    auto client =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            addrv2_version(
+                0xa202U,
+                9U),
+            5'000U
+        );
+
+    assert(client.ok());
+
+    std::vector<PeerAddress> learned;
+    assert(client.session->request_addresses(
+               true,
+               learned) ==
+           PeerError::none);
+
+    assert(learned.size() == 2U);
+    assert(learned[0] == advertised[0]);
+    assert(learned[1] == advertised[1]);
+
+    client.session->close();
+    server.join();
+
+    assert(server_error ==
+           PeerError::none);
+}
+
 void test_real_peer_discovery_chain()
 {
     using namespace quintum::net;
@@ -709,6 +1118,9 @@ void test_connect_any_skips_failed_peer()
 
 int main()
 {
+    test_addrv2_codec();
+    test_addrman_v1_to_v2_migration();
+    test_addrman_overlay_persistence();
     test_address_codec();
     test_addrman_persistence_and_network_binding();
     test_addrman_corruption_detection();
@@ -716,6 +1128,7 @@ int main()
     test_dns_seed_resolution();
     test_retry_backoff_and_seed_bootstrap();
     test_addrman_public_subnet_diversity();
+    test_real_addrv2_exchange();
     test_real_peer_discovery_chain();
     test_connect_any_skips_failed_peer();
     return 0;

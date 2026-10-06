@@ -31,6 +31,7 @@ fi
 
 mkdir -p "$app/Contents/Resources/docs"
 install -m 0644 "$repo_root/README.md" "$app/Contents/Resources/README.md"
+install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/THIRD_PARTY_NOTICES.md"
 install -m 0644 "$repo_root/docs/TESTNET_TESTING.md" "$app/Contents/Resources/docs/TESTNET_TESTING.md"
 
 # Ad-hoc signing only seals the bundle structure. It is not Developer ID signing

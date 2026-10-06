@@ -72,6 +72,82 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(monocypher_source)
 
+# Network reachability dependencies. Pin exact upstream commits so router
+# discovery/mapping behavior cannot change between builds.
+FetchContent_Declare(
+    miniupnpc_source
+    GIT_REPOSITORY https://github.com/miniupnp/miniupnp.git
+    GIT_TAG 8f13b7a5843f5270db684099c0a083f98869636a
+    GIT_SHALLOW FALSE
+)
+FetchContent_GetProperties(miniupnpc_source)
+if(NOT miniupnpc_source_POPULATED)
+    FetchContent_Populate(miniupnpc_source)
+    set(UPNPC_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+    set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+    add_subdirectory(
+        ${miniupnpc_source_SOURCE_DIR}/miniupnpc
+        ${miniupnpc_source_BINARY_DIR}
+        EXCLUDE_FROM_ALL
+    )
+endif()
+
+FetchContent_Declare(
+    libnatpmp_source
+    GIT_REPOSITORY https://github.com/miniupnp/libnatpmp.git
+    GIT_TAG 134fc89e2781e154e40042641f4d8bcbe42579f1
+    GIT_SHALLOW FALSE
+)
+FetchContent_GetProperties(libnatpmp_source)
+if(NOT libnatpmp_source_POPULATED)
+    FetchContent_Populate(libnatpmp_source)
+endif()
+
+set(QUINTUM_NATPMP_SOURCES
+    ${libnatpmp_source_SOURCE_DIR}/natpmp.c
+    ${libnatpmp_source_SOURCE_DIR}/getgateway.c
+)
+if(WIN32)
+    list(APPEND QUINTUM_NATPMP_SOURCES
+        ${libnatpmp_source_SOURCE_DIR}/wingettimeofday.c
+    )
+endif()
+set(
+    QUINTUM_NATPMP_INCLUDE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/libnatpmp"
+)
+file(MAKE_DIRECTORY "${QUINTUM_NATPMP_INCLUDE_DIR}")
+configure_file(
+    "${libnatpmp_source_SOURCE_DIR}/natpmp.h"
+    "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp.h"
+    COPYONLY
+)
+configure_file(
+    "${libnatpmp_source_SOURCE_DIR}/natpmp_declspec.h"
+    "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp_declspec.h"
+    COPYONLY
+)
+
+add_library(quintum_natpmp STATIC ${QUINTUM_NATPMP_SOURCES})
+target_include_directories(
+    quintum_natpmp
+    PUBLIC "${QUINTUM_NATPMP_INCLUDE_DIR}"
+)
+target_compile_definitions(
+    quintum_natpmp
+    PUBLIC NATPMP_STATICLIB
+    PRIVATE ENABLE_STRNATPMPERR
+)
+if(WIN32)
+    target_link_libraries(
+        quintum_natpmp
+        PUBLIC ws2_32 iphlpapi
+    )
+endif()
+
 # Consensus-critical RandomX dependency. Pin the exact upstream v2.0.1
 # commit so a later tag move or upstream change cannot silently alter PoW.
 FetchContent_Declare(
@@ -169,6 +245,8 @@ add_library(quintum_core STATIC
     src/policy/fees.cpp
     src/net/protocol.cpp
     src/net/v2_transport.cpp
+    src/net/socks5.cpp
+    src/net/nat_mapping.cpp
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
@@ -201,6 +279,8 @@ target_link_libraries(
         secp256k1
         monocypher
         randomx
+        libminiupnpc-static
+        quintum_natpmp
         Threads::Threads
 )
 if(WIN32)
@@ -476,6 +556,30 @@ quintum_strict_warnings(quintum_p2p_tests)
 quintum_test_assertions(quintum_p2p_tests)
 
 add_test(NAME p2p COMMAND quintum_p2p_tests)
+
+add_executable(quintum_socks5_tests
+    tests/socks5_tests.cpp
+)
+target_link_libraries(
+    quintum_socks5_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_socks5_tests)
+quintum_test_assertions(quintum_socks5_tests)
+
+add_test(NAME socks5 COMMAND quintum_socks5_tests)
+
+add_executable(quintum_nat_mapping_tests
+    tests/nat_mapping_tests.cpp
+)
+target_link_libraries(
+    quintum_nat_mapping_tests
+    PRIVATE quintum_core Threads::Threads
+)
+quintum_strict_warnings(quintum_nat_mapping_tests)
+quintum_test_assertions(quintum_nat_mapping_tests)
+
+add_test(NAME nat_mapping COMMAND quintum_nat_mapping_tests)
 
 add_executable(quintum_discovery_tests
     tests/discovery_tests.cpp
