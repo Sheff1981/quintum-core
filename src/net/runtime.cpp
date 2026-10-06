@@ -2898,6 +2898,23 @@ bool NetworkRuntime::process_compact_block(
         return false;
     }
 
+    const auto request_it =
+        std::find_if(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& pending) {
+                return pending.hash == hash;
+            }
+        );
+
+    if (request_it !=
+        peer.requested_blocks.end()) {
+        // A compact block was delivered, so the peer made real progress.
+        // Start a fresh deadline for the missing-transaction round trip
+        // instead of charging it against the original block request.
+        request_it->requested_at = now;
+    }
+
     return true;
 }
 
