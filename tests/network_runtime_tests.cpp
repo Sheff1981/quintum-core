@@ -1268,6 +1268,120 @@ void test_reconnect_backoff_grows_and_caps()
 }
 
 
+void test_stalled_transaction_requests_are_bounded_and_expire()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir =
+        unique_dir("transaction-request-timeout");
+
+    NetworkRuntime runtime{
+        params,
+        dir
+    };
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 10U;
+    config.io_timeout_ms = 5'000U;
+    config.ping_interval_seconds = 30U;
+    config.ping_timeout_seconds = 5U;
+    config.transaction_request_timeout_seconds = 1U;
+    config.max_transaction_requests_in_flight = 4U;
+
+    assert(runtime.start(config).ok());
+
+    VersionMessage remote;
+    remote.protocol_version =
+        params.p2p_protocol_version;
+    remote.services = kServiceNetwork;
+    remote.timestamp =
+        params.genesis.timestamp + 81'000U;
+    remote.nonce = 0x41004100ULL;
+    remote.start_height = 0U;
+    remote.listen_port = 0U;
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            runtime.status().listen_port,
+            remote,
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            return runtime.status().peers == 1U;
+        }
+    ));
+
+    std::vector<InventoryItem> announced;
+    announced.reserve(6U);
+
+    for (Byte i = 1U; i <= 6U; ++i) {
+        Hash256 txid{};
+        txid.front() = static_cast<Byte>(0x40U + i);
+
+        announced.push_back(
+            InventoryItem{
+                .type = kInventoryTransaction,
+                .hash = txid,
+            }
+        );
+    }
+
+    assert(connected.session->send_command(
+               "inv",
+               serialize_inventory(announced)) ==
+           PeerError::none);
+
+    WireMessage request;
+    assert(connected.session->receive_command(
+               request) ==
+           PeerError::none);
+    assert(request.command == "getdata");
+
+    const auto requested =
+        parse_inventory(request.payload);
+
+    assert(requested.has_value());
+    assert(requested->size() == 4U);
+
+    for (std::size_t i = 0U;
+         i < requested->size();
+         ++i) {
+        assert((*requested)[i].type ==
+               kInventoryTransaction);
+        assert((*requested)[i].hash ==
+               announced[i].hash);
+    }
+
+    assert(wait_until(
+        std::chrono::seconds(6),
+        [&] {
+            return runtime.status().peers == 0U;
+        }
+    ));
+
+    connected.session->close();
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+
 void test_stalled_block_requests_are_bounded_and_expire()
 {
     using namespace quintum;
@@ -1496,6 +1610,7 @@ int main()
     test_higher_outbound_peer_updates_lower_inbound();
     test_chainwork_runtime_prefers_shorter_heavier_peer();
     test_reconnect_backoff_grows_and_caps();
+    test_stalled_transaction_requests_are_bounded_and_expire();
     test_stalled_block_requests_are_bounded_and_expire();
     test_encrypted_stem_transaction_relay();
     return 0;
