@@ -267,7 +267,7 @@ void test_genesis_to_tip_sync_and_restart()
             listener,
             server.chain(),
             version(0x1701U, 5U),
-            6U,
+            2U,
             server_error
         );
     });
@@ -293,6 +293,7 @@ void test_genesis_to_tip_sync_and_restart()
     assert(synced.ok());
     assert(synced.headers_received == 5U);
     assert(synced.blocks_requested == 5U);
+    assert(synced.block_request_batches == 1U);
     assert(synced.blocks_accepted == 5U);
     assert(!synced.reorganized);
 
@@ -382,7 +383,7 @@ void test_heavier_remote_branch_reorg()
             listener,
             server.chain(),
             version(0x1711U, 4U),
-            5U,
+            2U,
             server_error
         );
     });
@@ -408,6 +409,7 @@ void test_heavier_remote_branch_reorg()
     assert(synced.ok());
     assert(synced.headers_received == 4U);
     assert(synced.blocks_requested == 4U);
+    assert(synced.block_request_batches == 1U);
     assert(synced.blocks_accepted == 4U);
     assert(synced.reorganized);
 
@@ -492,7 +494,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1721U, 3U),
-                4U,
+                2U,
                 server_error
             );
         });
@@ -514,6 +516,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 now + 50U
             );
         assert(synced.ok());
+        assert(synced.block_request_batches == 1U);
         assert(synced.blocks_accepted == 3U);
 
         connected.session->close();
@@ -572,7 +575,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1731U, 6U),
-                4U,
+                2U,
                 server_error
             );
         });
@@ -597,6 +600,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
         assert(synced.ok());
         assert(synced.headers_received == 3U);
         assert(synced.blocks_requested == 3U);
+        assert(synced.block_request_batches == 1U);
         assert(synced.blocks_accepted == 3U);
         assert(!synced.reorganized);
 
@@ -656,7 +660,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
                 listener,
                 server.chain(),
                 version(0x1741U, 9U),
-                7U,
+                2U,
                 server_error
             );
         });
@@ -681,6 +685,7 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
         assert(synced.ok());
         assert(synced.headers_received == 6U);
         assert(synced.blocks_requested == 6U);
+        assert(synced.block_request_batches == 1U);
         assert(synced.block_bodies_restored == 3U);
         assert(synced.blocks_accepted == 3U);
         assert(synced.reorganized);
@@ -716,6 +721,95 @@ void test_pruned_deep_reorg_redownloads_missing_bodies()
 }
 
 
+void test_ibd_batches_block_requests()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("ibd-batch-server");
+    const auto client_dir =
+        unique_dir("ibd-batch-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 50'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    constexpr std::uint32_t kBlocks = 20U;
+
+    mine_blocks(
+        server,
+        payout_script(8U),
+        now,
+        kBlocks
+    );
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        // One getheaders plus two getdata batches:
+        // 16 blocks, then the remaining 4.
+        serve_requests(
+            listener,
+            server.chain(),
+            version(0x1751U, kBlocks),
+            3U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1752U, 0U),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now + 100U
+        );
+
+    assert(synced.ok());
+    assert(synced.headers_received == kBlocks);
+    assert(synced.blocks_requested == kBlocks);
+    assert(synced.block_request_batches == 2U);
+    assert(synced.blocks_accepted == kBlocks);
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error == SyncError::none);
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(client_dir, ec);
+}
+
+
 void test_full_known_header_batch_is_not_treated_as_stalled()
 {
     using namespace quintum::net;
@@ -742,6 +836,7 @@ int main()
     test_genesis_to_tip_sync_and_restart();
     test_heavier_remote_branch_reorg();
     test_pruned_deep_reorg_redownloads_missing_bodies();
+    test_ibd_batches_block_requests();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }

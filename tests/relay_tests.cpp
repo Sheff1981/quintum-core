@@ -736,6 +736,97 @@ void test_pruned_block_request_returns_notfound()
     std::filesystem::remove_all(dir, ec);
 }
 
+void test_oversized_block_getdata_is_rejected()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir =
+        unique_dir("oversized-block-getdata");
+    const std::uint64_t now =
+        params.genesis.timestamp + 48'000U;
+
+    NodeRuntime node{params, dir};
+    assert(node.start_at(now).ok());
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    RelayResult served;
+
+    std::thread server([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                version(0x1841U, 0U),
+                5'000U
+            );
+
+        if (!accepted.ok()) {
+            served.error =
+                RelayError::transport_failed;
+            served.peer_error =
+                accepted.error;
+            return;
+        }
+
+        served = serve_relay_once(
+            *accepted.session,
+            node
+        );
+
+        accepted.session->close();
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1842U, 0U),
+            5'000U
+        );
+    assert(connected.ok());
+
+    std::vector<InventoryItem> request;
+    request.reserve(
+        kMaxBlockDownloadItems + 1U
+    );
+
+    const auto genesis =
+        *node.chain().tip_hash();
+
+    for (std::size_t i = 0U;
+         i <= kMaxBlockDownloadItems;
+         ++i) {
+        request.push_back(
+            InventoryItem{
+                .type = kInventoryBlock,
+                .hash = genesis,
+            }
+        );
+    }
+
+    assert(connected.session->send_command(
+               "getdata",
+               serialize_inventory(request)) ==
+           PeerError::none);
+
+    connected.session->close();
+    server.join();
+
+    assert(served.error ==
+           RelayError::malformed_message);
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+
 void test_mempool_inventory_catchup()
 {
     using namespace quintum;
@@ -980,6 +1071,7 @@ int main()
     test_live_transaction_and_block_relay();
     test_hidden_stem_transaction_not_served();
     test_pruned_block_request_returns_notfound();
+    test_oversized_block_getdata_is_rejected();
     test_mempool_inventory_catchup();
     test_hidden_stem_transaction_is_not_disclosed();
     return 0;
