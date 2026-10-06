@@ -687,6 +687,55 @@ void test_pruned_reorg_within_retained_window()
     std::filesystem::remove_all(directory, ec);
 }
 
+void test_archival_mode_retains_all_block_bodies()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-archival");
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0xa0U);
+    const auto h0 = quintum::block_hash(genesis.header);
+    const auto b1 = make_block(h0, 1U, 0xa1U);
+    const auto h1 = quintum::block_hash(b1.header);
+    const auto b2 = make_block(h1, 2U, 0xa2U);
+    const auto h2 = quintum::block_hash(b2.header);
+    const auto b3 = make_block(h2, 3U, 0xa3U);
+    const auto h3 = quintum::block_hash(b3.header);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory};
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(b1).ok());
+        assert(node.connect_block(b2).ok());
+        assert(node.connect_block(b3).ok());
+
+        const auto status =
+            node.store().prune_status(node.chain());
+        assert(!status.enabled);
+        assert(node.chain().block(h0) != nullptr);
+        assert(node.chain().block(h1) != nullptr);
+        assert(node.chain().block(h2) != nullptr);
+        assert(node.chain().block(h3) != nullptr);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory};
+        assert(restarted.load() == quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 3U);
+        assert(restarted.chain().block(h0) != nullptr);
+        assert(restarted.chain().block(h1) != nullptr);
+        assert(restarted.chain().block(h2) != nullptr);
+        assert(restarted.chain().block(h3) != nullptr);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 void test_prune_policy_boundary()
 {
     const auto params = storage_regtest_params();
@@ -748,5 +797,8 @@ int main()
     test_truncated_committed_block_is_rejected();
     test_prune_policy_boundary();
     test_physical_prune_restart_and_continue();
+    test_spend_utxo_from_pruned_block_after_restart();
+    test_pruned_reorg_within_retained_window();
+    test_archival_mode_retains_all_block_bodies();
     return 0;
 }
