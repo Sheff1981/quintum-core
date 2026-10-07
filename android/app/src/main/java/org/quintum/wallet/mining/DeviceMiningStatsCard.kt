@@ -31,6 +31,10 @@ fun DeviceMiningStatsCard(
             StatRow("Device temperature", MiningStatsFormatter.temperature(stats.temperatureCelsius))
             StatRow("Battery", MiningStatsFormatter.battery(stats.batteryPercent, stats.charging))
             StatRow("Mining runtime", MiningStatsFormatter.runtime(stats.runtimeMillis))
+            StatRow("Blocks found", stats.foundBlocks.toString())
+            StatRow("Network difficulty", stats.networkDifficulty?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "Unavailable")
+            StatRow("Block height", stats.blockHeight?.toString() ?: "Unavailable")
+            StatRow("Peers", stats.peers.toString())
         }
     }
 }
