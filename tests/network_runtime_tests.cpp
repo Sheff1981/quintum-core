@@ -579,13 +579,11 @@ void test_compact_block_resource_caps_are_fail_closed()
     const auto& params =
         consensus::regtest_params();
 
-    for (const auto [block_cap, compact_cap] :
-         std::array<std::pair<std::size_t, std::size_t>, 2>{
-             std::pair<std::size_t, std::size_t>{4U, 0U},
-             std::pair<std::size_t, std::size_t>{4U, 5U},
-         }) {
+    // An explicit compact-state budget may never exceed the block request
+    // budget it belongs to.
+    {
         const auto dir =
-            unique_dir("compact-resource-cap");
+            unique_dir("compact-resource-cap-invalid");
 
         NetworkRuntime runtime{params, dir};
 
@@ -595,14 +593,10 @@ void test_compact_block_resource_caps_are_fail_closed()
         config.allow_local_peers = true;
         config.target_outbound = 0U;
         config.wallet_enabled = false;
-        config.max_block_requests_in_flight =
-            block_cap;
-        config.max_pending_compact_blocks =
-            compact_cap;
+        config.max_block_requests_in_flight = 4U;
+        config.max_pending_compact_blocks = 5U;
 
-        const auto started =
-            runtime.start(config);
-
+        const auto started = runtime.start(config);
         assert(!started.ok());
         assert(started.error ==
                NetworkRuntimeStartError::
@@ -613,24 +607,30 @@ void test_compact_block_resource_caps_are_fail_closed()
         std::filesystem::remove_all(dir, ec);
     }
 
-    const auto valid_dir =
-        unique_dir("compact-resource-cap-valid");
-    NetworkRuntime valid{params, valid_dir};
+    // Zero is an inheritance sentinel, not an unbounded/disabled cap. This
+    // preserves existing custom block-request configurations while keeping
+    // compact reconstruction state bounded by the same per-peer budget.
+    {
+        const auto dir =
+            unique_dir("compact-resource-cap-inherit");
 
-    NetworkRuntimeConfig config;
-    config.bind_address = "127.0.0.1";
-    config.listen_port = 0U;
-    config.allow_local_peers = true;
-    config.target_outbound = 0U;
-    config.wallet_enabled = false;
-    config.max_block_requests_in_flight = 4U;
-    config.max_pending_compact_blocks = 4U;
+        NetworkRuntime runtime{params, dir};
 
-    assert(valid.start(config).ok());
-    valid.stop();
+        NetworkRuntimeConfig config;
+        config.bind_address = "127.0.0.1";
+        config.listen_port = 0U;
+        config.allow_local_peers = true;
+        config.target_outbound = 0U;
+        config.wallet_enabled = false;
+        config.max_block_requests_in_flight = 4U;
+        config.max_pending_compact_blocks = 0U;
 
-    std::error_code ec;
-    std::filesystem::remove_all(valid_dir, ec);
+        assert(runtime.start(config).ok());
+        runtime.stop();
+
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
 }
 
 
