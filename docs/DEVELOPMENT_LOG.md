@@ -106,6 +106,14 @@ Stage 51 extends persistent-chainstate recovery coverage with an explicit interr
 
 This complements the existing coverage for uncommitted block tails, truncated committed blocks, side-branch/undo restart, pruning restart and corruption rejection. The storage format and consensus rules are unchanged.
 
+## Stage 52 — Multi-node partition/reorg soak
+
+Stage 52 adds a repeated three-round partition/reconnect regression using two independent durable node directories. In every round both nodes begin from the same persisted tip, mine competing branches while disconnected, reconnect through the live network runtime, converge on the greater-cumulative-work chain, stop, and independently restart from disk.
+
+The soak asserts identical tip, height, cumulative work and UTXO cardinality after convergence and durable restart. Existing wallet reorg/index tests and network mempool relay/confirmation tests remain responsible for wallet-history and mempool-specific invariants.
+
+No fork-choice rule, consensus parameter, RandomX rule, storage format, wallet format or network identity is changed.
+
 ## Documentation policy
 
 QUINTUM technical documentation is maintained in English only. New implementation stages must update the relevant English normative document and this development index when the change is historically significant. Git history remains the source of truth for exact code changes and commit chronology.
