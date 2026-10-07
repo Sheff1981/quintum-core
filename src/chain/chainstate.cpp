@@ -301,10 +301,28 @@ std::optional<std::uint32_t> Chainstate::next_work_required(
     return expected_bits(candidate, &it->second);
 }
 
+const BlockIndexEntry* Chainstate::find_index_entry(
+    const Hash256& hash,
+    const HeaderIndexOverlay* overlay) const noexcept
+{
+    if (overlay != nullptr) {
+        const auto staged = overlay->find(hash);
+        if (staged != overlay->end()) {
+            return &staged->second;
+        }
+    }
+
+    const auto persisted = block_index_.find(hash);
+    return persisted == block_index_.end()
+        ? nullptr
+        : &persisted->second;
+}
+
 std::optional<Hash256>
 Chainstate::randomx_seed_key_for(
     const BlockIndexEntry* parent,
-    std::uint32_t candidate_height) const
+    std::uint32_t candidate_height,
+    const HeaderIndexOverlay* overlay) const
 {
     if (candidate_height == 0U) {
         const Hash256 bootstrap_hash{};
@@ -334,16 +352,15 @@ Chainstate::randomx_seed_key_for(
     while (static_cast<std::uint64_t>(
                cursor->height) >
            seed_height) {
-        const auto it =
-            block_index_.find(
-                cursor->parent
+        cursor =
+            find_index_entry(
+                cursor->parent,
+                overlay
             );
 
-        if (it == block_index_.end()) {
+        if (cursor == nullptr) {
             return std::nullopt;
         }
-
-        cursor = &it->second;
     }
 
     if (static_cast<std::uint64_t>(
@@ -388,27 +405,35 @@ Chainstate::next_randomx_seed_key() const
     );
 }
 
-bool Chainstate::has_failed_ancestor(const Hash256& hash) const
+bool Chainstate::has_failed_ancestor(
+    const Hash256& hash,
+    const HeaderIndexOverlay* overlay) const
 {
-    auto it = block_index_.find(hash);
+    const BlockIndexEntry* entry =
+        find_index_entry(hash, overlay);
 
-    while (it != block_index_.end()) {
-        if (it->second.failed) {
+    while (entry != nullptr) {
+        if (entry->failed) {
             return true;
         }
 
-        if (it->second.height == 0U) {
+        if (entry->height == 0U) {
             break;
         }
 
-        it = block_index_.find(it->second.parent);
+        entry =
+            find_index_entry(
+                entry->parent,
+                overlay
+            );
     }
 
     return false;
 }
 
 std::optional<std::uint64_t> Chainstate::median_time_past(
-    const BlockIndexEntry* parent) const
+    const BlockIndexEntry* parent,
+    const HeaderIndexOverlay* overlay) const
 {
     if (parent == nullptr ||
         params_.time.median_time_span == 0U) {
@@ -432,14 +457,15 @@ std::optional<std::uint64_t> Chainstate::median_time_past(
             break;
         }
 
-        const auto it =
-            block_index_.find(cursor->parent);
+        cursor =
+            find_index_entry(
+                cursor->parent,
+                overlay
+            );
 
-        if (it == block_index_.end()) {
+        if (cursor == nullptr) {
             return std::nullopt;
         }
-
-        cursor = &it->second;
     }
 
     return consensus::median_timestamp(timestamps);
@@ -447,7 +473,8 @@ std::optional<std::uint64_t> Chainstate::median_time_past(
 
 std::optional<std::uint32_t> Chainstate::expected_bits(
     const Block& block,
-    const BlockIndexEntry* parent) const
+    const BlockIndexEntry* parent,
+    const HeaderIndexOverlay* overlay) const
 {
     const auto& pow = params_.pow;
 
@@ -501,14 +528,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
 
         while (anchor->height >
                pow.asert_anchor_height) {
-            const auto it =
-                block_index_.find(anchor->parent);
+            anchor =
+                find_index_entry(
+                    anchor->parent,
+                    overlay
+                );
 
-            if (it == block_index_.end()) {
+            if (anchor == nullptr) {
                 return std::nullopt;
             }
-
-            anchor = &it->second;
         }
 
         if (anchor->height !=
@@ -528,17 +556,18 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
                 anchor->header.timestamp -
                 pow.target_spacing_seconds;
         } else {
-            const auto anchor_parent =
-                block_index_.find(anchor->parent);
+            const auto* anchor_parent =
+                find_index_entry(
+                    anchor->parent,
+                    overlay
+                );
 
-            if (anchor_parent ==
-                block_index_.end()) {
+            if (anchor_parent == nullptr) {
                 return std::nullopt;
             }
 
             anchor_parent_time =
-                anchor_parent->second.
-                    header.timestamp;
+                anchor_parent->header.timestamp;
         }
 
         if (parent->header.timestamp >
@@ -618,14 +647,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
             while ((cursor->height % pow.retarget_interval) != 0U &&
                    cursor->header.bits ==
                        pow.pow_limit_bits) {
-                const auto it =
-                    block_index_.find(cursor->parent);
+                cursor =
+                    find_index_entry(
+                        cursor->parent,
+                        overlay
+                    );
 
-                if (it == block_index_.end()) {
+                if (cursor == nullptr) {
                     return std::nullopt;
                 }
-
-                cursor = &it->second;
             }
 
             return cursor->header.bits;
@@ -639,14 +669,15 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     for (std::uint32_t step = 1U;
          step < pow.retarget_interval;
          ++step) {
-        const auto it =
-            block_index_.find(first->parent);
+        first =
+            find_index_entry(
+                first->parent,
+                overlay
+            );
 
-        if (it == block_index_.end()) {
+        if (first == nullptr) {
             return std::nullopt;
         }
-
-        first = &it->second;
     }
 
     const auto retarget =
@@ -662,6 +693,247 @@ std::optional<std::uint32_t> Chainstate::expected_bits(
     }
 
     return retarget.bits;
+}
+
+HeaderValidationResult Chainstate::validate_header_candidate(
+    const BlockHeader& header,
+    const BlockIndexEntry* parent,
+    std::uint32_t height,
+    std::uint64_t adjusted_time,
+    const HeaderIndexOverlay* overlay) const
+{
+    HeaderValidationResult out;
+    out.chain_work =
+        parent == nullptr
+            ? Hash256{}
+            : parent->chain_work;
+
+    if (!consensus::timestamp_not_too_far_future(
+            header.timestamp,
+            adjusted_time,
+            params_.time.max_future_seconds)) {
+        out.error =
+            ChainConnectError::
+                timestamp_too_far_future;
+        return out;
+    }
+
+    if (parent != nullptr) {
+        const auto mtp =
+            median_time_past(
+                parent,
+                overlay
+            );
+
+        if (!mtp ||
+            header.timestamp <= *mtp) {
+            out.error =
+                ChainConnectError::
+                    timestamp_too_old;
+            return out;
+        }
+    }
+
+    Block candidate;
+    candidate.header = header;
+
+    const auto required_bits =
+        expected_bits(
+            candidate,
+            parent,
+            overlay
+        );
+
+    if (!required_bits ||
+        header.bits != *required_bits) {
+        out.error =
+            ChainConnectError::
+                unexpected_difficulty;
+        return out;
+    }
+
+    std::optional<Hash256> randomx_seed;
+
+    if (params_.pow.pow_algorithm ==
+        consensus::PowAlgorithm::
+            randomx_v2) {
+        randomx_seed =
+            randomx_seed_key_for(
+                parent,
+                height,
+                overlay
+            );
+
+        if (!randomx_seed) {
+            out.error =
+                ChainConnectError::
+                    invalid_ancestor;
+            return out;
+        }
+    }
+
+    const auto pow_error =
+        params_.pow.pow_algorithm ==
+                consensus::PowAlgorithm::
+                    randomx_v2
+            ? consensus::
+                  check_randomx_proof_of_work(
+                      header,
+                      params_.pow,
+                      *randomx_seed
+                  )
+            : consensus::
+                  check_proof_of_work(
+                      header,
+                      params_.pow
+                  );
+
+    if (pow_error !=
+        consensus::PowCheckError::none) {
+        out.error =
+            ChainConnectError::
+                invalid_proof_of_work;
+        return out;
+    }
+
+    const auto compact =
+        consensus::decode_compact_target(
+            header.bits
+        );
+    const auto block_work =
+        consensus::work_for_target(
+            compact.target
+        );
+
+    if (!consensus::add_chain_work(
+            out.chain_work,
+            block_work)) {
+        out.error =
+            ChainConnectError::
+                chain_work_overflow;
+        return out;
+    }
+
+    return out;
+}
+
+HeaderValidationResult Chainstate::validate_headers(
+    std::span<const BlockHeader> headers,
+    std::uint64_t adjusted_time) const
+{
+    HeaderValidationResult out;
+    out.chain_work = cumulative_work();
+
+    HeaderIndexOverlay overlay;
+
+    for (std::size_t index = 0U;
+         index < headers.size();
+         ++index) {
+        out.header_index = index;
+
+        const auto& header = headers[index];
+        const Hash256 hash =
+            block_hash(header);
+
+        // Metadata that is already in the validated block index (including a
+        // pruned block body) does not need expensive PoW re-validation.
+        if (const auto* known =
+                find_index_entry(hash, nullptr)) {
+            if (known->failed ||
+                has_failed_ancestor(
+                    hash,
+                    nullptr)) {
+                out.error =
+                    ChainConnectError::
+                        invalid_ancestor;
+                return out;
+            }
+
+            if (known->height > 0U &&
+                find_index_entry(
+                    header.previous_block,
+                    &overlay) == nullptr) {
+                out.error =
+                    ChainConnectError::
+                        unknown_parent;
+                return out;
+            }
+
+            out.chain_work =
+                known->chain_work;
+            continue;
+        }
+
+        const auto* parent =
+            find_index_entry(
+                header.previous_block,
+                &overlay
+            );
+
+        if (parent == nullptr) {
+            out.error =
+                ChainConnectError::unknown_parent;
+            return out;
+        }
+
+        if (parent->failed ||
+            has_failed_ancestor(
+                parent->hash,
+                &overlay)) {
+            out.error =
+                ChainConnectError::
+                    invalid_ancestor;
+            return out;
+        }
+
+        if (parent->height ==
+            std::numeric_limits<
+                std::uint32_t>::max()) {
+            out.error =
+                ChainConnectError::
+                    height_overflow;
+            return out;
+        }
+
+        const std::uint32_t height =
+            parent->height + 1U;
+
+        const auto checked =
+            validate_header_candidate(
+                header,
+                parent,
+                height,
+                adjusted_time,
+                &overlay
+            );
+
+        if (!checked.ok()) {
+            out.error = checked.error;
+            return out;
+        }
+
+        const Hash256 chain_work =
+            checked.chain_work;
+
+        overlay.emplace(
+            hash,
+            BlockIndexEntry{
+                .block = std::nullopt,
+                .header = header,
+                .hash = hash,
+                .parent =
+                    header.previous_block,
+                .height = height,
+                .chain_work = chain_work,
+                .failed = false,
+            }
+        );
+
+        out.chain_work = chain_work;
+    }
+
+    out.header_index = headers.size();
+    return out;
 }
 
 ChainConnectResult Chainstate::restore_block_body(
@@ -768,7 +1040,6 @@ ChainConnectResult Chainstate::connect_block(
     }
 
     std::uint32_t new_height{0U};
-    Hash256 parent_work{};
     const BlockIndexEntry* parent_entry{nullptr};
 
     if (block_index_.empty()) {
@@ -806,76 +1077,26 @@ ChainConnectResult Chainstate::connect_block(
         }
 
         new_height = parent_it->second.height + 1U;
-        parent_work = parent_it->second.chain_work;
         parent_entry = &parent_it->second;
     }
 
-    if (parent_entry != nullptr) {
-        const auto mtp =
-            median_time_past(parent_entry);
+    const auto header_check =
+        validate_header_candidate(
+            block.header,
+            parent_entry,
+            new_height,
+            adjusted_time,
+            nullptr
+        );
 
-        if (!mtp ||
-            block.header.timestamp <= *mtp) {
-            result.error =
-                ChainConnectError::timestamp_too_old;
-            return result;
-        }
-    }
-
-    const auto required_bits =
-        expected_bits(block, parent_entry);
-
-    if (!required_bits ||
-        block.header.bits != *required_bits) {
-        result.error = ChainConnectError::unexpected_difficulty;
-        return result;
-    }
-
-    std::optional<Hash256> randomx_seed;
-
-    if (params_.pow.pow_algorithm ==
-        consensus::PowAlgorithm::randomx_v2) {
-        randomx_seed =
-            randomx_seed_key_for(
-                parent_entry,
-                new_height
-            );
-
-        if (!randomx_seed) {
-            result.error =
-                ChainConnectError::invalid_ancestor;
-            return result;
-        }
-    }
-
-    const auto pow_error =
-        params_.pow.pow_algorithm ==
-                consensus::PowAlgorithm::randomx_v2
-            ? consensus::check_randomx_proof_of_work(
-                  block.header,
-                  params_.pow,
-                  *randomx_seed
-              )
-            : consensus::check_proof_of_work(
-                  block.header,
-                  params_.pow
-              );
-
-    if (pow_error !=
-        consensus::PowCheckError::none) {
+    if (!header_check.ok()) {
         result.error =
-            ChainConnectError::invalid_proof_of_work;
+            header_check.error;
         return result;
     }
 
-    const auto compact = consensus::decode_compact_target(block.header.bits);
-    const auto block_work = consensus::work_for_target(compact.target);
-
-    Hash256 new_chain_work = parent_work;
-    if (!consensus::add_chain_work(new_chain_work, block_work)) {
-        result.error = ChainConnectError::chain_work_overflow;
-        return result;
-    }
+    const Hash256 new_chain_work =
+        header_check.chain_work;
 
     block_index_.emplace(
         hash,
