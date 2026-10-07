@@ -274,7 +274,6 @@ add_library(quintum_core STATIC
     src/net/protocol.cpp
     src/net/v2_transport.cpp
     src/net/socks5.cpp
-    src/net/nat_mapping.cpp
     src/net/dandelion.cpp
     src/net/peer.cpp
     src/net/address.cpp
@@ -321,6 +320,21 @@ add_executable(quintumd
 )
 target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
+
+if(ANDROID)
+    add_library(quintum_android SHARED
+        src/android/native_bridge.cpp
+    )
+    target_link_libraries(
+        quintum_android
+        PRIVATE quintum_core log
+    )
+    target_include_directories(
+        quintum_android
+        PRIVATE src
+    )
+    quintum_strict_warnings(quintum_android)
+endif()
 
 
 if(QUINTUM_BUILD_GUI)
