@@ -3647,3 +3647,14 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 **Regression:** добавлен live P2P тест `test_malformed_ping_disconnects_peer()`: после нормального handshake peer отправляет усечённый `ping` payload и обязан быть отключён в ограниченное время.
 
 **Совместимость:** consensus, Genesis, RandomX, difficulty, monetary policy, wallet/backup formats, chain data, network magic, адреса и порты не изменены.
+
+
+## 2026-10-07 — Stage 48: per-peer resource/admission caps
+
+**Аудит:** per-peer transaction in-flight, deferred transaction queue, block in-flight, message rate и stem rate уже ограничены. Найден отдельный пробел: незавершённые compact-block reconstruction entries были ограничены общим wire inventory limit вместо собственного per-peer resource budget.
+
+**Исправление:** добавлен `max_pending_compact_blocks` (default 16), применяемый непосредственно к `pending_compact_blocks`. Конфигурация fail-closed: cap не может быть нулевым или превышать `max_block_requests_in_flight`.
+
+**Regression:** `test_compact_block_resource_caps_are_fail_closed()` проверяет отклонение небезопасных конфигураций и запуск с согласованным bounded cap.
+
+**Совместимость:** consensus, Genesis, RandomX, difficulty, monetary policy, wallet/backup formats, chain data, network magic, адреса и порты не изменены.
