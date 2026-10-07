@@ -1907,10 +1907,11 @@ WalletStoreError Wallet::restore_bundle(
         &*restored_wallet
     };
 
-    if (std::span<const Byte>{
-            restored_wallet->data(),
-            restored_wallet->size()} !=
-        wallet_data) {
+    if (restored_wallet->size() != wallet_data.size() ||
+        !std::equal(
+            restored_wallet->begin(),
+            restored_wallet->end(),
+            wallet_data.begin())) {
         rollback_wallet();
         return WalletStoreError::corrupt;
     }
@@ -1946,10 +1947,12 @@ WalletStoreError Wallet::restore_bundle(
             &*restored_metadata
         };
 
-        if (std::span<const Byte>{
-                restored_metadata->data(),
-                restored_metadata->size()} !=
-            metadata_data) {
+        if (restored_metadata->size() !=
+                metadata_data.size() ||
+            !std::equal(
+                restored_metadata->begin(),
+                restored_metadata->end(),
+                metadata_data.begin())) {
             std::error_code remove_ec;
             std::filesystem::remove(
                 metadata_path_,
