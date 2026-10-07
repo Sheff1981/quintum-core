@@ -292,7 +292,8 @@ NodeRuntime::mine_mempool_block_parallel_at(
     std::uint64_t max_attempts,
     std::size_t worker_count,
     bool full_memory,
-    std::uint64_t start_nonce)
+    std::uint64_t start_nonce,
+    const std::atomic<bool>* cancel)
 {
     if (!started_) {
         NodeMineResult out;
@@ -373,7 +374,8 @@ NodeRuntime::mine_mempool_block_parallel_at(
             transactions.data(),
             best
         ),
-        start_nonce
+        start_nonce,
+        cancel
     );
 }
 
