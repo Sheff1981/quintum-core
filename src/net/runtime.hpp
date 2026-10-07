@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <deque>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -77,6 +78,8 @@ struct NetworkRuntimeConfig {
     std::uint64_t transaction_request_timeout_seconds{15U};
     std::size_t max_transaction_requests_in_flight{128U};
     std::size_t max_deferred_transaction_requests{512U};
+    std::size_t max_invalid_object_cache_entries{1024U};
+    std::uint64_t invalid_object_cache_ttl_seconds{600U};
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
@@ -425,6 +428,11 @@ private:
         std::uint64_t requested_at{0U};
     };
 
+    struct InvalidObjectEntry {
+        Hash256 digest{};
+        std::uint64_t expires_at{0U};
+    };
+
     struct LivePeer {
         PeerSession session{};
         std::optional<PeerAddress> address{};
@@ -554,6 +562,20 @@ private:
 
     void update_peer_counts() noexcept;
 
+    [[nodiscard]] bool invalid_object_cached(
+        const Hash256& digest,
+        std::uint64_t now
+    );
+
+    void cache_invalid_object(
+        const Hash256& digest,
+        std::uint64_t now
+    );
+
+    void prune_invalid_object_cache(
+        std::uint64_t now
+    );
+
     [[nodiscard]] bool sync_wallet_locked();
 
     [[nodiscard]] Hash256 send_state_hash_locked() const;
@@ -589,6 +611,8 @@ private:
         pending_private_transactions_{};
     std::vector<StemRelayState>
         stem_relays_{};
+    std::deque<InvalidObjectEntry>
+        invalid_object_cache_{};
 
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
