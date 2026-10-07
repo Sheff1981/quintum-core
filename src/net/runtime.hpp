@@ -26,6 +26,10 @@ namespace quintum::net {
 
 inline constexpr std::uint64_t
     kMaxReconnectBackoffSeconds{300U};
+inline constexpr std::size_t
+    kDefaultMaxInvalidObjectCacheEntries{1024U};
+inline constexpr std::uint64_t
+    kDefaultInvalidObjectCacheTtlSeconds{600U};
 
 [[nodiscard]] constexpr std::uint64_t
 reconnect_backoff_delay(
@@ -78,8 +82,12 @@ struct NetworkRuntimeConfig {
     std::uint64_t transaction_request_timeout_seconds{15U};
     std::size_t max_transaction_requests_in_flight{128U};
     std::size_t max_deferred_transaction_requests{512U};
-    std::size_t max_invalid_object_cache_entries{1024U};
-    std::uint64_t invalid_object_cache_ttl_seconds{600U};
+    std::size_t max_invalid_object_cache_entries{
+        kDefaultMaxInvalidObjectCacheEntries
+    };
+    std::uint64_t invalid_object_cache_ttl_seconds{
+        kDefaultInvalidObjectCacheTtlSeconds
+    };
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
