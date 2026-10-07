@@ -512,6 +512,57 @@ void test_full_backup_bundle_roundtrip_and_guards()
                WalletStoreError::target_exists);
     }
 
+    // A stale/orphaned metadata file may still contain user labels.
+    // Restore must fail closed rather than overwrite or delete it.
+    {
+        const auto orphan_dir =
+            unique_dir("bundle-orphan-metadata");
+        std::filesystem::create_directories(
+            orphan_dir
+        );
+        const auto orphan_metadata =
+            orphan_dir / "wallet_meta.dat";
+        const std::string sentinel{
+            "preserve-existing-metadata"
+        };
+
+        {
+            std::ofstream out(
+                orphan_metadata,
+                std::ios::binary |
+                    std::ios::trunc
+            );
+            assert(out);
+            out.write(
+                sentinel.data(),
+                static_cast<std::streamsize>(
+                    sentinel.size())
+            );
+            assert(out);
+        }
+
+        Wallet orphan_target{
+            params,
+            orphan_dir
+        };
+
+        assert(orphan_target.restore_bundle(
+                   bundle_path) ==
+               WalletStoreError::target_exists);
+        assert(!std::filesystem::exists(
+            orphan_dir / "wallet.dat"));
+        assert(read_bytes(orphan_metadata) ==
+               std::vector<unsigned char>(
+                   sentinel.begin(),
+                   sentinel.end()));
+
+        std::error_code orphan_ec;
+        std::filesystem::remove_all(
+            orphan_dir,
+            orphan_ec
+        );
+    }
+
     auto tampered =
         read_bytes(bundle_path);
     assert(tampered.size() > 40U);
