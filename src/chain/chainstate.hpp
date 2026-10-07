@@ -11,6 +11,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace quintum {
@@ -78,6 +79,17 @@ struct ChainConnectResult {
     }
 };
 
+struct HeaderValidationResult {
+    ChainConnectError error{ChainConnectError::none};
+    std::size_t header_index{0U};
+    Hash256 chain_work{};
+
+    [[nodiscard]] bool ok() const noexcept
+    {
+        return error == ChainConnectError::none;
+    }
+};
+
 enum class ChainDisconnectError {
     none,
     empty_chain,
@@ -128,6 +140,14 @@ public:
     [[nodiscard]] std::optional<Hash256>
     next_randomx_seed_key() const;
 
+    // Validates a contiguous headers-first batch against the same consensus
+    // difficulty, time and PoW rules used by connect_block(), without
+    // mutating chainstate or requiring block bodies.
+    [[nodiscard]] HeaderValidationResult validate_headers(
+        std::span<const BlockHeader> headers,
+        std::uint64_t adjusted_time
+    ) const;
+
     // Restores the body of an already-known block whose metadata survived
     // pruning. This does not change the active chain by itself.
     [[nodiscard]] ChainConnectResult restore_block_body(
@@ -145,18 +165,39 @@ public:
     [[nodiscard]] ChainDisconnectError disconnect_tip();
 
 private:
-    [[nodiscard]] bool has_failed_ancestor(const Hash256& hash) const;
+    using HeaderIndexOverlay =
+        std::map<Hash256, BlockIndexEntry>;
+
+    [[nodiscard]] const BlockIndexEntry* find_index_entry(
+        const Hash256& hash,
+        const HeaderIndexOverlay* overlay = nullptr
+    ) const noexcept;
+    [[nodiscard]] bool has_failed_ancestor(
+        const Hash256& hash,
+        const HeaderIndexOverlay* overlay = nullptr
+    ) const;
     [[nodiscard]] std::optional<std::uint32_t> expected_bits(
         const Block& block,
-        const BlockIndexEntry* parent
+        const BlockIndexEntry* parent,
+        const HeaderIndexOverlay* overlay = nullptr
     ) const;
     [[nodiscard]] std::optional<std::uint64_t> median_time_past(
-        const BlockIndexEntry* parent
+        const BlockIndexEntry* parent,
+        const HeaderIndexOverlay* overlay = nullptr
     ) const;
     [[nodiscard]] std::optional<Hash256>
     randomx_seed_key_for(
         const BlockIndexEntry* parent,
-        std::uint32_t candidate_height
+        std::uint32_t candidate_height,
+        const HeaderIndexOverlay* overlay = nullptr
+    ) const;
+    [[nodiscard]] HeaderValidationResult
+    validate_header_candidate(
+        const BlockHeader& header,
+        const BlockIndexEntry* parent,
+        std::uint32_t height,
+        std::uint64_t adjusted_time,
+        const HeaderIndexOverlay* overlay = nullptr
     ) const;
 
     consensus::ChainParams params_{};
