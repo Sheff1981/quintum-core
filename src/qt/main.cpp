@@ -15,6 +15,7 @@
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QLabel>
+#include <QLockFile>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -739,6 +740,27 @@ int main(int argc, char* argv[])
         filesystem_path(
             data_directory
         );
+
+    // A desktop wallet must never open the same wallet/blockchain data
+    // directory from two GUI processes at once. Apart from competing for
+    // the P2P port, concurrent writers could corrupt wallet or chain data.
+    // The lock is scoped to the selected network/datadir, so separate
+    // QUINTUM networks may still run side by side safely.
+    QLockFile instance_lock{
+        QDir(data_directory).filePath(
+            ".quintum-gui.lock"
+        )
+    };
+
+    if (!instance_lock.tryLock(0)) {
+        QMessageBox::information(
+            nullptr,
+            "QUINTUM Core is already running",
+            "Another QUINTUM Core window is already using this network/data directory. "
+            "Use the existing window instead of starting a second copy."
+        );
+        return 0;
+    }
 
     std::error_code ec;
     const bool wallet_exists =
