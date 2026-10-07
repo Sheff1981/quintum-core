@@ -163,8 +163,12 @@ if(QUINTUM_ENABLE_NAT_MAPPING)
             PUBLIC ws2_32 iphlpapi
         )
     endif()
-    
-    
+
+    add_library(quintum_nat_mapping INTERFACE)
+    target_link_libraries(
+        quintum_nat_mapping
+        INTERFACE libminiupnpc-static quintum_natpmp
+    )
 else()
     add_library(quintum_nat_mapping STATIC
         src/net/nat_mapping_stub.cpp
