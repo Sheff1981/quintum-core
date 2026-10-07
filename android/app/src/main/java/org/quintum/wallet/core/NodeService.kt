@@ -27,12 +27,17 @@ class NodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Native process ownership is attached here once the ARM64 daemon build
-        // is verified. Never report a running/synced node before RPC confirms it.
+        val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
+        if (result != 0 && result != 2) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+
         return START_STICKY
     }
 
     override fun onDestroy() {
+        NativeCore.nativeStop()
         scope.cancel()
         super.onDestroy()
     }
