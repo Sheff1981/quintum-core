@@ -41,12 +41,8 @@ The implementation also detects an important ambiguity: if two real sibling hash
 - computed Merkle root must equal the header Merkle root;
 - mutated Merkle trees are rejected.
 
-## Not implemented yet
+## Current implementation status
 
-- PoW target decoding and validation;
-- timestamp consensus rules;
-- block subsidy rules;
-- block size/weight limit;
-- transaction signature validation;
-- full block connection to chainstate;
-- cumulative chain work.
+The items previously listed here as missing are now implemented in later consensus/chainstate stages: PoW target validation, timestamp rules, subsidy/coinbase validation, bounded block resources, transaction authorization, atomic block connection and cumulative chain work.
+
+This document describes the block format. Authoritative current consensus behavior is defined by the source code and the current consensus/network specification; Mainnet parameters remain pre-launch until the formal consensus freeze.
