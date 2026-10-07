@@ -14,6 +14,27 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-dev"
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DQUINTUM_BUILD_GUI=OFF",
+                    "-DQUINTUM_ENABLE_NAT_MAPPING=OFF",
+                )
+                targets += "quintum_android"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("../../CMakeLists.txt")
+            version = "3.25.1"
+        }
     }
 
     buildFeatures {
