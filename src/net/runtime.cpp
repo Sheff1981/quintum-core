@@ -1121,7 +1121,8 @@ NetworkRuntime::send_to_address_auto_fee_locked(
 
 NetworkWalletSendResult
 NetworkRuntime::confirm_send(
-    const NetworkWalletSendPreview& preview)
+    const NetworkWalletSendPreview& preview,
+    std::string_view passphrase)
 {
     NetworkWalletSendResult out;
 
@@ -1161,6 +1162,23 @@ NetworkRuntime::confirm_send(
                 NetworkWalletSendError::
                     stale_preview;
             return out;
+        }
+
+        if (wallet_.encrypted()) {
+            if (passphrase.empty()) {
+                out.error =
+                    NetworkWalletSendError::
+                        passphrase_required;
+                return out;
+            }
+
+            if (!wallet_.verify_passphrase(
+                    passphrase)) {
+                out.error =
+                    NetworkWalletSendError::
+                        invalid_passphrase;
+                return out;
+            }
         }
 
         out =
