@@ -5,6 +5,7 @@
 #include "primitives/block.hpp"
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <optional>
 
@@ -101,7 +102,8 @@ struct MiningResult {
     const Hash256& seed_key,
     std::uint64_t max_attempts,
     std::size_t worker_count,
-    bool full_memory = false
+    bool full_memory = false,
+    const std::atomic<bool>* cancel = nullptr
 );
 
 } // namespace quintum::consensus
