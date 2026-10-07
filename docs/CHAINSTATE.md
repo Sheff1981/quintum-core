@@ -59,23 +59,10 @@ Each active-chain entry stores cumulative work:
 
 `chain_work(height) = chain_work(height - 1) + block_work`
 
-Fork choice is not implemented yet, but future selection will compare cumulative valid work rather than block count alone.
+Fork choice is implemented: competing branches are selected by greatest cumulative valid work rather than block count alone; equal work keeps the current active tip.
 
-## Development-first-block rule
+## Current implementation status
 
-While no QUINTUM genesis is frozen, an empty development chain accepts a structurally valid PoW block whose previous hash is all zeroes.
+Later stages replaced the early development-only chain assumptions described in older revisions of this document. QUINTUM now has network-specific genesis enforcement, persistent block/chainstate storage, side-branch indexing, cumulative-work best-chain selection, multi-block reorganization, signature authorization, subsidy/coinbase maturity validation and difficulty adjustment validation.
 
-This is **not** the final mainnet genesis rule.
-
-Before mainnet, network parameters will contain the exact expected genesis hash, and chainstate initialization will reject any alternative first block.
-
-## Not implemented yet
-
-- block index for side branches;
-- automatic best-chain selection;
-- multi-block reorganization;
-- persistent block/chainstate storage;
-- exact genesis enforcement;
-- signature/script consensus;
-- subsidy and coinbase maturity rules;
-- difficulty adjustment rules.
+The authoritative behavior is the current consensus/chainstate source and tests. Mainnet parameters are still pre-launch and must be frozen and independently verified before Mainnet release. Remaining work is operational/security hardening: bounded orphan handling, adversarial reorg/partition tests, crash-consistency tests, long-duration soak and independent review.
