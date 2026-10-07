@@ -822,6 +822,83 @@ void test_prune_policy_boundary()
     std::filesystem::remove_all(directory, ec);
 }
 
+
+void test_interrupted_state_snapshot_temp_is_ignored()
+{
+    const auto params = storage_regtest_params();
+    const auto directory =
+        fresh_directory("quintum-storage-interrupted-state");
+
+    quintum::Hash256 zero{};
+    const auto genesis = make_block(zero, 0U, 0xc0U);
+    const auto genesis_hash =
+        quintum::block_hash(genesis.header);
+    const auto block1 =
+        make_block(genesis_hash, 1U, 0xc1U);
+    const auto block1_hash =
+        quintum::block_hash(block1.header);
+
+    {
+        quintum::PersistentChainstate node{
+            params, directory};
+        assert(node.connect_block(genesis).ok());
+        assert(node.connect_block(block1).ok());
+        assert(node.chain().tip_hash());
+        assert(*node.chain().tip_hash() == block1_hash);
+    }
+
+    // Simulate a crash after a replacement snapshot was written but
+    // before the atomic rename committed it. A stale/corrupt .tmp file
+    // must never replace or invalidate the last committed snapshot.
+    const auto state_path =
+        directory / "chainstate.dat";
+    auto temporary_path = state_path;
+    temporary_path += ".tmp";
+
+    {
+        std::ofstream interrupted(
+            temporary_path,
+            std::ios::binary | std::ios::trunc);
+        assert(interrupted);
+        const std::array<char, 7U> partial{
+            'Q', 'T', 'M', 'S', 'T', 'A', 'T'};
+        interrupted.write(
+            partial.data(),
+            static_cast<std::streamsize>(partial.size()));
+        assert(interrupted);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory};
+        assert(restarted.load() ==
+               quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 1U);
+        assert(restarted.chain().tip_hash());
+        assert(*restarted.chain().tip_hash() ==
+               block1_hash);
+
+        const auto block2 =
+            make_block(block1_hash, 2U, 0xc2U);
+        assert(restarted.connect_block(block2).ok());
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 2U);
+    }
+
+    {
+        quintum::PersistentChainstate restarted{
+            params, directory};
+        assert(restarted.load() ==
+               quintum::StorageError::none);
+        assert(restarted.chain().height());
+        assert(*restarted.chain().height() == 2U);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+}
+
 } // namespace
 
 int main()
@@ -835,5 +912,6 @@ int main()
     test_spend_utxo_from_pruned_block_after_restart();
     test_pruned_reorg_within_retained_window();
     test_archival_mode_retains_all_block_bodies();
+    test_interrupted_state_snapshot_temp_is_ignored();
     return 0;
 }
