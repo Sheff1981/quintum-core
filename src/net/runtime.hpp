@@ -359,6 +359,14 @@ public:
         std::uint64_t max_attempts
     );
 
+    [[nodiscard]] NodeMineResult mine_mempool_block_parallel(
+        const Bytes& payout_script,
+        std::uint64_t max_attempts,
+        std::size_t worker_count,
+        bool full_memory,
+        const std::atomic<bool>* cancel = nullptr
+    );
+
     [[nodiscard]] NodeMineResult mine_wallet_block(
         std::uint64_t max_attempts
     );
