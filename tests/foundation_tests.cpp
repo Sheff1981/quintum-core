@@ -63,6 +63,19 @@ void test_compact_size()
     const quintum::Bytes non_canonical{253U, 1U, 0U};
     std::size_t offset = 0;
     assert(!quintum::read_compact_size(non_canonical, offset));
+    assert(offset == 0U);
+
+    // Truncated multi-byte encodings are also fail-closed and leave the
+    // caller cursor untouched.
+    const quintum::Bytes truncated16{253U, 0xfdU};
+    offset = 0U;
+    assert(!quintum::read_compact_size(truncated16, offset));
+    assert(offset == 0U);
+
+    const quintum::Bytes truncated32{254U, 0x00U, 0x00U};
+    offset = 0U;
+    assert(!quintum::read_compact_size(truncated32, offset));
+    assert(offset == 0U);
 }
 
 void test_sha256()
