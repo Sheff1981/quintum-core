@@ -5,6 +5,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <span>
 #include <thread>
 #include <utility>
 
@@ -480,6 +481,74 @@ void test_disconnect_and_reconnect()
     assert(server_errors[1] == PeerError::none);
 }
 
+
+void test_adversarial_wire_frame_corpus()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const Bytes payload =
+        serialize_version(
+            version(0x5050U, 50U)
+        );
+    const auto encoded =
+        encode_message(
+            params,
+            "version",
+            payload
+        );
+
+    assert(encoded.ok());
+
+    // Every strict prefix must be classified as incomplete,
+    // never accepted as a message.
+    for (std::size_t size = 0U;
+         size < encoded.bytes.size();
+         ++size) {
+        const auto decoded =
+            decode_message(
+                params,
+                std::span<const Byte>{
+                    encoded.bytes.data(),
+                    size
+                }
+            );
+        assert(!decoded.ok());
+    }
+
+    // A complete first frame may be followed by another frame;
+    // the decoder must consume exactly the first frame.
+    Bytes concatenated = encoded.bytes;
+    concatenated.insert(
+        concatenated.end(),
+        encoded.bytes.begin(),
+        encoded.bytes.end()
+    );
+    const auto first =
+        decode_message(
+            params,
+            concatenated
+        );
+    assert(first.ok());
+    assert(first.consumed ==
+           encoded.bytes.size());
+
+    // Corrupt each magic byte independently.
+    for (std::size_t i = 0U; i < 4U; ++i) {
+        Bytes bad_magic = encoded.bytes;
+        bad_magic[i] ^= 0x80U;
+        const auto decoded =
+            decode_message(
+                params,
+                bad_magic
+            );
+        assert(decoded.error ==
+               WireError::bad_magic);
+    }
+}
+
 } // namespace
 
 int main()
@@ -490,5 +559,6 @@ int main()
     test_wrong_network_rejected();
     test_self_connection_rejected();
     test_disconnect_and_reconnect();
+    test_adversarial_wire_frame_corpus();
     return 0;
 }
