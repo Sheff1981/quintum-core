@@ -17,6 +17,10 @@ data class DeviceMiningStats(
     val batteryPercent: Int?,
     val charging: Boolean,
     val runtimeMillis: Long,
+    val foundBlocks: Long = 0L,
+    val networkDifficulty: Double? = null,
+    val blockHeight: Long? = null,
+    val peers: Long = 0L,
 )
 
 class DeviceMiningStatsReader(
