@@ -3618,3 +3618,12 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 - **Консервативная классификация:** кэшируются только контекстно-независимые consensus failures. Не кэшируются unknown parent, временные/chain-context ошибки, reorg/storage failures и другие состояния, которые могут стать допустимыми после изменения локальной цепи.
 - **Совместимость:** genesis, RandomX PoW, difficulty, monetary policy, transaction/block formats, wallet formats, network magic, адреса и порты не изменены.
 - **Commits:** 8c7fd8a, 67b5239, 08bb8c5, e13d534.
+
+
+## 2026-10-07 — очистка устаревших Stage 45 PR
+
+**Что обнаружено:** PR #33 (`stage45-wallet-restore-transactional`) и PR #34 (`stage45-backup-restore-verification`) остались открыты после того, как актуальная безопасная реализация Stage 45 была пересобрана от текущего `main` и интегрирована через PR #35. На момент проверки #33 отставал от `main` на 33 commit, #34 — на 15; прямой merge мог вернуть устаревший код.
+
+**Действие:** устаревшие PR #33 и #34 закрываются без merge. История commit/PR сохраняется в GitHub для аудита; рабочим источником Stage 45 является PR #35 / merge `067ac1f196f097bf61b3a918e5cca6d6d39c1c06`. Stage 46 интегрирован через PR #36 / merge `cce52b94e632c8e7aa1b573f4a8a76e7b50a05fa` после зелёных Build, Security и GUI.
+
+**Безопасность:** consensus, blockchain data, wallet.dat, private keys, network identity и Testnet параметры этим housekeeping-изменением не меняются.
