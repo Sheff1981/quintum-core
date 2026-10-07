@@ -3599,3 +3599,12 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 - **Fix:** increased only this regression test's deadline to 3 seconds, preserving the final unanswered-batch expiry assertion. No production P2P timeout or consensus behavior changed.
 - **Verification:** new CI run triggered by commit `4f7a044`; final Build/Security/GUI result must be green before merge.
 - **Safety:** Genesis, consensus, RandomX, monetary policy, network identity, ports, addresses, transaction format and wallet formats unchanged.
+
+
+## 2026-10-07 — Stage 45: безопасное восстановление при orphan metadata
+
+- Симптом: ветка Stage 45 была создана до финальной интеграции Stages 42–44 и отставала от актуального main; прямое слияние создавало риск регрессии уже принятого wallet hardening.
+- Причина: финальная интеграция stacked PR была завершена после создания первоначальной Stage 45 ветки.
+- Исправление: Stage 45 пересоздан от актуального main; перенесена только non-destructive защита restore: существующий wallet_meta.dat теперь приводит к target_exists до записи wallet.dat и никогда не перезаписывается/удаляется неявно.
+- Проверка: добавлен regression test с orphan wallet_meta.dat, который требует byte-for-byte сохранения metadata и отсутствия созданного wallet.dat после отказа restore.
+- Совместимость: Genesis, consensus, RandomX, monetary policy, network identity, адреса, порты, transaction format и wallet.dat format не изменены.
