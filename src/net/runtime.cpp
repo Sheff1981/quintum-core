@@ -80,6 +80,19 @@ bool elapsed(
            now - since >= interval;
 }
 
+std::uint64_t deadline_after(
+    std::uint64_t now,
+    std::uint64_t delay) noexcept
+{
+    return now >
+               std::numeric_limits<
+                   std::uint64_t>::max() -
+                   delay
+        ? std::numeric_limits<
+              std::uint64_t>::max()
+        : now + delay;
+}
+
 void append_text(
     Bytes& out,
     std::string_view value)
@@ -1838,17 +1851,20 @@ void NetworkRuntime::maintain_outbound(
             );
             (void)addrman_.save();
 
+            if (it->failures <
+                std::numeric_limits<
+                    std::uint32_t>::max()) {
+                ++it->failures;
+            }
+
             it->next_attempt =
-                now >
-                    std::numeric_limits<
-                        std::uint64_t>::max() -
-                        config_.
-                            reconnect_delay_seconds
-                    ? std::numeric_limits<
-                          std::uint64_t>::max()
-                    : now +
-                          config_.
-                              reconnect_delay_seconds;
+                deadline_after(
+                    now,
+                    reconnect_backoff_delay(
+                        config_.reconnect_delay_seconds,
+                        it->failures
+                    )
+                );
 
             known_address_count_.store(
                 addrman_.size()
@@ -1889,10 +1905,20 @@ void NetworkRuntime::maintain_outbound(
             );
             (void)addrman_.save();
 
+            if (it->failures <
+                std::numeric_limits<
+                    std::uint32_t>::max()) {
+                ++it->failures;
+            }
+
             it->next_attempt =
-                now +
-                config_.
-                    reconnect_delay_seconds;
+                deadline_after(
+                    now,
+                    reconnect_backoff_delay(
+                        config_.reconnect_delay_seconds,
+                        it->failures
+                    )
+                );
             return;
         }
 
@@ -2177,6 +2203,85 @@ void NetworkRuntime::service_peers(
             continue;
         }
 
+        {
+            std::scoped_lock lock(state_mutex_);
+
+            peer.requested_transactions.erase(
+                std::remove_if(
+                    peer.requested_transactions.begin(),
+                    peer.requested_transactions.end(),
+                    [&](const PendingTransactionRequest& request) {
+                        return node_.mempool().contains(
+                            request.hash
+                        );
+                    }
+                ),
+                peer.requested_transactions.end()
+            );
+
+            peer.requested_blocks.erase(
+                std::remove_if(
+                    peer.requested_blocks.begin(),
+                    peer.requested_blocks.end(),
+                    [&](const PendingBlockRequest& request) {
+                        return node_.chain().has_block(
+                            request.hash
+                        );
+                    }
+                ),
+                peer.requested_blocks.end()
+            );
+        }
+
+        if (!drain_transaction_requests(
+                peer,
+                now)) {
+            peer.session.close();
+            continue;
+        }
+
+        if (config_.transaction_request_timeout_seconds > 0U) {
+            const bool stalled_transaction_request =
+                std::any_of(
+                    peer.requested_transactions.begin(),
+                    peer.requested_transactions.end(),
+                    [&](const PendingTransactionRequest& request) {
+                        return elapsed(
+                            now,
+                            request.requested_at,
+                            config_.
+                                transaction_request_timeout_seconds
+                        );
+                    }
+                );
+
+            if (stalled_transaction_request) {
+                peer.session.close();
+                continue;
+            }
+        }
+
+        if (config_.block_request_timeout_seconds > 0U) {
+            const bool stalled_block_request =
+                std::any_of(
+                    peer.requested_blocks.begin(),
+                    peer.requested_blocks.end(),
+                    [&](const PendingBlockRequest& request) {
+                        return elapsed(
+                            now,
+                            request.requested_at,
+                            config_.
+                                block_request_timeout_seconds
+                        );
+                    }
+                );
+
+            if (stalled_block_request) {
+                peer.session.close();
+                continue;
+            }
+        }
+
         if (peer.pending_ping) {
             if (elapsed(
                     now,
@@ -2417,7 +2522,8 @@ bool NetworkRuntime::process_message(
     if (message.command == "inv") {
         return process_inventory(
             peer,
-            message
+            message,
+            now
         );
     }
 
@@ -2473,17 +2579,29 @@ bool NetworkRuntime::process_message(
         for (const auto& item : *inventory) {
             if (item.type ==
                 kInventoryTransaction) {
-                erase_hash(
-                    peer.requested_transactions,
-                    item.hash
+                peer.requested_transactions.erase(
+                    std::remove_if(
+                        peer.requested_transactions.begin(),
+                        peer.requested_transactions.end(),
+                        [&](const PendingTransactionRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    ),
+                    peer.requested_transactions.end()
                 );
             } else if (item.type ==
                            kInventoryBlock ||
                        item.type ==
                            kInventoryCompactBlock) {
-                erase_hash(
-                    peer.requested_blocks,
-                    item.hash
+                peer.requested_blocks.erase(
+                    std::remove_if(
+                        peer.requested_blocks.begin(),
+                        peer.requested_blocks.end(),
+                        [&](const PendingBlockRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    ),
+                    peer.requested_blocks.end()
                 );
 
                 peer.pending_compact_blocks.erase(
@@ -2508,7 +2626,8 @@ bool NetworkRuntime::process_message(
 
 bool NetworkRuntime::process_inventory(
     LivePeer& peer,
-    const WireMessage& message)
+    const WireMessage& message,
+    std::uint64_t now)
 {
     const auto inventory =
         parse_inventory(
@@ -2537,18 +2656,56 @@ bool NetworkRuntime::process_inventory(
                     promote_private_transaction(
                         item.hash
                     );
+                    erase_hash(
+                        peer.deferred_transactions,
+                        item.hash
+                    );
                     continue;
                 }
 
-                if (contains_hash(
-                        peer.
-                            requested_transactions,
+                const bool already_requested =
+                    std::any_of(
+                        peer.requested_transactions.begin(),
+                        peer.requested_transactions.end(),
+                        [&](const PendingTransactionRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    );
+
+                if (already_requested ||
+                    contains_hash(
+                        peer.deferred_transactions,
                         item.hash)) {
                     continue;
                 }
 
-                peer.requested_transactions.
-                    push_back(item.hash);
+                const std::size_t capacity =
+                    std::max<std::size_t>(
+                        1U,
+                        config_.
+                            max_transaction_requests_in_flight
+                    );
+
+                if (peer.requested_transactions.size() >=
+                    capacity) {
+                    if (peer.deferred_transactions.size() >=
+                        config_.
+                            max_deferred_transaction_requests) {
+                        return false;
+                    }
+
+                    peer.deferred_transactions.push_back(
+                        item.hash
+                    );
+                    continue;
+                }
+
+                peer.requested_transactions.push_back(
+                    PendingTransactionRequest{
+                        .hash = item.hash,
+                        .requested_at = now,
+                    }
+                );
                 wanted.push_back(item);
                 continue;
             }
@@ -2580,16 +2737,32 @@ bool NetworkRuntime::process_inventory(
                     continue;
                 }
 
+                const bool already_requested =
+                    std::any_of(
+                        peer.requested_blocks.begin(),
+                        peer.requested_blocks.end(),
+                        [&](const PendingBlockRequest& request) {
+                            return request.hash == item.hash;
+                        }
+                    );
+
                 if (node_.chain().has_block(
                         item.hash) ||
-                    contains_hash(
-                        peer.requested_blocks,
-                        item.hash)) {
+                    already_requested) {
                     continue;
                 }
 
-                peer.requested_blocks.
-                    push_back(item.hash);
+                if (peer.requested_blocks.size() >=
+                    config_.max_block_requests_in_flight) {
+                    continue;
+                }
+
+                peer.requested_blocks.push_back(
+                    PendingBlockRequest{
+                        .hash = item.hash,
+                        .requested_at = now,
+                    }
+                );
 
                 InventoryItem requested = item;
 
@@ -2619,6 +2792,72 @@ bool NetworkRuntime::process_inventory(
            PeerError::none;
 }
 
+bool NetworkRuntime::drain_transaction_requests(
+    LivePeer& peer,
+    std::uint64_t now)
+{
+    if (peer.deferred_transactions.empty()) {
+        return true;
+    }
+
+    const std::size_t capacity =
+        std::max<std::size_t>(
+            1U,
+            config_.
+                max_transaction_requests_in_flight
+        );
+
+    if (peer.requested_transactions.size() >=
+        capacity) {
+        return true;
+    }
+
+    const std::size_t available =
+        capacity -
+        peer.requested_transactions.size();
+
+    const std::size_t count =
+        std::min(
+            available,
+            peer.deferred_transactions.size()
+        );
+
+    std::vector<InventoryItem> wanted;
+    wanted.reserve(count);
+
+    for (std::size_t i = 0U;
+         i < count;
+         ++i) {
+        const Hash256 hash =
+            peer.deferred_transactions[i];
+
+        peer.requested_transactions.push_back(
+            PendingTransactionRequest{
+                .hash = hash,
+                .requested_at = now,
+            }
+        );
+
+        wanted.push_back(
+            InventoryItem{
+                .type = kInventoryTransaction,
+                .hash = hash,
+            }
+        );
+    }
+
+    peer.deferred_transactions.erase(
+        peer.deferred_transactions.begin(),
+        peer.deferred_transactions.begin() +
+            static_cast<std::ptrdiff_t>(count)
+    );
+
+    return peer.session.send_command(
+               "getdata",
+               serialize_inventory(wanted)) ==
+           PeerError::none;
+}
+
 bool NetworkRuntime::process_transaction(
     LivePeer& peer,
     const WireMessage& message)
@@ -2637,18 +2876,27 @@ bool NetworkRuntime::process_transaction(
         transaction_id(*transaction);
 
     const bool requested =
-        contains_hash(
-            peer.requested_transactions,
-            txid
+        std::any_of(
+            peer.requested_transactions.begin(),
+            peer.requested_transactions.end(),
+            [&](const PendingTransactionRequest& request) {
+                return request.hash == txid;
+            }
         );
 
     if (!requested) {
         return false;
     }
 
-    erase_hash(
-        peer.requested_transactions,
-        txid
+    peer.requested_transactions.erase(
+        std::remove_if(
+            peer.requested_transactions.begin(),
+            peer.requested_transactions.end(),
+            [&](const PendingTransactionRequest& request) {
+                return request.hash == txid;
+            }
+        ),
+        peer.requested_transactions.end()
     );
 
     NodeTransactionResult submitted;
@@ -2807,9 +3055,16 @@ bool NetworkRuntime::process_compact_block(
     const Hash256 hash =
         block_hash(compact->header);
 
-    if (!contains_hash(
-            peer.requested_blocks,
-            hash)) {
+    const bool requested =
+        std::any_of(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        );
+
+    if (!requested) {
         return false;
     }
 
@@ -2880,6 +3135,23 @@ bool NetworkRuntime::process_compact_block(
         PeerError::none) {
         peer.pending_compact_blocks.pop_back();
         return false;
+    }
+
+    const auto request_it =
+        std::find_if(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& pending) {
+                return pending.hash == hash;
+            }
+        );
+
+    if (request_it !=
+        peer.requested_blocks.end()) {
+        // A compact block was delivered, so the peer made real progress.
+        // Start a fresh deadline for the missing-transaction round trip
+        // instead of charging it against the original block request.
+        request_it->requested_at = now;
     }
 
     return true;
@@ -3054,15 +3326,28 @@ bool NetworkRuntime::process_received_block(
     const Hash256& hash,
     std::uint64_t now)
 {
-    if (!contains_hash(
-            peer.requested_blocks,
-            hash)) {
+    const bool requested =
+        std::any_of(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        );
+
+    if (!requested) {
         return false;
     }
 
-    erase_hash(
-        peer.requested_blocks,
-        hash
+    peer.requested_blocks.erase(
+        std::remove_if(
+            peer.requested_blocks.begin(),
+            peer.requested_blocks.end(),
+            [&](const PendingBlockRequest& request) {
+                return request.hash == hash;
+            }
+        ),
+        peer.requested_blocks.end()
     );
 
     peer.pending_compact_blocks.erase(
@@ -3641,21 +3926,19 @@ void NetworkRuntime::schedule_reconnect(
         );
 
     const std::uint64_t next =
-        now >
-            std::numeric_limits<
-                std::uint64_t>::max() -
-                config_.
-                    reconnect_delay_seconds
-            ? std::numeric_limits<
-                  std::uint64_t>::max()
-            : now +
-                  config_.
-                      reconnect_delay_seconds;
+        deadline_after(
+            now,
+            reconnect_backoff_delay(
+                config_.reconnect_delay_seconds,
+                0U
+            )
+        );
 
     if (it !=
         reconnect_candidates_.end()) {
+        // Never shorten an already-earned backoff window.
         it->next_attempt =
-            std::min(
+            std::max(
                 it->next_attempt,
                 next
             );
@@ -3666,6 +3949,7 @@ void NetworkRuntime::schedule_reconnect(
         ReconnectCandidate{
             .address = address,
             .next_attempt = next,
+            .failures = 0U,
         }
     );
 }
