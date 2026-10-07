@@ -14,4 +14,13 @@ object NativeCore {
     external fun nativeStart(dataDirectory: String): Int
     external fun nativeStop()
     external fun nativeRunning(): Boolean
+
+    external fun nativeStartMining(payoutAddress: String, threads: Int): Int
+    external fun nativeStopMining()
+    external fun nativeMiningRunning(): Boolean
+    external fun nativeMiningAttempts(): Long
+    external fun nativeMiningFoundBlocks(): Long
+    external fun nativeMiningThreads(): Int
+    external fun nativeMiningRuntimeMillis(): Long
+    external fun nativeMiningHashRate(): Double
 }
