@@ -1326,6 +1326,48 @@ NetworkRuntime::mine_mempool_block(
 }
 
 NodeMineResult
+NetworkRuntime::mine_mempool_block_parallel(
+    const Bytes& payout_script,
+    std::uint64_t max_attempts,
+    std::size_t worker_count,
+    bool full_memory,
+    const std::atomic<bool>* cancel)
+{
+    NodeMineResult out;
+
+    {
+        std::scoped_lock lock(state_mutex_);
+        out = node_.mine_mempool_block_parallel_at(
+            payout_script,
+            unix_time_now(),
+            max_attempts,
+            worker_count,
+            full_memory,
+            wallet_mining_nonce_,
+            cancel
+        );
+
+        if (out.error == NodeMineError::proof_of_work_exhausted) {
+            wallet_mining_nonce_ =
+                out.mining.nonce == std::numeric_limits<std::uint64_t>::max()
+                    ? 0U
+                    : out.mining.nonce + 1U;
+        } else if (out.ok()) {
+            wallet_mining_nonce_ = 0U;
+        }
+    }
+
+    if (out.ok()) {
+        queue_announcement(
+            kInventoryBlock,
+            block_hash(out.block.header)
+        );
+    }
+
+    return out;
+}
+
+NodeMineResult
 NetworkRuntime::mine_wallet_block(
     std::uint64_t max_attempts)
 {
