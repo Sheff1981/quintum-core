@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 class QComboBox;
 class QLabel;
@@ -40,6 +41,9 @@ private:
 
     void refresh();
     void filter_transactions();
+    void refresh_transaction_table(
+        const net::WalletDesktopSnapshot& snapshot
+    );
     void preview_and_send();
     void new_receive_address();
     void copy_receive_address();
@@ -112,6 +116,7 @@ private:
     QTableWidget* transactions_{nullptr};
     QLineEdit* transaction_search_{nullptr};
     QComboBox* transaction_status_filter_{nullptr};
+    std::vector<Hash256> transaction_rows_{};
 
     QTableWidget* address_book_table_{nullptr};
     QLineEdit* address_book_address_{nullptr};

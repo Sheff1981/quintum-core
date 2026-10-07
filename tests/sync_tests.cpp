@@ -1,3 +1,4 @@
+#include "consensus/pow.hpp"
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/peer.hpp"
@@ -115,6 +116,88 @@ void serve_requests(
 
     accepted.session->close();
     error = quintum::net::SyncError::none;
+}
+
+
+void serve_requests_with_interleaved_inv(
+    quintum::net::PeerListener& listener,
+    const quintum::Chainstate& chain,
+    quintum::net::VersionMessage local,
+    std::size_t requests,
+    quintum::net::SyncError& error)
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto accepted =
+        listener.accept_and_handshake(
+            local,
+            5'000U
+        );
+
+    if (!accepted.ok()) {
+        error = SyncError::transport_failed;
+        return;
+    }
+
+    const auto tip = chain.tip_hash();
+    if (!tip) {
+        error = SyncError::malformed_message;
+        accepted.session->close();
+        return;
+    }
+
+    const std::array<InventoryItem, 1> announcement{
+        InventoryItem{
+            .type = kInventoryBlock,
+            .hash = *tip,
+        }
+    };
+    const auto inv_payload =
+        serialize_inventory(announcement);
+
+    for (std::size_t i = 0U;
+         i < requests;
+         ++i) {
+        WireMessage request;
+        const auto receive =
+            accepted.session->receive_command(
+                request
+            );
+
+        if (receive != PeerError::none) {
+            error = SyncError::transport_failed;
+            accepted.session->close();
+            return;
+        }
+
+        // Reproduce the live failure mode: a freshly mined block inventory
+        // arrives between a sync request and its expected response.
+        if (accepted.session->send_command(
+                "inv",
+                inv_payload) !=
+            PeerError::none) {
+            error = SyncError::transport_failed;
+            accepted.session->close();
+            return;
+        }
+
+        const auto served =
+            serve_sync_message(
+                *accepted.session,
+                chain,
+                request
+            );
+
+        if (!served.ok()) {
+            error = served.error;
+            accepted.session->close();
+            return;
+        }
+    }
+
+    accepted.session->close();
+    error = SyncError::none;
 }
 
 void test_wire_codecs_and_locator()
@@ -319,6 +402,95 @@ void test_genesis_to_tip_sync_and_restart()
     assert(*restarted.chain().height() == 5U);
     assert(restarted.chain().tip_hash() ==
            expected_tip);
+
+    std::error_code ec;
+    std::filesystem::remove_all(server_dir, ec);
+    std::filesystem::remove_all(client_dir, ec);
+}
+
+
+void test_sync_tolerates_interleaved_block_inventory()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto server_dir =
+        unique_dir("interleaved-inv-server");
+    const auto client_dir =
+        unique_dir("interleaved-inv-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 15'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    mine_blocks(
+        server,
+        payout_script(12U),
+        now,
+        5U
+    );
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        // One getheaders and one getdata batch. Inject an unsolicited block
+        // inv before each response, as happens when the remote peer keeps
+        // mining while this node is catching up.
+        serve_requests_with_interleaved_inv(
+            listener,
+            server.chain(),
+            version(0x1703U, 5U),
+            2U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1704U, 0U),
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now + 100U
+        );
+
+    assert(synced.ok());
+    assert(synced.headers_received == 5U);
+    assert(synced.blocks_requested == 5U);
+    assert(synced.blocks_accepted == 5U);
+    assert(client.chain().height() ==
+           server.chain().height());
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error == SyncError::none);
 
     std::error_code ec;
     std::filesystem::remove_all(server_dir, ec);
@@ -810,6 +982,303 @@ void test_ibd_batches_block_requests()
 }
 
 
+void test_randomx_headers_first_uses_randomx_pow()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    auto params =
+        consensus::randomx_testnet_params();
+
+    // Keep public RandomX consensus parameters and Genesis intact while the
+    // test remains completely isolated from public discovery.
+    params.network =
+        consensus::Network::regtest;
+    params.name =
+        "randomx-headers-first-test";
+    params.p2p_port = 0U;
+    params.rpc_port = 0U;
+
+    const auto server_dir =
+        unique_dir("randomx-header-server");
+    const auto client_dir =
+        unique_dir("randomx-header-client");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 10'000U;
+
+    NodeRuntime server{params, server_dir};
+    NodeRuntime client{params, client_dir};
+
+    assert(server.start_at(now).ok());
+    assert(client.start_at(now).ok());
+
+    constexpr std::uint32_t kBlocks = 3U;
+
+    for (std::uint32_t height = 1U;
+         height <= kBlocks;
+         ++height) {
+        const auto mined =
+            server.mine_block_at(
+                payout_script(10U),
+                params.genesis.timestamp +
+                    static_cast<std::uint64_t>(
+                        height) *
+                    params.pow.
+                        target_spacing_seconds,
+                20'000U
+            );
+
+        assert(mined.ok());
+        assert(mined.height == height);
+    }
+
+    bool has_sha256d_mismatch{false};
+
+    for (std::uint32_t height = 1U;
+         height <= kBlocks;
+         ++height) {
+        const auto header =
+            server.chain().
+                active_header(height);
+        assert(header);
+
+        if (consensus::check_proof_of_work(
+                *header,
+                params.pow) !=
+            consensus::PowCheckError::none) {
+            has_sha256d_mismatch = true;
+        }
+    }
+
+    // This guarantees the fixture would have been rejected by the old
+    // headers-first path that incorrectly applied SHA-256d to RandomX.
+    assert(has_sha256d_mismatch);
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    SyncError server_error{
+        SyncError::transport_failed
+    };
+
+    std::thread server_thread([&] {
+        serve_requests(
+            listener,
+            server.chain(),
+            version(0x1771U, kBlocks),
+            2U,
+            server_error
+        );
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1772U, 0U),
+            10'000U
+        );
+
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now
+        );
+
+    assert(synced.ok());
+    assert(synced.headers_received ==
+           kBlocks);
+    assert(synced.blocks_requested ==
+           kBlocks);
+    assert(synced.block_request_batches ==
+           1U);
+    assert(synced.blocks_accepted ==
+           kBlocks);
+    assert(client.chain().height() ==
+           server.chain().height());
+    assert(client.chain().tip_hash() ==
+           server.chain().tip_hash());
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error ==
+           SyncError::none);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        server_dir,
+        ec
+    );
+    std::filesystem::remove_all(
+        client_dir,
+        ec
+    );
+}
+
+
+void test_invalid_difficulty_headers_stop_before_block_download()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto client_dir =
+        unique_dir("bad-header-difficulty");
+
+    const std::uint64_t now =
+        params.genesis.timestamp + 10'000U;
+
+    NodeRuntime client{params, client_dir};
+    assert(client.start_at(now).ok());
+    assert(client.chain().height() ==
+           std::optional<std::uint32_t>{0U});
+
+    BlockHeader invalid;
+    invalid.previous_block =
+        params.genesis.hash;
+    invalid.timestamp =
+        params.genesis.timestamp + 1U;
+
+    // Regtest expects the parent's unchanged 0x2100ffff target here. This
+    // harder target is still below the PoW limit and can therefore carry a
+    // perfectly valid hash while remaining consensus-invalid bad-diffbits.
+    invalid.bits = 0x207fffffU;
+
+    const auto mined =
+        consensus::mine_header(
+            invalid,
+            4'096U
+        );
+    assert(mined.found());
+    assert(consensus::check_proof_of_work(
+               invalid,
+               params.pow) ==
+           consensus::PowCheckError::none);
+    assert(client.chain().
+               next_work_required(
+                   invalid.timestamp) !=
+           std::optional<std::uint32_t>{
+               invalid.bits});
+
+    PeerListener listener{params};
+    assert(listener.listen(
+               "127.0.0.1",
+               0U) ==
+           PeerError::none);
+
+    bool received_getdata{false};
+    PeerError server_error{
+        PeerError::none
+    };
+
+    std::thread server_thread([&] {
+        auto accepted =
+            listener.accept_and_handshake(
+                version(0x1761U, 1U),
+                5'000U
+            );
+
+        if (!accepted.ok()) {
+            server_error =
+                accepted.error;
+            return;
+        }
+
+        WireMessage request;
+        server_error =
+            accepted.session->receive_command(
+                request
+            );
+
+        if (server_error !=
+                PeerError::none ||
+            request.command !=
+                "getheaders") {
+            accepted.session->close();
+            return;
+        }
+
+        const std::array<BlockHeader, 1>
+            headers{invalid};
+
+        server_error =
+            accepted.session->send_command(
+                "headers",
+                serialize_headers(headers)
+            );
+
+        if (server_error ==
+                PeerError::none &&
+            accepted.session->wait_readable(
+                500U)) {
+            WireMessage unexpected;
+            if (accepted.session->
+                    receive_command(
+                        unexpected) ==
+                    PeerError::none &&
+                unexpected.command ==
+                    "getdata") {
+                received_getdata = true;
+            }
+        }
+
+        accepted.session->close();
+    });
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            listener.local_port(),
+            version(0x1762U, 0U),
+            5'000U
+        );
+    assert(connected.ok());
+
+    const auto synced =
+        sync_from_peer(
+            *connected.session,
+            client,
+            now
+        );
+
+    assert(synced.error ==
+           SyncError::
+               invalid_header_consensus);
+    assert(synced.chain_error ==
+           ChainConnectError::
+               unexpected_difficulty);
+    assert(synced.headers_received == 1U);
+    assert(synced.blocks_requested == 0U);
+    assert(synced.block_request_batches == 0U);
+    assert(client.chain().height() ==
+           std::optional<std::uint32_t>{0U});
+
+    connected.session->close();
+    server_thread.join();
+
+    assert(server_error ==
+           PeerError::none);
+    assert(!received_getdata);
+
+    std::error_code ec;
+    std::filesystem::remove_all(
+        client_dir,
+        ec
+    );
+}
+
+
 void test_chainwork_sync_selection()
 {
     using namespace quintum;
@@ -909,9 +1378,12 @@ int main()
 {
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
+    test_sync_tolerates_interleaved_block_inventory();
     test_heavier_remote_branch_reorg();
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
+    test_randomx_headers_first_uses_randomx_pow();
+    test_invalid_difficulty_headers_stop_before_block_download();
     test_chainwork_sync_selection();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;

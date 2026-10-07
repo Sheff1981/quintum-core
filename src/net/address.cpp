@@ -1375,6 +1375,19 @@ void AddrManager::mark_failure(
     }
 }
 
+void AddrManager::make_retry_eligible(
+    const PeerAddress& address,
+    std::uint64_t now)
+{
+    if (auto* entry = find(address)) {
+        entry->next_attempt =
+            std::min(
+                entry->next_attempt,
+                now
+            );
+    }
+}
+
 std::optional<PeerAddress> AddrManager::select(
     std::uint64_t now,
     std::span<const PeerAddress> excluded,

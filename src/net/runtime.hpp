@@ -10,6 +10,7 @@
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -21,6 +22,42 @@
 #include <vector>
 
 namespace quintum::net {
+
+inline constexpr std::uint64_t
+    kMaxReconnectBackoffSeconds{300U};
+
+[[nodiscard]] constexpr std::uint64_t
+reconnect_backoff_delay(
+    std::uint64_t base_seconds,
+    std::uint32_t failures) noexcept
+{
+    if (base_seconds == 0U) {
+        return 0U;
+    }
+
+    std::uint64_t delay =
+        std::min<std::uint64_t>(
+            base_seconds,
+            kMaxReconnectBackoffSeconds
+        );
+
+    for (std::uint32_t i = 0U;
+         i < failures &&
+         delay < kMaxReconnectBackoffSeconds;
+         ++i) {
+        if (delay >
+            kMaxReconnectBackoffSeconds / 2U) {
+            return kMaxReconnectBackoffSeconds;
+        }
+
+        delay *= 2U;
+    }
+
+    return std::min<std::uint64_t>(
+        delay,
+        kMaxReconnectBackoffSeconds
+    );
+}
 
 struct NetworkRuntimeConfig {
     std::string bind_address{"0.0.0.0"};
@@ -35,6 +72,11 @@ struct NetworkRuntimeConfig {
     std::uint64_t reconnect_delay_seconds{5U};
     std::uint64_t ping_interval_seconds{120U};
     std::uint64_t ping_timeout_seconds{30U};
+    std::uint64_t block_request_timeout_seconds{30U};
+    std::size_t max_block_requests_in_flight{16U};
+    std::uint64_t transaction_request_timeout_seconds{15U};
+    std::size_t max_transaction_requests_in_flight{128U};
+    std::size_t max_deferred_transaction_requests{512U};
     std::uint32_t max_messages_per_second{256U};
     std::uint32_t max_stem_transactions_per_second{32U};
     bool enable_dandelion_relay{true};
@@ -51,7 +93,7 @@ struct NetworkRuntimeConfig {
         kDefaultDandelionEpochSeconds
     };
     std::size_t randomx_mining_threads{0U};
-    bool randomx_full_memory_mining{false};
+    bool randomx_full_memory_mining{true};
     std::vector<PeerAddress> bootstrap_peers{};
     ProxyRoutes proxies{};
     bool enable_nat_mapping{false};
@@ -113,6 +155,8 @@ struct NetworkRuntimeStatus {
     bool synchronizing{false};
     double sync_progress{1.0};
     std::optional<Hash256> tip{};
+    std::optional<std::uint32_t> difficulty_bits{};
+    std::optional<double> difficulty{};
     std::size_t mempool_transactions{0U};
     wallet::WalletBalance wallet_balance{};
     Amount min_relay_fee_rate_per_kb{
@@ -351,6 +395,7 @@ private:
     struct ReconnectCandidate {
         PeerAddress address{};
         std::uint64_t next_attempt{0U};
+        std::uint32_t failures{0U};
     };
 
     struct StemRelayState {
@@ -365,6 +410,16 @@ private:
             missing_indexes{};
     };
 
+    struct PendingBlockRequest {
+        Hash256 hash{};
+        std::uint64_t requested_at{0U};
+    };
+
+    struct PendingTransactionRequest {
+        Hash256 hash{};
+        std::uint64_t requested_at{0U};
+    };
+
     struct LivePeer {
         PeerSession session{};
         std::optional<PeerAddress> address{};
@@ -375,8 +430,10 @@ private:
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
-        std::vector<Hash256> requested_transactions{};
-        std::vector<Hash256> requested_blocks{};
+        std::vector<PendingTransactionRequest>
+            requested_transactions{};
+        std::vector<Hash256> deferred_transactions{};
+        std::vector<PendingBlockRequest> requested_blocks{};
         std::vector<PendingCompactBlock>
             pending_compact_blocks{};
     };
@@ -409,12 +466,18 @@ private:
 
     [[nodiscard]] bool process_inventory(
         LivePeer& peer,
-        const WireMessage& message
+        const WireMessage& message,
+        std::uint64_t now
     );
 
     [[nodiscard]] bool process_transaction(
         LivePeer& peer,
         const WireMessage& message
+    );
+
+    [[nodiscard]] bool drain_transaction_requests(
+        LivePeer& peer,
+        std::uint64_t now
     );
 
     [[nodiscard]] bool process_stem_transaction(

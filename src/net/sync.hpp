@@ -45,6 +45,7 @@ enum class SyncError {
     malformed_message,
     invalid_header_chain,
     invalid_header_pow,
+    invalid_header_consensus,
     stalled,
     block_not_found,
     block_parse_failed,

@@ -49,6 +49,11 @@ struct MiningResult {
 [[nodiscard]] CompactTarget decode_compact_target(std::uint32_t bits);
 [[nodiscard]] std::uint32_t encode_compact_target(const Hash256& target);
 
+[[nodiscard]] std::optional<double> difficulty_from_bits(
+    std::uint32_t bits,
+    std::uint32_t pow_limit_bits
+) noexcept;
+
 [[nodiscard]] bool hash_meets_target(
     const Hash256& hash,
     const Hash256& target
