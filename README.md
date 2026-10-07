@@ -54,7 +54,7 @@ Code contributions: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 - `src/` — node/core source code
 - `docs/` — protocol and architecture documentation
-- `docs/ru/START_HERE.md` — plain-language Russian project guide
+- `docs/START_HERE.md` — plain-language project guide
 - `.github/workflows/` — reproducible CI builds
 - `TRADEMARKS.md` — QUINTUM trademark and brand-use policy
 - `CONTRIBUTING.md` — contribution guidelines
