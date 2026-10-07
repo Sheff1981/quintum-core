@@ -1976,8 +1976,13 @@ StorageError ChainstateStore::load(
             return StorageError::state_mismatch;
         }
 
+        // chainstate.dat and each block record are checksummed and were
+        // written only after normal consensus acceptance. Re-run every
+        // structural, difficulty, monetary, transaction, UTXO and chainwork
+        // check, but do not spend minutes recomputing RandomX for historical
+        // blocks on every process restart.
         const auto result =
-            replay.connect_block(
+            replay.connect_validated_snapshot_block(
                 block,
                 std::numeric_limits<
                     std::uint64_t>::max());
@@ -2038,7 +2043,7 @@ StorageError ChainstateStore::load(
         }
 
         const auto result =
-            active.connect_block(
+            active.connect_validated_snapshot_block(
                 *block_it->second.block,
                 std::numeric_limits<
                     std::uint64_t>::max());
