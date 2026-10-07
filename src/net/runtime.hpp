@@ -279,6 +279,8 @@ public:
         std::string_view passphrase
     ) const;
 
+    [[nodiscard]] bool wallet_encrypted() const;
+
     [[nodiscard]] NodeTransactionResult submit_transaction(
         const Transaction& transaction
     );
