@@ -834,6 +834,12 @@ bool NetworkRuntime::verify_wallet_passphrase(
     );
 }
 
+bool NetworkRuntime::wallet_encrypted() const
+{
+    std::scoped_lock lock(state_mutex_);
+    return wallet_.encrypted();
+}
+
 NodeTransactionResult
 NetworkRuntime::submit_transaction(
     const Transaction& transaction)
