@@ -23,4 +23,8 @@ object NativeCore {
     external fun nativeMiningThreads(): Int
     external fun nativeMiningRuntimeMillis(): Long
     external fun nativeMiningHashRate(): Double
+
+    external fun nativeBlockHeight(): Long
+    external fun nativePeerCount(): Long
+    external fun nativeDifficulty(): Double
 }
