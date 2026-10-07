@@ -1696,6 +1696,22 @@ WalletStoreError Wallet::restore_bundle(
         return WalletStoreError::io_error;
     }
 
+    // A restore target must be empty as a wallet unit. Refuse to
+    // overwrite orphaned metadata just as we refuse to overwrite
+    // wallet.dat; this keeps recovery fail-closed and preserves any
+    // pre-existing user data for manual inspection/recovery.
+    if (std::filesystem::exists(
+            metadata_path_,
+            ec)) {
+        return ec
+            ? WalletStoreError::io_error
+            : WalletStoreError::target_exists;
+    }
+
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
     auto bundle =
         read_file_limited(
             source,
@@ -1875,6 +1891,30 @@ WalletStoreError Wallet::restore_bundle(
             );
         };
 
+    // Stage 45: do not trust a successful atomic-write return alone.
+    // Read the restored wallet back before committing companion
+    // metadata so a truncated/corrupted destination cannot leave a
+    // restore that appears complete.
+    auto restored_wallet =
+        read_file(path_);
+
+    if (!restored_wallet) {
+        rollback_wallet();
+        return WalletStoreError::io_error;
+    }
+
+    SecretBytesGuard restored_wallet_guard{
+        &*restored_wallet
+    };
+
+    if (std::span<const Byte>{
+            restored_wallet->data(),
+            restored_wallet->size()} !=
+        wallet_data) {
+        rollback_wallet();
+        return WalletStoreError::corrupt;
+    }
+
     if (!metadata_data.empty()) {
         result =
             write_atomic(
@@ -1887,6 +1927,36 @@ WalletStoreError Wallet::restore_bundle(
             WalletStoreError::none) {
             rollback_wallet();
             return result;
+        }
+
+        auto restored_metadata =
+            read_file(metadata_path_);
+
+        if (!restored_metadata) {
+            std::error_code remove_ec;
+            std::filesystem::remove(
+                metadata_path_,
+                remove_ec
+            );
+            rollback_wallet();
+            return WalletStoreError::io_error;
+        }
+
+        SecretBytesGuard restored_metadata_guard{
+            &*restored_metadata
+        };
+
+        if (std::span<const Byte>{
+                restored_metadata->data(),
+                restored_metadata->size()} !=
+            metadata_data) {
+            std::error_code remove_ec;
+            std::filesystem::remove(
+                metadata_path_,
+                remove_ec
+            );
+            rollback_wallet();
+            return WalletStoreError::corrupt;
         }
     } else {
         ec.clear();
