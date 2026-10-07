@@ -556,6 +556,7 @@ void NetworkRuntime::stop() noexcept
     peers_.clear();
     reconnect_candidates_.clear();
     stem_relays_.clear();
+    invalid_object_cache_.clear();
     origin_stem_route_.reset();
     origin_stem_epoch_deadline_ = 0U;
 
@@ -4005,6 +4006,81 @@ void NetworkRuntime::update_peer_counts() noexcept
     outbound_count_.store(outbound);
     peer_best_height_.store(best_height);
     have_peer_height_.store(have_height);
+}
+
+void NetworkRuntime::prune_invalid_object_cache(
+    std::uint64_t now)
+{
+    invalid_object_cache_.erase(
+        std::remove_if(
+            invalid_object_cache_.begin(),
+            invalid_object_cache_.end(),
+            [now](const InvalidObjectEntry& entry) {
+                return entry.expires_at <= now;
+            }
+        ),
+        invalid_object_cache_.end()
+    );
+
+    while (invalid_object_cache_.size() >
+           config_.max_invalid_object_cache_entries) {
+        invalid_object_cache_.pop_front();
+    }
+}
+
+bool NetworkRuntime::invalid_object_cached(
+    const Hash256& digest,
+    std::uint64_t now)
+{
+    prune_invalid_object_cache(now);
+
+    return std::any_of(
+        invalid_object_cache_.begin(),
+        invalid_object_cache_.end(),
+        [&](const InvalidObjectEntry& entry) {
+            return entry.digest == digest;
+        }
+    );
+}
+
+void NetworkRuntime::cache_invalid_object(
+    const Hash256& digest,
+    std::uint64_t now)
+{
+    if (config_.max_invalid_object_cache_entries == 0U ||
+        config_.invalid_object_cache_ttl_seconds == 0U) {
+        return;
+    }
+
+    prune_invalid_object_cache(now);
+
+    if (std::any_of(
+            invalid_object_cache_.begin(),
+            invalid_object_cache_.end(),
+            [&](const InvalidObjectEntry& entry) {
+                return entry.digest == digest;
+            })) {
+        return;
+    }
+
+    while (invalid_object_cache_.size() >=
+           config_.max_invalid_object_cache_entries) {
+        invalid_object_cache_.pop_front();
+    }
+
+    const auto ttl =
+        config_.invalid_object_cache_ttl_seconds;
+    const auto expires_at =
+        now > std::numeric_limits<std::uint64_t>::max() - ttl
+            ? std::numeric_limits<std::uint64_t>::max()
+            : now + ttl;
+
+    invalid_object_cache_.push_back(
+        InvalidObjectEntry{
+            .digest = digest,
+            .expires_at = expires_at,
+        }
+    );
 }
 
 bool NetworkRuntime::sync_wallet_locked()
