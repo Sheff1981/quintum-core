@@ -100,6 +100,12 @@ The P2P wire tests now exercise every strict prefix of a valid frame, concatenat
 
 These tests are intended to prove fail-closed behavior at network-controlled parser boundaries under the normal Build/Security/GUI CI matrix. Consensus rules, successful serialization, RandomX, Genesis, monetary policy, wallet formats, network identity, addresses and ports are unchanged.
 
+## Stage 51 — Crash/restart consistency
+
+Stage 51 extends persistent-chainstate recovery coverage with an explicit interrupted-snapshot crash point. The test writes a partial `chainstate.dat.tmp` beside a valid committed snapshot, restarts the node, verifies that the committed height/tip/UTXO state remains authoritative, continues by committing another block, and verifies a second clean restart.
+
+This complements the existing coverage for uncommitted block tails, truncated committed blocks, side-branch/undo restart, pruning restart and corruption rejection. The storage format and consensus rules are unchanged.
+
 ## Documentation policy
 
 QUINTUM technical documentation is maintained in English only. New implementation stages must update the relevant English normative document and this development index when the change is historically significant. Git history remains the source of truth for exact code changes and commit chronology.
