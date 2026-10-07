@@ -623,7 +623,8 @@ MiningResult mine_randomx_header_parallel(
     const Hash256& seed_key,
     std::uint64_t max_attempts,
     std::size_t worker_count,
-    bool full_memory)
+    bool full_memory,
+    const std::atomic<bool>* cancel)
 {
     if (worker_count <= 1U) {
         return mine_randomx_header(
@@ -754,7 +755,10 @@ MiningResult mine_randomx_header_parallel(
                              worker);
                      offset < max_attempts &&
                      !stop.load(
-                         std::memory_order_relaxed);
+                         std::memory_order_relaxed) &&
+                     !(cancel != nullptr &&
+                       cancel->load(
+                           std::memory_order_relaxed));
                      offset +=
                          static_cast<std::uint64_t>(
                              bounded_workers)) {
