@@ -3386,6 +3386,20 @@ bool NetworkRuntime::process_received_block(
         peer.pending_compact_blocks.end()
     );
 
+    // Cache the digest of the complete canonical block, never an inventory
+    // hash announced by a peer. This prevents untrusted announcements from
+    // poisoning validation of a different object.
+    const Hash256 object_digest =
+        crypto::double_sha256(
+            serialize_block_payload(block)
+        );
+
+    if (invalid_object_cached(
+            object_digest,
+            now)) {
+        return false;
+    }
+
     NodeSubmitResult submitted;
     std::optional<std::uint32_t>
         accepted_height;
@@ -3450,9 +3464,38 @@ bool NetworkRuntime::process_received_block(
     }
 
     if (!submitted.ok()) {
-        return submitted.connect.chain.error ==
-               ChainConnectError::
-                   duplicate_block;
+        const auto error =
+            submitted.connect.chain.error;
+
+        if (error ==
+            ChainConnectError::duplicate_block) {
+            return true;
+        }
+
+        // Only context-independent failures are safe to remember. Errors
+        // involving ancestry, time, transactions, storage or reorg state may
+        // become valid/retryable as local chain state changes.
+        switch (error) {
+        case ChainConnectError::invalid_block_structure:
+        case ChainConnectError::wrong_genesis:
+        case ChainConnectError::invalid_proof_of_work:
+        case ChainConnectError::resource_limits_exceeded:
+        case ChainConnectError::height_overflow:
+        case ChainConnectError::fee_sum_overflow:
+        case ChainConnectError::invalid_coinbase_reward:
+            if (submitted.error ==
+                NodeSubmitError::chain_rejected) {
+                cache_invalid_object(
+                    object_digest,
+                    now
+                );
+            }
+            break;
+        default:
+            break;
+        }
+
+        return false;
     }
 
     if (accepted_height) {
