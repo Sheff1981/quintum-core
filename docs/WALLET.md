@@ -135,6 +135,10 @@ After the recovered keys are safely committed, Stage 27 writes an empty wallet-b
 
 Stage 27 desktop seed display is password-gated. `Wallet::verify_passphrase()` derives a candidate key with the wallet's stored Argon2id parameters and compares all 32 bytes against the active encryption key without early exit. The GUI asks for the password first and requests the mnemonic only after verification succeeds. Password and phrase buffers controlled by the desktop/runtime are best-effort overwritten after use.
 
+## Spend re-authentication
+
+Stage 43 requires a fresh wallet-password check immediately before an encrypted desktop wallet signs a reviewed payment. Preview integrity and stale-state checks still run first; a missing or incorrect password returns without creating, signing, submitting or relaying a transaction. Password bytes held by the Qt send flow are best-effort overwritten after the authorization attempt. This is an authorization guard for local desktop spending and does not change transaction consensus, signatures, fees or P2P relay rules.
+
 ## Keypool and backup safety
 
 A new wallet pre-generates a reserve keypool before it can receive funds:
