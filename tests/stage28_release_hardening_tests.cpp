@@ -436,6 +436,8 @@ void test_full_backup_bundle_roundtrip_and_guards()
         unique_dir("bundle-target");
     const auto existing_dir =
         unique_dir("bundle-existing");
+    const auto orphan_metadata_dir =
+        unique_dir("bundle-orphan-metadata");
     const auto bundle_path =
         unique_dir("bundle-file") /
         "wallet.qtmbackup";
@@ -512,6 +514,53 @@ void test_full_backup_bundle_roundtrip_and_guards()
                WalletStoreError::target_exists);
     }
 
+    {
+        // A missing wallet.dat does not make a directory safe to
+        // overwrite if wallet metadata is already present.
+        std::filesystem::create_directories(
+            orphan_metadata_dir
+        );
+
+        const auto orphan_path =
+            orphan_metadata_dir /
+            "wallet_meta.dat";
+        const std::string sentinel{
+            "preserve-orphaned-wallet-metadata"
+        };
+
+        {
+            std::ofstream out(
+                orphan_path,
+                std::ios::binary |
+                    std::ios::trunc
+            );
+            assert(out);
+            out.write(
+                sentinel.data(),
+                static_cast<std::streamsize>(
+                    sentinel.size())
+            );
+            assert(out);
+        }
+
+        const auto before =
+            read_bytes(orphan_path);
+
+        Wallet orphan_target{
+            params,
+            orphan_metadata_dir
+        };
+
+        assert(orphan_target.restore_bundle(
+                   bundle_path) ==
+               WalletStoreError::target_exists);
+        assert(!std::filesystem::exists(
+            orphan_metadata_dir /
+            "wallet.dat"));
+        assert(read_bytes(orphan_path) ==
+               before);
+    }
+
     auto tampered =
         read_bytes(bundle_path);
     assert(tampered.size() > 40U);
@@ -553,6 +602,8 @@ void test_full_backup_bundle_roundtrip_and_guards()
     std::filesystem::remove_all(target_dir, ec);
     ec.clear();
     std::filesystem::remove_all(existing_dir, ec);
+    ec.clear();
+    std::filesystem::remove_all(orphan_metadata_dir, ec);
     ec.clear();
     std::filesystem::remove_all(
         bundle_path.parent_path(),
