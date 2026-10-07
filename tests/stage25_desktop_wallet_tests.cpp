@@ -519,9 +519,35 @@ void test_desktop_snapshot_preview_confirm_and_stale_guard()
            NetworkWalletSendError::
                invalid_preview);
 
-    const auto sent =
+    const auto missing_password =
         runtime.confirm_send(
             fresh
+        );
+
+    assert(!missing_password.ok());
+    assert(missing_password.error ==
+           NetworkWalletSendError::
+               passphrase_required);
+    assert(runtime.status()
+               .mempool_transactions == 0U);
+
+    const auto wrong_password =
+        runtime.confirm_send(
+            fresh,
+            "wrong-stage25-password"
+        );
+
+    assert(!wrong_password.ok());
+    assert(wrong_password.error ==
+           NetworkWalletSendError::
+               invalid_passphrase);
+    assert(runtime.status()
+               .mempool_transactions == 0U);
+
+    const auto sent =
+        runtime.confirm_send(
+            fresh,
+            "stage25-runtime-password"
         );
 
     assert(sent.ok());
