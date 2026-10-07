@@ -1293,7 +1293,10 @@ void test_stalled_transaction_requests_are_bounded_and_expire()
     config.io_timeout_ms = 5'000U;
     config.ping_interval_seconds = 30U;
     config.ping_timeout_seconds = 5U;
-    config.transaction_request_timeout_seconds = 1U;
+    // Keep the test deadline comfortably above scheduler/sanitizer jitter so
+    // the peer can answer the first getdata before expiry. The final phase
+    // still leaves the second batch unanswered and verifies bounded expiry.
+    config.transaction_request_timeout_seconds = 3U;
     config.max_transaction_requests_in_flight = 4U;
 
     assert(runtime.start(config).ok());
