@@ -3516,3 +3516,24 @@ A long-running Windows Testnet wallet/miner was left running overnight without s
 Accounting is internally consistent with 139 mined 50-QTM coinbase rewards and 100-block coinbase maturity: 40 matured rewards = 2000 QTM, 99 immature rewards = 4950 QTM, total = 6950 QTM.
 
 This live run confirms persistent chain/wallet state across restart, automatic P2P reconnection to the public peer, full height agreement with the peer, and automatic transition of coinbase rewards from immature to spendable without manual intervention.
+
+
+---
+
+## 2026-10-07 — Stages 39–44. Live RandomX hardening and wallet safety
+
+### Что сохранено из live-отладки
+
+- Stage 39: consensus-valid headers-first synchronization и ограниченные сроки ожидания block in-flight;
+- Stage 40: exponential reconnect backoff без агрессивного reconnect-loop;
+- Stage 41: bounded transaction in-flight deadlines;
+- интеграционная ветка Stages 39–41 включает фактические RandomX/P2P/desktop исправления, полученные при работе реальных узлов;
+- Stage 42: быстрый validated restart без повторного вычисления исторических RandomX PoW на уже надёжно сохранённой цепи; структура блоков, timestamps/MTP, difficulty, chainwork, транзакции, fees, coinbase, UTXO и undo при replay продолжают проверяться;
+- Stage 43: зашифрованный desktop-wallet повторно требует текущий пароль непосредственно перед созданием/подписью платежа; неверный пароль не создаёт, не подписывает и не передаёт транзакцию;
+- Build/Security/GUI для Stage 42 и Stage 43 прошли успешно.
+
+### Stage 44 — проверяемый backup
+
+После atomic записи полного `.qtmbackup` кошелёк теперь перечитывает файл с диска и побайтно сверяет его с подготовленным bundle до сообщения об успехе. Ошибка чтения или несовпадение данных больше не может выглядеть для пользователя как успешная резервная копия.
+
+Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, transaction format и wallet.dat format не менялись.
