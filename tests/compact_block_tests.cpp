@@ -3,7 +3,9 @@
 #include "primitives/block.hpp"
 #include "primitives/transaction.hpp"
 
+#include <array>
 #include <cassert>
+#include <span>
 #include <cstdint>
 #include <utility>
 
@@ -330,6 +332,120 @@ void test_strict_request_index_validation()
     ).has_value());
 }
 
+
+void test_adversarial_compact_payload_corpus()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& limits =
+        consensus::regtest_params().limits;
+    const Block block = sample_block();
+    const Bytes valid =
+        serialize_compact_block(block, 0x50U);
+
+    assert(parse_compact_block(valid, limits));
+
+    // Every strict prefix of a valid compact block must fail closed.
+    for (std::size_t size = 0U;
+         size < valid.size();
+         ++size) {
+        assert(!parse_compact_block(
+            std::span<const Byte>{
+                valid.data(),
+                size
+            },
+            limits
+        ));
+    }
+
+    // Strict parsers must reject trailing garbage.
+    for (const Byte marker :
+         std::array<Byte, 4U>{
+             0x00U, 0x01U, 0x80U, 0xffU}) {
+        Bytes trailing = valid;
+        trailing.push_back(marker);
+        assert(!parse_compact_block(
+            trailing,
+            limits
+        ));
+    }
+
+    // The short-id count begins after the 88-byte header
+    // and 8-byte compact-block nonce. Encoding one as fd 01 00
+    // is non-canonical and must be rejected before allocation.
+    Bytes noncanonical{
+        valid.begin(),
+        valid.begin() + 96
+    };
+    noncanonical.push_back(0xfdU);
+    noncanonical.push_back(0x01U);
+    noncanonical.push_back(0x00U);
+    noncanonical.insert(
+        noncanonical.end(),
+        valid.begin() + 97,
+        valid.end()
+    );
+    assert(!parse_compact_block(
+        noncanonical,
+        limits
+    ));
+
+    BlockTransactionsRequest request;
+    request.block_hash =
+        block_hash(block.header);
+    request.indexes = {1U, 3U};
+    const Bytes request_bytes =
+        serialize_getblocktxn(request);
+
+    for (std::size_t size = 0U;
+         size < request_bytes.size();
+         ++size) {
+        assert(!parse_getblocktxn(
+            std::span<const Byte>{
+                request_bytes.data(),
+                size
+            },
+            limits.max_block_transactions
+        ));
+    }
+
+    Bytes request_trailing = request_bytes;
+    request_trailing.push_back(0x00U);
+    assert(!parse_getblocktxn(
+        request_trailing,
+        limits.max_block_transactions
+    ));
+
+    BlockTransactions response{
+        .block_hash = block_hash(block.header),
+        .transactions = {
+            {1U, block.transactions[1]},
+        },
+    };
+    const Bytes response_bytes =
+        serialize_blocktxn(response);
+
+    for (std::size_t size = 0U;
+         size < response_bytes.size();
+         ++size) {
+        assert(!parse_blocktxn(
+            std::span<const Byte>{
+                response_bytes.data(),
+                size
+            },
+            limits
+        ));
+    }
+
+    Bytes response_trailing = response_bytes;
+    response_trailing.push_back(0xffU);
+    assert(!parse_blocktxn(
+        response_trailing,
+        limits
+    ));
+}
+
 } // namespace
 
 int main()
@@ -338,5 +454,6 @@ int main()
     test_coinbase_only_block_reconstructs_without_request();
     test_tampered_missing_transaction_is_rejected();
     test_strict_request_index_validation();
+    test_adversarial_compact_payload_corpus();
     return 0;
 }
