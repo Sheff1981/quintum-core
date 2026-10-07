@@ -52,6 +52,9 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
 
     quintum::net::NetworkRuntimeConfig config;
     config.enable_nat_mapping = false;
+    // Wallet creation/recovery belongs to explicit Android onboarding.
+    // Never create an unprotected wallet merely because the node service starts.
+    config.wallet_enabled = false;
 
     const auto result = runtime->start(std::move(config));
 
