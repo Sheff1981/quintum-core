@@ -3627,3 +3627,12 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 **Действие:** устаревшие PR #33 и #34 закрываются без merge. История commit/PR сохраняется в GitHub для аудита; рабочим источником Stage 45 является PR #35 / merge `067ac1f196f097bf61b3a918e5cca6d6d39c1c06`. Stage 46 интегрирован через PR #36 / merge `cce52b94e632c8e7aa1b573f4a8a76e7b50a05fa` после зелёных Build, Security и GUI.
 
 **Безопасность:** consensus, blockchain data, wallet.dat, private keys, network identity и Testnet параметры этим housekeeping-изменением не меняются.
+
+
+## 2026-10-07 — закрытие устаревшего PR-долга #14–#25
+
+**Проверка:** старые Stage 39–41 и live-Testnet PR #14–#25 повторно сверены с актуальным `main`. Consensus-valid headers-first, bounded block/transaction in-flight, reconnect backoff, interleaved sync traffic handling, full-memory RandomX fallback, live difficulty, wallet startup retry, incremental Transactions UI, seed retry eligibility и single-datadir GUI lock уже присутствуют в интегрированной кодовой базе. Старый RandomX header workaround из #25 перекрыт более строгой общей consensus-valid headers-first validation.
+
+**Действие:** PR #14–#25 закрыты без merge как superseded/integrated. Их commits и обсуждения сохранены в GitHub для аудита. Устаревшие stacked branches не использовались для изменения `main`.
+
+**Безопасность:** cleanup не меняет consensus, Genesis, RandomX, monetary policy, wallet/chain formats, private keys, network magic, адреса или порты.
