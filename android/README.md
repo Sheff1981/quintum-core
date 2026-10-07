@@ -35,3 +35,10 @@ Consensus, transaction validation, wallet formats, P2P rules and RandomX remain 
 The first Android milestone establishes a modern Kotlin/Compose shell and a typed boundary for the native node. Packaging the ARM64 QUINTUM daemon is a separate build step and is deliberately not faked with a placeholder binary.
 
 The target product is a normal wallet/node when mining is disabled and a wallet/full-node/RandomX miner when mining is explicitly enabled.
+
+
+## Updates
+
+Android application identity is stable across releases. Wallet, node and settings data are private persistent application state and must survive normal package upgrades.
+
+Direct Testnet APK distribution will use the authenticated release contract in [UPDATE_SECURITY.md](UPDATE_SECURITY.md). Store builds use the platform store update path. Consensus-critical code is never hot-swapped separately from a complete reviewed release.
