@@ -13,6 +13,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.quintum.wallet.mining.DeviceMiningStats
+import org.quintum.wallet.mining.DeviceMiningStatsCard
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,6 +34,19 @@ private fun QuintumApp() {
                 Text("QUINTUM", style = MaterialTheme.typography.headlineLarge)
                 Text("Android Core")
                 Text("Native node connection: not started")
+                DeviceMiningStatsCard(
+                    DeviceMiningStats(
+                        device = "Device telemetry pending",
+                        abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown",
+                        cpuCores = Runtime.getRuntime().availableProcessors(),
+                        miningThreads = 0,
+                        hashRate = null,
+                        temperatureCelsius = null,
+                        batteryPercent = null,
+                        charging = false,
+                        runtimeMillis = 0L,
+                    ),
+                )
             }
         }
     }
