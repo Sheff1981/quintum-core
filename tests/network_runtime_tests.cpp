@@ -570,6 +570,70 @@ void test_malformed_ping_disconnects_peer()
 }
 
 
+
+void test_compact_block_resource_caps_are_fail_closed()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+
+    for (const auto [block_cap, compact_cap] :
+         std::array<std::pair<std::size_t, std::size_t>, 2>{
+             std::pair<std::size_t, std::size_t>{4U, 0U},
+             std::pair<std::size_t, std::size_t>{4U, 5U},
+         }) {
+        const auto dir =
+            unique_dir("compact-resource-cap");
+
+        NetworkRuntime runtime{params, dir};
+
+        NetworkRuntimeConfig config;
+        config.bind_address = "127.0.0.1";
+        config.listen_port = 0U;
+        config.allow_local_peers = true;
+        config.target_outbound = 0U;
+        config.wallet_enabled = false;
+        config.max_block_requests_in_flight =
+            block_cap;
+        config.max_pending_compact_blocks =
+            compact_cap;
+
+        const auto started =
+            runtime.start(config);
+
+        assert(!started.ok());
+        assert(started.error ==
+               NetworkRuntimeStartError::
+                   invalid_configuration);
+        assert(!runtime.running());
+
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    const auto valid_dir =
+        unique_dir("compact-resource-cap-valid");
+    NetworkRuntime valid{params, valid_dir};
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.max_block_requests_in_flight = 4U;
+    config.max_pending_compact_blocks = 4U;
+
+    assert(valid.start(config).ok());
+    valid.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(valid_dir, ec);
+}
+
+
 void test_continuous_runtime_sync_relay_reconnect()
 {
     using namespace quintum;
@@ -1718,6 +1782,7 @@ int main()
     test_walletless_seed_runtime_creates_no_wallet();
     test_peer_message_flood_is_disconnected();
     test_malformed_ping_disconnects_peer();
+    test_compact_block_resource_caps_are_fail_closed();
     test_continuous_runtime_sync_relay_reconnect();
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();
