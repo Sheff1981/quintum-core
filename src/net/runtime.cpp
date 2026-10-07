@@ -3119,7 +3119,7 @@ bool NetworkRuntime::process_compact_block(
 
     if (rebuilt.missing_indexes.empty() ||
         peer.pending_compact_blocks.size() >=
-            kMaxRelayInventoryItems) {
+            config_.max_pending_compact_blocks) {
         return false;
     }
 
