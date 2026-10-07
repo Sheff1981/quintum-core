@@ -197,8 +197,24 @@ private:
         const BlockIndexEntry* parent,
         std::uint32_t height,
         std::uint64_t adjusted_time,
-        const HeaderIndexOverlay* overlay = nullptr
+        const HeaderIndexOverlay* overlay = nullptr,
+        bool verify_pow = true
     ) const;
+
+    // Disk snapshots are only written after normal consensus validation.
+    // Startup replay can therefore re-check structure, difficulty, monetary
+    // rules, transactions, UTXO/undo and chainwork without repeating the
+    // expensive RandomX hash for every already-accepted block.
+    [[nodiscard]] ChainConnectResult connect_validated_snapshot_block(
+        const Block& block,
+        std::uint64_t adjusted_time
+    );
+
+    [[nodiscard]] ChainConnectResult connect_block_impl(
+        const Block& block,
+        std::uint64_t adjusted_time,
+        bool verify_pow
+    );
 
     consensus::ChainParams params_{};
     UtxoSet utxos_{};
