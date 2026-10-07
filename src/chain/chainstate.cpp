@@ -47,7 +47,8 @@ ApplyBlockResult apply_block_to_view(
     const consensus::PowParams& pow_params,
     const consensus::MonetaryParams& monetary_params,
     const consensus::ResourceLimits& limits,
-    const std::optional<Hash256>& randomx_seed_key)
+    const std::optional<Hash256>& randomx_seed_key,
+    bool verify_pow)
 {
     ApplyBlockResult out;
 
@@ -66,26 +67,28 @@ ApplyBlockResult apply_block_to_view(
         return out;
     }
 
-    const auto pow_error =
-        pow_params.pow_algorithm ==
-                consensus::PowAlgorithm::randomx_v2
-            ? randomx_seed_key
-                  ? consensus::check_randomx_proof_of_work(
-                        block.header,
-                        pow_params,
-                        *randomx_seed_key
-                    )
-                  : consensus::PowCheckError::hashing_failed
-            : consensus::check_proof_of_work(
-                  block.header,
-                  pow_params
-              );
+    if (verify_pow) {
+        const auto pow_error =
+            pow_params.pow_algorithm ==
+                    consensus::PowAlgorithm::randomx_v2
+                ? randomx_seed_key
+                      ? consensus::check_randomx_proof_of_work(
+                            block.header,
+                            pow_params,
+                            *randomx_seed_key
+                        )
+                      : consensus::PowCheckError::hashing_failed
+                : consensus::check_proof_of_work(
+                      block.header,
+                      pow_params
+                  );
 
-    if (pow_error !=
-        consensus::PowCheckError::none) {
-        out.result.error =
-            ChainConnectError::invalid_proof_of_work;
-        return out;
+        if (pow_error !=
+            consensus::PowCheckError::none) {
+            out.result.error =
+                ChainConnectError::invalid_proof_of_work;
+            return out;
+        }
     }
 
     const auto compact = consensus::decode_compact_target(block.header.bits);
@@ -700,7 +703,8 @@ HeaderValidationResult Chainstate::validate_header_candidate(
     const BlockIndexEntry* parent,
     std::uint32_t height,
     std::uint64_t adjusted_time,
-    const HeaderIndexOverlay* overlay) const
+    const HeaderIndexOverlay* overlay,
+    bool verify_pow) const
 {
     HeaderValidationResult out;
     out.chain_work =
@@ -752,48 +756,50 @@ HeaderValidationResult Chainstate::validate_header_candidate(
         return out;
     }
 
-    std::optional<Hash256> randomx_seed;
+    if (verify_pow) {
+        std::optional<Hash256> randomx_seed;
 
-    if (params_.pow.pow_algorithm ==
-        consensus::PowAlgorithm::
-            randomx_v2) {
-        randomx_seed =
-            randomx_seed_key_for(
-                parent,
-                height,
-                overlay
-            );
+        if (params_.pow.pow_algorithm ==
+            consensus::PowAlgorithm::
+                randomx_v2) {
+            randomx_seed =
+                randomx_seed_key_for(
+                    parent,
+                    height,
+                    overlay
+                );
 
-        if (!randomx_seed) {
+            if (!randomx_seed) {
+                out.error =
+                    ChainConnectError::
+                        invalid_ancestor;
+                return out;
+            }
+        }
+
+        const auto pow_error =
+            params_.pow.pow_algorithm ==
+                    consensus::PowAlgorithm::
+                        randomx_v2
+                ? consensus::
+                      check_randomx_proof_of_work(
+                          header,
+                          params_.pow,
+                          *randomx_seed
+                      )
+                : consensus::
+                      check_proof_of_work(
+                          header,
+                          params_.pow
+                      );
+
+        if (pow_error !=
+            consensus::PowCheckError::none) {
             out.error =
                 ChainConnectError::
-                    invalid_ancestor;
+                    invalid_proof_of_work;
             return out;
         }
-    }
-
-    const auto pow_error =
-        params_.pow.pow_algorithm ==
-                consensus::PowAlgorithm::
-                    randomx_v2
-            ? consensus::
-                  check_randomx_proof_of_work(
-                      header,
-                      params_.pow,
-                      *randomx_seed
-                  )
-            : consensus::
-                  check_proof_of_work(
-                      header,
-                      params_.pow
-                  );
-
-    if (pow_error !=
-        consensus::PowCheckError::none) {
-        out.error =
-            ChainConnectError::
-                invalid_proof_of_work;
-        return out;
     }
 
     const auto compact =
@@ -1004,6 +1010,29 @@ ChainConnectResult Chainstate::connect_block(
     const Block& block,
     std::uint64_t adjusted_time)
 {
+    return connect_block_impl(
+        block,
+        adjusted_time,
+        true
+    );
+}
+
+ChainConnectResult Chainstate::connect_validated_snapshot_block(
+    const Block& block,
+    std::uint64_t adjusted_time)
+{
+    return connect_block_impl(
+        block,
+        adjusted_time,
+        false
+    );
+}
+
+ChainConnectResult Chainstate::connect_block_impl(
+    const Block& block,
+    std::uint64_t adjusted_time,
+    bool verify_pow)
+{
     ChainConnectResult result;
 
     if (validate_block_structure(block) != BlockStructureError::none) {
@@ -1086,7 +1115,8 @@ ChainConnectResult Chainstate::connect_block(
             parent_entry,
             new_height,
             adjusted_time,
-            nullptr
+            nullptr,
+            verify_pow
         );
 
     if (!header_check.ok()) {
@@ -1254,8 +1284,9 @@ ChainConnectResult Chainstate::connect_block(
         std::optional<Hash256>
             staged_randomx_seed;
 
-        if (params_.pow.pow_algorithm ==
-            consensus::PowAlgorithm::randomx_v2) {
+        if (verify_pow &&
+            params_.pow.pow_algorithm ==
+                consensus::PowAlgorithm::randomx_v2) {
             staged_randomx_seed =
                 randomx_seed_key_for(
                     staged_parent,
@@ -1284,7 +1315,8 @@ ChainConnectResult Chainstate::connect_block(
             params_.pow,
             params_.monetary,
             params_.limits,
-            staged_randomx_seed
+            staged_randomx_seed,
+            verify_pow
         );
 
         if (!applied.result.ok()) {
