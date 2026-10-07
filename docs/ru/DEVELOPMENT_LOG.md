@@ -3660,3 +3660,14 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 **Совместимость:** consensus, Genesis, RandomX, difficulty, monetary policy, wallet/backup formats, chain data, network magic, адреса и порты не изменены.
 
 **CI follow-up:** первоначальная версия выявила несовместимость со старым тестовым custom `max_block_requests_in_flight=4`: фиксированный default compact cap 16 делал конфигурацию невалидной. Исправлено наследованием block budget; это сохраняет bounded state без поломки существующих настроек.
+
+
+## 2026-10-07 — Stage 49: fallible/transactional serialization parsing
+
+**Аудит:** wire framing, version/nonce, transaction/block relay и compact-block readers уже проверяют размеры, trailing bytes, canonical CompactSize и resource limits. Найден фундаментальный API-gap: `read_compact_size()` при malformed/truncated multi-byte encoding мог вернуть failure после частичного продвижения caller offset.
+
+**Исправление:** CompactSize reader теперь разбирает через локальный cursor и публикует новый offset только после полного успешного canonical parse. Ошибка оставляет исходный offset неизменным.
+
+**Regression:** foundation tests проверяют non-canonical и truncated 16/32-bit CompactSize encodings и неизменность offset после failure.
+
+**Совместимость:** успешная wire/chain serialization не изменена; consensus encoding, Genesis, RandomX, difficulty, monetary policy, wallet/backup formats, network magic, адреса и порты не изменены.
