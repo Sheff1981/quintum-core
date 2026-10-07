@@ -1854,6 +1854,21 @@ WalletStoreError Wallet::restore_bundle(
             metadata_count
         };
 
+    // Restore is intentionally non-destructive: an orphaned metadata
+    // file can contain labels or other user data even when wallet.dat is
+    // missing. Never overwrite or delete it implicitly.
+    ec.clear();
+    if (std::filesystem::exists(
+            metadata_path_,
+            ec)) {
+        return ec
+            ? WalletStoreError::io_error
+            : WalletStoreError::target_exists;
+    }
+    if (ec) {
+        return WalletStoreError::io_error;
+    }
+
     auto result =
         write_atomic(
             path_,
