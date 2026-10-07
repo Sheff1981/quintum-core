@@ -261,6 +261,26 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     config_ = std::move(config);
     wallet_enabled_ = config_.wallet_enabled;
 
+    if (config_.max_block_requests_in_flight == 0U) {
+        out.error =
+            NetworkRuntimeStartError::
+                invalid_configuration;
+        return out;
+    }
+
+    if (config_.max_pending_compact_blocks == 0U) {
+        config_.max_pending_compact_blocks =
+            config_.max_block_requests_in_flight;
+    }
+
+    if (config_.max_pending_compact_blocks >
+        config_.max_block_requests_in_flight) {
+        out.error =
+            NetworkRuntimeStartError::
+                invalid_configuration;
+        return out;
+    }
+
     if (!wallet_enabled_ &&
         (!config_.wallet_passphrase.empty() ||
          !config_.wallet_recovery_mnemonic.empty())) {
@@ -3119,7 +3139,7 @@ bool NetworkRuntime::process_compact_block(
 
     if (rebuilt.missing_indexes.empty() ||
         peer.pending_compact_blocks.size() >=
-            kMaxRelayInventoryItems) {
+            config_.max_pending_compact_blocks) {
         return false;
     }
 
