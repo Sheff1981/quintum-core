@@ -3590,3 +3590,12 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 ### Итог live-прогона
 
 После исправлений реальная RandomX-нода продолжила работать без падения; при наблюдаемом прогоне Windows-нода находилась примерно в двух блоках от удалённой цепочки перед завершением пользовательского сеанса. Это наблюдение не считается отдельным consensus-тестом, но сохраняется как часть истории live Testnet.
+
+
+### 2026-10-07 — Stage 44 CI: sanitizer timing race in transaction timeout test
+
+- **Symptom:** Stage 44 Build and GUI passed, but Security failed in `network_runtime`; 36/37 sanitizer tests passed. The failure occurred while waiting for the second `getdata` batch in `test_stalled_transaction_requests_are_bounded_and_expire`.
+- **Root cause:** the regression test used a 1-second transaction-request deadline while exercising a live socket/runtime thread. Under ASan+UBSan scheduling overhead the first request could cross the coarse one-second deadline before the peer's `notfound` response was serviced, closing the test connection before deferred requests were drained. Production default remains 15 seconds.
+- **Fix:** increased only this regression test's deadline to 3 seconds, preserving the final unanswered-batch expiry assertion. No production P2P timeout or consensus behavior changed.
+- **Verification:** new CI run triggered by commit `4f7a044`; final Build/Security/GUI result must be green before merge.
+- **Safety:** Genesis, consensus, RandomX, monetary policy, network identity, ports, addresses, transaction format and wallet formats unchanged.
