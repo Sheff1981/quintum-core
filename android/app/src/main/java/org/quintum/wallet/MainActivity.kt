@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.quintum.wallet.mining.DeviceMiningStats
 import org.quintum.wallet.mining.DeviceMiningStatsCard
+import org.quintum.wallet.core.NativeCore
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,12 +40,16 @@ private fun QuintumApp() {
                         device = "Device telemetry pending",
                         abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown",
                         cpuCores = Runtime.getRuntime().availableProcessors(),
-                        miningThreads = 0,
-                        hashRate = null,
+                        miningThreads = NativeCore.nativeMiningThreads(),
+                        hashRate = NativeCore.nativeMiningHashRate().takeIf { it > 0.0 },
                         temperatureCelsius = null,
                         batteryPercent = null,
                         charging = false,
-                        runtimeMillis = 0L,
+                        runtimeMillis = NativeCore.nativeMiningRuntimeMillis(),
+                        foundBlocks = NativeCore.nativeMiningFoundBlocks(),
+                        networkDifficulty = NativeCore.nativeDifficulty().takeIf { it >= 0.0 },
+                        blockHeight = NativeCore.nativeBlockHeight().takeIf { it >= 0L },
+                        peers = NativeCore.nativePeerCount(),
                     ),
                 )
             }
