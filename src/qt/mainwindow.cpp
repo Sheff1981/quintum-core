@@ -2909,8 +2909,62 @@ void MainWindow::preview_and_send()
         return;
     }
 
+    QString spend_password;
+    QByteArray spend_password_utf8;
+    bool password_accepted{true};
+
+    if (runtime_.wallet_encrypted()) {
+        spend_password =
+            QInputDialog::getText(
+                this,
+                "Authorize payment",
+                "Enter the wallet password to sign and send this transaction:",
+                QLineEdit::Password,
+                {},
+                &password_accepted
+            );
+
+        if (!password_accepted) {
+            spend_password.fill(QChar{0});
+            spend_password.clear();
+            return;
+        }
+
+        spend_password_utf8 =
+            spend_password.toUtf8();
+    }
+
+    const std::string_view spend_passphrase =
+        spend_password_utf8.isEmpty()
+            ? std::string_view{}
+            : std::string_view{
+                  spend_password_utf8.constData(),
+                  static_cast<std::size_t>(
+                      spend_password_utf8.size()
+                  )
+              };
+
     const auto sent =
-        runtime_.confirm_send(preview);
+        runtime_.confirm_send(
+            preview,
+            spend_passphrase
+        );
+
+    spend_password.fill(QChar{0});
+    spend_password.clear();
+
+    if (!spend_password_utf8.isEmpty()) {
+        crypto::secure_erase(
+            std::span<Byte>{
+                reinterpret_cast<Byte*>(
+                    spend_password_utf8.data()),
+                static_cast<std::size_t>(
+                    spend_password_utf8.size()
+                )
+            }
+        );
+        spend_password_utf8.clear();
+    }
 
     if (!sent.ok()) {
         QString error;
@@ -2923,6 +2977,14 @@ void MainWindow::preview_and_send()
         case net::NetworkWalletSendError::invalid_preview:
             error =
                 "The payment preview changed and was rejected before signing.";
+            break;
+        case net::NetworkWalletSendError::passphrase_required:
+            error =
+                "The encrypted wallet requires its password before signing.";
+            break;
+        case net::NetworkWalletSendError::invalid_passphrase:
+            error =
+                "The wallet password is incorrect. Nothing was signed or sent.";
             break;
         case net::NetworkWalletSendError::wallet_create_failed:
             error =

@@ -3516,3 +3516,86 @@ A long-running Windows Testnet wallet/miner was left running overnight without s
 Accounting is internally consistent with 139 mined 50-QTM coinbase rewards and 100-block coinbase maturity: 40 matured rewards = 2000 QTM, 99 immature rewards = 4950 QTM, total = 6950 QTM.
 
 This live run confirms persistent chain/wallet state across restart, automatic P2P reconnection to the public peer, full height agreement with the peer, and automatic transition of coinbase rewards from immature to spendable without manual intervention.
+
+
+---
+
+## 2026-10-07 — Stages 39–44. Live RandomX hardening and wallet safety
+
+### Что сохранено из live-отладки
+
+- Stage 39: consensus-valid headers-first synchronization и ограниченные сроки ожидания block in-flight;
+- Stage 40: exponential reconnect backoff без агрессивного reconnect-loop;
+- Stage 41: bounded transaction in-flight deadlines;
+- интеграционная ветка Stages 39–41 включает фактические RandomX/P2P/desktop исправления, полученные при работе реальных узлов;
+- Stage 42: быстрый validated restart без повторного вычисления исторических RandomX PoW на уже надёжно сохранённой цепи; структура блоков, timestamps/MTP, difficulty, chainwork, транзакции, fees, coinbase, UTXO и undo при replay продолжают проверяться;
+- Stage 43: зашифрованный desktop-wallet повторно требует текущий пароль непосредственно перед созданием/подписью платежа; неверный пароль не создаёт, не подписывает и не передаёт транзакцию;
+- Build/Security/GUI для Stage 42 и Stage 43 прошли успешно.
+
+### Stage 44 — проверяемый backup
+
+После atomic записи полного `.qtmbackup` кошелёк теперь перечитывает файл с диска и побайтно сверяет его с подготовленным bundle до сообщения об успехе. Ошибка чтения или несовпадение данных больше не может выглядеть для пользователя как успешная резервная копия.
+
+Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, transaction format и wallet.dat format не менялись.
+
+
+---
+
+## 2026-10-06 — Live Testnet: найденные ошибки и исправления
+
+Этот раздел сохраняет не только итоговые функции, но и реальные проблемы, обнаруженные при работе Windows/VPS узлов. Причины ниже фиксируются только там, где они были подтверждены кодом, логами или воспроизводимым тестом.
+
+### Windows GUI: Transactions зависал на большой истории
+
+**Симптом:** при истории примерно в 1400 транзакций страница Transactions начинала заметно зависать.
+
+**Причина:** GUI каждую секунду полностью пересобирал таблицу и выполнял дорогостоящий ResizeToContents.
+
+**Исправление:** PR #22 перевёл обновление истории на инкрементальную модель и убрал постоянный полный resize.
+
+### Два экземпляра QUINTUM использовали один datadir
+
+**Симптом:** один процесс слушал штатный RandomX P2P port 39444, второй экземпляр запускался с тем же пользовательским хранилищем, оказывался на другом локальном порту и показывал Peers 0.
+
+**Причина:** отсутствовала достаточно жёсткая защита от одновременного открытия одного datadir несколькими GUI-процессами.
+
+**Исправление:** PR #24 добавил single-datadir/process guard: второй экземпляр не должен открывать тот же wallet/blockchain и продолжать работу как отдельная случайно изолированная нода.
+
+### RandomX IBD не проходил первый заголовок
+
+**Симптом:** после чистого запуска VPS мог оставаться на height 0; TCP-трафик между узлами был, но валидная RandomX-цепочка не начинала синхронизироваться.
+
+**Причина:** предварительная headers-проверка RandomX использовала обычную PoW hash-проверку без RandomX epoch seed. В результате валидный RandomX header мог быть отвергнут ещё до загрузки соответствующего блока.
+
+**Исправление:** PR #25 исправил RandomX header pre-check. Полная consensus-проверка RandomX PoW при принятии блока сохранена — ослабления консенсуса нет.
+
+### Block download мог зависнуть на peer
+
+**Симптом:** peer мог удерживать запрошенный блок без отдельного ограниченного срока ожидания, тормозя синхронизацию.
+
+**Исправление:** Stage 39 добавил bounded block in-flight deadline и обработку peer, который не завершает запрос вовремя.
+
+### Повторные подключения были слишком агрессивными
+
+**Симптом:** при недоступном peer нода могла слишком часто повторять подключения.
+
+**Исправление:** Stage 40 добавил exponential reconnect backoff 1x -> 2x -> 4x с верхней границей ожидания 5 минут.
+
+### Transaction relay также требовал bounded in-flight
+
+**Проблема:** сетевой запрос транзакции не должен оставаться незавершённым бесконечно и занимать состояние peer.
+
+**Исправление:** Stage 41 добавил transaction in-flight timeout/очередь; deadline compact-block запроса обновляется при фактическом прогрессе.
+
+### Итог live-прогона
+
+После исправлений реальная RandomX-нода продолжила работать без падения; при наблюдаемом прогоне Windows-нода находилась примерно в двух блоках от удалённой цепочки перед завершением пользовательского сеанса. Это наблюдение не считается отдельным consensus-тестом, но сохраняется как часть истории live Testnet.
+
+
+### 2026-10-07 — Stage 44 CI: sanitizer timing race in transaction timeout test
+
+- **Symptom:** Stage 44 Build and GUI passed, but Security failed in `network_runtime`; 36/37 sanitizer tests passed. The failure occurred while waiting for the second `getdata` batch in `test_stalled_transaction_requests_are_bounded_and_expire`.
+- **Root cause:** the regression test used a 1-second transaction-request deadline while exercising a live socket/runtime thread. Under ASan+UBSan scheduling overhead the first request could cross the coarse one-second deadline before the peer's `notfound` response was serviced, closing the test connection before deferred requests were drained. Production default remains 15 seconds.
+- **Fix:** increased only this regression test's deadline to 3 seconds, preserving the final unanswered-batch expiry assertion. No production P2P timeout or consensus behavior changed.
+- **Verification:** new CI run triggered by commit `4f7a044`; final Build/Security/GUI result must be green before merge.
+- **Safety:** Genesis, consensus, RandomX, monetary policy, network identity, ports, addresses, transaction format and wallet formats unchanged.

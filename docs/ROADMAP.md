@@ -48,5 +48,9 @@ Handshake, peer database, seeds, address relay, headers-first synchronization, b
 
 Remaining Testnet work: additional independent/geographically separate nodes, DNS seeds, live wallet transaction/confirmation testing, public multi-node fork/reorg testing, disconnect/reconnect soak and longer adversarial operation.
 
+**Live hardening Stages 39–43:** consensus-valid headers-first synchronization, bounded block/transaction in-flight requests, exponential reconnect backoff, validated fast RandomX restart and encrypted-wallet spend reauthentication are implemented on staged branches and covered by Build/Security/GUI CI before integration.
+
+**Stage 44 backup durability hardening:** complete `.qtmbackup` creation now verifies the finished atomic write by reading the destination back and requiring an exact byte-for-byte match before reporting success. No consensus, wallet-format or network-identity changes.
+
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.

@@ -1639,11 +1639,40 @@ WalletStoreError Wallet::backup_bundle(
         return WalletStoreError::io_error;
     }
 
-    return write_atomic(
-        destination,
-        bundle,
-        overwrite
-    );
+    const auto write_result =
+        write_atomic(
+            destination,
+            bundle,
+            overwrite
+        );
+
+    if (write_result !=
+        WalletStoreError::none) {
+        return write_result;
+    }
+
+    // A backup is only useful if the exact bytes can be read back from
+    // durable storage. Verify the completed atomic write before reporting
+    // success so a truncated/corrupted destination never gets a green UI.
+    auto persisted =
+        read_file_limited(
+            destination,
+            kMaxBackupBundleSize
+        );
+
+    if (!persisted) {
+        return WalletStoreError::io_error;
+    }
+
+    SecretBytesGuard persisted_guard{
+        &*persisted
+    };
+
+    if (*persisted != bundle) {
+        return WalletStoreError::corrupt;
+    }
+
+    return WalletStoreError::none;
 }
 
 WalletStoreError Wallet::restore_bundle(
