@@ -172,7 +172,8 @@ public:
         std::size_t worker_count,
         bool full_memory,
         std::span<const Transaction> transactions = {},
-        std::uint64_t start_nonce = 0U
+        std::uint64_t start_nonce = 0U,
+        const std::atomic<bool>* cancel = nullptr
     );
 
 private:
