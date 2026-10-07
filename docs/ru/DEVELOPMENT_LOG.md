@@ -3516,3 +3516,12 @@ A long-running Windows Testnet wallet/miner was left running overnight without s
 Accounting is internally consistent with 139 mined 50-QTM coinbase rewards and 100-block coinbase maturity: 40 matured rewards = 2000 QTM, 99 immature rewards = 4950 QTM, total = 6950 QTM.
 
 This live run confirms persistent chain/wallet state across restart, automatic P2P reconnection to the public peer, full height agreement with the peer, and automatic transition of coinbase rewards from immature to spendable without manual intervention.
+
+
+## 2026-10-07 — Stage 45: безопасное восстановление при orphan metadata
+
+- Симптом: если `wallet.dat` отсутствовал, но в каталоге оставался `wallet_meta.dat`, восстановление полного `.qtmbackup` могло перезаписать либо удалить существующий metadata-файл.
+- Причина: `restore_bundle()` проверял существование основного wallet-файла до записи, но metadata обрабатывал уже после создания нового `wallet.dat`.
+- Исправление: восстановление теперь заранее отказывается работать при существующем `wallet_meta.dat`; существующие пользовательские metadata не изменяются.
+- Проверка: добавлен regression-тест, создающий orphan `wallet_meta.dat`, проверяющий `target_exists`, отсутствие созданного `wallet.dat` и побайтовую сохранность metadata.
+- Совместимость: Genesis, consensus, RandomX, денежная политика, network identity, адреса, порты, формат транзакций и формат `wallet.dat` не изменены.
