@@ -76,37 +76,63 @@ inline void append_compact_size(Bytes& out, std::uint64_t value)
     }
 }
 
-inline std::optional<std::uint64_t> read_compact_size(std::span<const Byte> data, std::size_t& offset)
+inline std::optional<std::uint64_t> read_compact_size(
+    std::span<const Byte> data,
+    std::size_t& offset)
 {
-    if (offset >= data.size()) {
+    // Parsing is transactional: malformed or truncated input must not leave
+    // callers with a partially advanced cursor.
+    std::size_t cursor = offset;
+
+    if (cursor >= data.size()) {
         return std::nullopt;
     }
 
-    const Byte prefix = data[offset++];
+    const Byte prefix = data[cursor++];
     if (prefix < 253U) {
+        offset = cursor;
         return prefix;
     }
 
     if (prefix == 253U) {
-        const auto value = read_little_endian<std::uint16_t>(data, offset);
+        const auto value =
+            read_little_endian<std::uint16_t>(
+                data,
+                cursor);
         if (!value || *value < 253U) {
             return std::nullopt;
         }
+        offset = cursor;
         return *value;
     }
 
     if (prefix == 254U) {
-        const auto value = read_little_endian<std::uint32_t>(data, offset);
-        if (!value || *value <= std::numeric_limits<std::uint16_t>::max()) {
+        const auto value =
+            read_little_endian<std::uint32_t>(
+                data,
+                cursor);
+        if (!value ||
+            *value <=
+                std::numeric_limits<
+                    std::uint16_t>::max()) {
             return std::nullopt;
         }
+        offset = cursor;
         return *value;
     }
 
-    const auto value = read_little_endian<std::uint64_t>(data, offset);
-    if (!value || *value <= std::numeric_limits<std::uint32_t>::max()) {
+    const auto value =
+        read_little_endian<std::uint64_t>(
+            data,
+            cursor);
+    if (!value ||
+        *value <=
+            std::numeric_limits<
+                std::uint32_t>::max()) {
         return std::nullopt;
     }
+
+    offset = cursor;
     return *value;
 }
 
