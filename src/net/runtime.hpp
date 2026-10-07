@@ -79,6 +79,7 @@ struct NetworkRuntimeConfig {
     std::uint64_t ping_timeout_seconds{30U};
     std::uint64_t block_request_timeout_seconds{30U};
     std::size_t max_block_requests_in_flight{16U};
+    std::size_t max_pending_compact_blocks{16U};
     std::uint64_t transaction_request_timeout_seconds{15U};
     std::size_t max_transaction_requests_in_flight{128U};
     std::size_t max_deferred_transaction_requests{512U};
