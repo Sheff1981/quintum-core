@@ -54,3 +54,19 @@ Remaining Testnet work: additional independent/geographically separate nodes, DN
 
 ## M8 — Mainnet
 Freeze consensus/network specification, generate and independently verify genesis, publish release hashes and documentation, then launch.
+
+
+## M7 hardening backlog — external mature-node audit (2026-10-07)
+
+The following pre-Mainnet work is adopted from concrete failure classes observed in mature PoW node implementations. These are engineering patterns, not consensus imports; QUINTUM network identity, RandomX rules, monetary policy and existing serialization remain unchanged unless a separately reviewed consensus proposal explicitly requires otherwise.
+
+- **Invalid-object cache/body-poisoning safety:** cache only exact validated objects and only context-independent failures; never let an announced/header hash suppress a later valid body. Stage 46 is implementing this conservatively.
+- **Validate before fast relay/persistence side effects:** a block must complete the appropriate validation/connection boundary before relay/cache state can make it authoritative.
+- **Malformed-message peer accountability:** malformed consensus/P2P payloads must consume bounded resources and result in deterministic disconnect/penalty rather than unlimited retry.
+- **Per-peer admission/resource caps:** inventory, mempool admission, block/transaction requests and gossip queues need independent bounded limits so one connection cannot monopolize global work.
+- **Parser/serialization fallibility:** no network-controlled parse or re-serialization path may be assumed infallible; malformed inputs must return errors rather than terminate the process.
+- **Fuzz/adversarial coverage:** add fuzz targets for P2P framing/messages, transaction/block parsing and serialization, compact-block reconstruction, wallet backup/restore parsing and persistent-state decoding.
+- **Crash/restart consistency:** exercise forced termination around block/chainstate/wallet writes and prove restart yields a valid old or new state, never a partially committed hybrid.
+- **Multi-node partition/reorg soak:** repeatedly partition/reconnect miners and wallets and verify greatest-cumulative-work convergence, UTXO rollback, mempool reconciliation, wallet confirmations and durable restart recovery.
+
+These items are release gates for production maturity, not justification to delay normal Testnet UX work once the current safety stage is green.

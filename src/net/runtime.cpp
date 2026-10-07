@@ -556,6 +556,7 @@ void NetworkRuntime::stop() noexcept
     peers_.clear();
     reconnect_candidates_.clear();
     stem_relays_.clear();
+    invalid_object_cache_.clear();
     origin_stem_route_.reset();
     origin_stem_epoch_deadline_ = 0U;
 
@@ -3385,6 +3386,20 @@ bool NetworkRuntime::process_received_block(
         peer.pending_compact_blocks.end()
     );
 
+    // Cache the digest of the complete canonical block, never an inventory
+    // hash announced by a peer. This prevents untrusted announcements from
+    // poisoning validation of a different object.
+    const Hash256 object_digest =
+        crypto::double_sha256(
+            serialize_block_payload(block)
+        );
+
+    if (invalid_object_cached(
+            object_digest,
+            now)) {
+        return false;
+    }
+
     NodeSubmitResult submitted;
     std::optional<std::uint32_t>
         accepted_height;
@@ -3449,9 +3464,38 @@ bool NetworkRuntime::process_received_block(
     }
 
     if (!submitted.ok()) {
-        return submitted.connect.chain.error ==
-               ChainConnectError::
-                   duplicate_block;
+        const auto error =
+            submitted.connect.chain.error;
+
+        if (error ==
+            ChainConnectError::duplicate_block) {
+            return true;
+        }
+
+        // Only context-independent failures are safe to remember. Errors
+        // involving ancestry, time, transactions, storage or reorg state may
+        // become valid/retryable as local chain state changes.
+        switch (error) {
+        case ChainConnectError::invalid_block_structure:
+        case ChainConnectError::wrong_genesis:
+        case ChainConnectError::invalid_proof_of_work:
+        case ChainConnectError::resource_limits_exceeded:
+        case ChainConnectError::height_overflow:
+        case ChainConnectError::fee_sum_overflow:
+        case ChainConnectError::invalid_coinbase_reward:
+            if (submitted.error ==
+                NodeSubmitError::chain_rejected) {
+                cache_invalid_object(
+                    object_digest,
+                    now
+                );
+            }
+            break;
+        default:
+            break;
+        }
+
+        return false;
     }
 
     if (accepted_height) {
@@ -4005,6 +4049,81 @@ void NetworkRuntime::update_peer_counts() noexcept
     outbound_count_.store(outbound);
     peer_best_height_.store(best_height);
     have_peer_height_.store(have_height);
+}
+
+void NetworkRuntime::prune_invalid_object_cache(
+    std::uint64_t now)
+{
+    invalid_object_cache_.erase(
+        std::remove_if(
+            invalid_object_cache_.begin(),
+            invalid_object_cache_.end(),
+            [now](const InvalidObjectEntry& entry) {
+                return entry.expires_at <= now;
+            }
+        ),
+        invalid_object_cache_.end()
+    );
+
+    while (invalid_object_cache_.size() >
+           config_.max_invalid_object_cache_entries) {
+        invalid_object_cache_.pop_front();
+    }
+}
+
+bool NetworkRuntime::invalid_object_cached(
+    const Hash256& digest,
+    std::uint64_t now)
+{
+    prune_invalid_object_cache(now);
+
+    return std::any_of(
+        invalid_object_cache_.begin(),
+        invalid_object_cache_.end(),
+        [&](const InvalidObjectEntry& entry) {
+            return entry.digest == digest;
+        }
+    );
+}
+
+void NetworkRuntime::cache_invalid_object(
+    const Hash256& digest,
+    std::uint64_t now)
+{
+    if (config_.max_invalid_object_cache_entries == 0U ||
+        config_.invalid_object_cache_ttl_seconds == 0U) {
+        return;
+    }
+
+    prune_invalid_object_cache(now);
+
+    if (std::any_of(
+            invalid_object_cache_.begin(),
+            invalid_object_cache_.end(),
+            [&](const InvalidObjectEntry& entry) {
+                return entry.digest == digest;
+            })) {
+        return;
+    }
+
+    while (invalid_object_cache_.size() >=
+           config_.max_invalid_object_cache_entries) {
+        invalid_object_cache_.pop_front();
+    }
+
+    const auto ttl =
+        config_.invalid_object_cache_ttl_seconds;
+    const auto expires_at =
+        now > std::numeric_limits<std::uint64_t>::max() - ttl
+            ? std::numeric_limits<std::uint64_t>::max()
+            : now + ttl;
+
+    invalid_object_cache_.push_back(
+        InvalidObjectEntry{
+            .digest = digest,
+            .expires_at = expires_at,
+        }
+    );
 }
 
 bool NetworkRuntime::sync_wallet_locked()

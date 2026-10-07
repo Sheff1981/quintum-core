@@ -60,10 +60,8 @@ Every successful application returns `UtxoUndo` containing:
 
 This is the foundation for block disconnect and chain reorganization handling.
 
-## Not implemented yet
+## Current implementation status
 
-- additional script/address types beyond the current P2PK v1 authorization
-- persistent chainstate database
-- fee relay/minimum policy
+Persistent chainstate storage and relay/minimum-fee policy were implemented in later stages. Coinbase subsidy limits, maturity, atomic connect/disconnect and cumulative-work reorganization are implemented in the consensus/chainstate layers.
 
-Coinbase subsidy limits, maturity, block-level atomic connect/disconnect and reorg selection are implemented in the consensus/chainstate layers.
+Additional payment script/address types remain a future compatibility feature and are not required for the current P2PK v1 network. Any consensus-visible script expansion requires explicit activation design and testing rather than silent format changes.

@@ -79,15 +79,8 @@ The automated test constructs:
 - exact preservation of branch B as the active chain;
 - early rejection of descendants of the failed branch.
 
-## Current limitations
+## Current implementation status and remaining work
 
-Not implemented yet:
+Later stages implemented persistent block/chainstate storage, headers-first synchronization, cumulative-work fork choice and multi-block reorganization, difficulty validation, network-specific genesis enforcement, and restart-safe state recovery.
 
-- persistent block index;
-- orphan block pool;
-- headers-first synchronization;
-- difficulty adjustment validation;
-- exact mainnet genesis enforcement;
-- invalidity propagation optimization for all already-indexed descendants;
-- pruning;
-- disk-backed undo data.
+Remaining hardening work before Mainnet includes a bounded orphan-block strategy, broader invalidity/peer-abuse optimization, pruning if adopted, adversarial multi-node reorg/partition testing, crash-consistency testing and long-duration soak. Any storage optimization must preserve the existing atomic connect/disconnect and reorg semantics.

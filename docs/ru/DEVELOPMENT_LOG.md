@@ -3608,3 +3608,13 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 - Исправление: Stage 45 пересоздан от актуального main; перенесена только non-destructive защита restore: существующий wallet_meta.dat теперь приводит к target_exists до записи wallet.dat и никогда не перезаписывается/удаляется неявно.
 - Проверка: добавлен regression test с orphan wallet_meta.dat, который требует byte-for-byte сохранения metadata и отсутствия созданного wallet.dat после отказа restore.
 - Совместимость: Genesis, consensus, RandomX, monetary policy, network identity, адреса, порты, transaction format и wallet.dat format не изменены.
+
+
+### 2026-10-07 — Stage 46: bounded negative-validation cache for P2P blocks
+
+- **Цель:** не выполнять повторно дорогую проверку одного и того же заведомо невалидного блока, присланного повторно или через другого peer.
+- **Безопасность:** cache key вычисляется только из полного канонически сериализованного блока; peer-announced inventory hash не используется как основание для negative cache.
+- **Реализация:** runtime-only cache ограничен 1024 записями и TTL 600 секунд, очищается при остановке runtime, имеет безопасное насыщение срока жизни и bounded eviction.
+- **Консервативная классификация:** кэшируются только контекстно-независимые consensus failures. Не кэшируются unknown parent, временные/chain-context ошибки, reorg/storage failures и другие состояния, которые могут стать допустимыми после изменения локальной цепи.
+- **Совместимость:** genesis, RandomX PoW, difficulty, monetary policy, transaction/block formats, wallet formats, network magic, адреса и порты не изменены.
+- **Commits:** 8c7fd8a, 67b5239, 08bb8c5, e13d534.
