@@ -1066,26 +1066,29 @@ SyncResult sync_from_peer(
                 return out;
             }
 
-            // SHA-style PoW can be verified from a header alone.
-            // RandomX cannot: its consensus hash depends on the epoch seed
-            // derived from chain history. Using check_proof_of_work() here
-            // would incorrectly validate RandomX headers with block_hash()
-            // and disconnect a syncing RandomX peer before block 1.
-            //
-            // For RandomX, the downloaded block is still fully validated by
-            // NodeRuntime/Chainstate before acceptance, including the correct
-            // RandomX seed, target, expected difficulty and all block rules.
-            if (node.chain().params().pow.pow_algorithm !=
-                    consensus::PowAlgorithm::randomx_v2 &&
-                consensus::check_proof_of_work(
-                    header,
-                    node.chain().params().pow) !=
-                    consensus::PowCheckError::none) {
-                out.error = SyncError::invalid_header_pow;
-                return out;
-            }
-
             previous = block_hash(header);
+        }
+
+        // Reject consensus-invalid header chains before requesting any block
+        // body. Chainstate owns the rules so headers-first and full block
+        // acceptance cannot diverge on difficulty, MTP or RandomX seeds.
+        const auto validated =
+            node.chain().validate_headers(
+                *headers,
+                adjusted_time
+            );
+
+        if (!validated.ok()) {
+            out.chain_error = validated.error;
+            out.error =
+                validated.error ==
+                        ChainConnectError::
+                            invalid_proof_of_work
+                    ? SyncError::
+                          invalid_header_pow
+                    : SyncError::
+                          invalid_header_consensus;
+            return out;
         }
 
         std::vector<BlockHeader> missing_headers;
