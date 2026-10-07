@@ -487,6 +487,89 @@ void test_peer_message_flood_is_disconnected()
     );
 }
 
+
+void test_malformed_ping_disconnects_peer()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params =
+        consensus::regtest_params();
+    const auto dir =
+        unique_dir("malformed-ping-disconnect");
+
+    NetworkRuntime runtime{params, dir};
+
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 10U;
+    config.io_timeout_ms = 5'000U;
+    config.ping_interval_seconds = 30U;
+    config.ping_timeout_seconds = 5U;
+
+    assert(runtime.start(config).ok());
+
+    VersionMessage remote;
+    remote.protocol_version =
+        params.p2p_protocol_version;
+    remote.services = kServiceNetwork;
+    remote.timestamp =
+        params.genesis.timestamp + 90'000U;
+    remote.nonce = 0x47004700ULL;
+    remote.start_height = 0U;
+    remote.listen_port = 0U;
+
+    auto connected =
+        connect_and_handshake(
+            params,
+            "127.0.0.1",
+            runtime.status().listen_port,
+            remote,
+            5'000U
+        );
+
+    assert(connected.ok());
+
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            return runtime.status().peers == 1U;
+        }
+    ));
+
+    // ping requires exactly one serialized uint64 nonce. A truncated payload
+    // is malformed protocol input and must deterministically disconnect the
+    // offending peer instead of being retried or consuming node resources.
+    const Bytes malformed_ping{
+        Byte{0x47U},
+        Byte{0x00U},
+        Byte{0x47U},
+    };
+
+    assert(connected.session->send_command(
+               "ping",
+               malformed_ping) ==
+           PeerError::none);
+
+    assert(wait_until(
+        std::chrono::seconds(5),
+        [&] {
+            return runtime.status().peers == 0U;
+        }
+    ));
+
+    connected.session->close();
+    runtime.stop();
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+
 void test_continuous_runtime_sync_relay_reconnect()
 {
     using namespace quintum;
@@ -1634,6 +1717,7 @@ int main()
     test_default_listener_port_fallback();
     test_walletless_seed_runtime_creates_no_wallet();
     test_peer_message_flood_is_disconnected();
+    test_malformed_ping_disconnects_peer();
     test_continuous_runtime_sync_relay_reconnect();
     test_dandelion_three_node_relay_and_block_confirmation();
     test_higher_outbound_peer_updates_lower_inbound();

@@ -3636,3 +3636,14 @@ Consensus, Genesis, RandomX, monetary policy, network magic/ports, addresses, tr
 **Действие:** PR #14–#25 закрыты без merge как superseded/integrated. Их commits и обсуждения сохранены в GitHub для аудита. Устаревшие stacked branches не использовались для изменения `main`.
 
 **Безопасность:** cleanup не меняет consensus, Genesis, RandomX, monetary policy, wallet/chain formats, private keys, network magic, адреса или порты.
+
+
+## 2026-10-07 — Stage 47: malformed-message peer accountability
+
+**Аудит validation-before-relay:** входящий блок проходит `node_.submit_block_at()` до `queue_announcement()`; невалидные блоки не становятся relay announcement. Дополнительное изменение consensus-кода не требуется.
+
+**Hardening:** подтвержден fail-closed путь для malformed P2P payload: `process_message()` возвращает ошибку разбора, а `service_peers()` детерминированно закрывает offending peer.
+
+**Regression:** добавлен live P2P тест `test_malformed_ping_disconnects_peer()`: после нормального handshake peer отправляет усечённый `ping` payload и обязан быть отключён в ограниченное время.
+
+**Совместимость:** consensus, Genesis, RandomX, difficulty, monetary policy, wallet/backup formats, chain data, network magic, адреса и порты не изменены.
