@@ -92,6 +92,14 @@ The remaining M7 safety sequence is:
 
 Each stage must pass the applicable Build, Security and GUI CI gates before merge.
 
+## Stage 50 — Adversarial parser corpus
+
+Stage 50 adds deterministic malformed-input coverage to the existing CI suite without introducing a production dependency or changing serialization.
+
+The P2P wire tests now exercise every strict prefix of a valid frame, concatenated-frame consumption, and independent network-magic corruption. Compact-block tests exercise every strict prefix of valid compact-block, getblocktxn and blocktxn payloads, trailing garbage rejection, and non-canonical CompactSize rejection before allocation.
+
+These tests are intended to prove fail-closed behavior at network-controlled parser boundaries under the normal Build/Security/GUI CI matrix. Consensus rules, successful serialization, RandomX, Genesis, monetary policy, wallet formats, network identity, addresses and ports are unchanged.
+
 ## Documentation policy
 
 QUINTUM technical documentation is maintained in English only. New implementation stages must update the relevant English normative document and this development index when the change is historically significant. Git history remains the source of truth for exact code changes and commit chronology.
