@@ -1774,6 +1774,121 @@ void test_encrypted_stem_transaction_relay()
     std::filesystem::remove_all(mirror_dir, ec);
 }
 
+
+void test_repeated_partition_reconnect_converges_to_heavier_chain()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+
+    const auto& params = consensus::regtest_params();
+    const auto left_dir = unique_dir("partition-soak-left");
+    const auto right_dir = unique_dir("partition-soak-right");
+    const auto payout = payout_script(31U);
+    std::uint64_t now = params.genesis.timestamp + 100'000U;
+
+    // Three independent partition/reconnect rounds. Each round begins from
+    // an identical durable tip, mines competing branches while disconnected,
+    // then reconnects and requires both runtimes to converge to the branch
+    // with greater cumulative work.
+    for (std::uint32_t round = 0U; round < 3U; ++round) {
+        {
+            NodeRuntime left{params, left_dir};
+            NodeRuntime right{params, right_dir};
+            assert(left.start_at(now).ok());
+            assert(right.start_at(now).ok());
+            assert(left.chain().tip_hash() ==
+                   right.chain().tip_hash());
+
+            for (std::uint32_t i = 0U; i < 2U; ++i) {
+                const auto mined = left.mine_block_at(
+                    payout, ++now, 4'096U);
+                assert(mined.ok());
+            }
+
+            for (std::uint32_t i = 0U; i < 3U; ++i) {
+                const auto mined = right.mine_block_at(
+                    payout, ++now, 4'096U);
+                assert(mined.ok());
+            }
+
+            assert(left.chain().tip_hash() !=
+                   right.chain().tip_hash());
+            assert(left.chain().cumulative_work() <
+                   right.chain().cumulative_work());
+        }
+
+        NetworkRuntimeConfig right_config;
+        right_config.bind_address = "127.0.0.1";
+        right_config.listen_port = 0U;
+        right_config.allow_local_peers = true;
+        right_config.target_outbound = 0U;
+        right_config.wallet_enabled = false;
+        right_config.accept_poll_ms = 10U;
+        right_config.io_timeout_ms = 5'000U;
+        right_config.ping_interval_seconds = 30U;
+        right_config.ping_timeout_seconds = 5U;
+
+        NetworkRuntime right{params, right_dir};
+        assert(right.start(right_config).ok());
+
+        NetworkRuntimeConfig left_config = right_config;
+        left_config.target_outbound = 1U;
+        left_config.outbound_retry_seconds = 1U;
+        left_config.reconnect_delay_seconds = 1U;
+        left_config.bootstrap_peers.push_back(
+            PeerAddress{
+                .ipv4 = *parse_ipv4("127.0.0.1"),
+                .port = right.status().listen_port,
+                .services = 1U,
+                .last_seen = now,
+            });
+
+        NetworkRuntime left{params, left_dir};
+        assert(left.start(left_config).ok());
+
+        assert(wait_until(
+            std::chrono::seconds(20),
+            [&] {
+                const auto a = left.status();
+                const auto b = right.status();
+                return a.tip == b.tip &&
+                       a.height == b.height &&
+                       left.cumulative_work() ==
+                           right.cumulative_work() &&
+                       a.outbound_peers == 1U &&
+                       b.peers >= 1U;
+            }));
+
+        const auto converged_tip = right.status().tip;
+        const auto converged_height = right.status().height;
+        assert(converged_tip.has_value());
+        assert(converged_height.has_value());
+
+        left.stop();
+        right.stop();
+
+        // Convergence must be durable, not merely in-memory network state.
+        NodeRuntime left_restart{params, left_dir};
+        NodeRuntime right_restart{params, right_dir};
+        assert(left_restart.start_at(++now).ok());
+        assert(right_restart.start_at(now).ok());
+        assert(left_restart.chain().tip_hash() ==
+               converged_tip);
+        assert(right_restart.chain().tip_hash() ==
+               converged_tip);
+        assert(left_restart.chain().height() ==
+               converged_height);
+        assert(right_restart.chain().height() ==
+               converged_height);
+        assert(left_restart.chain().utxos().size() ==
+               right_restart.chain().utxos().size());
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(left_dir, ec);
+    std::filesystem::remove_all(right_dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -1791,5 +1906,6 @@ int main()
     test_stalled_transaction_requests_are_bounded_and_expire();
     test_stalled_block_requests_are_bounded_and_expire();
     test_encrypted_stem_transaction_relay();
+    test_repeated_partition_reconnect_converges_to_heavier_chain();
     return 0;
 }
