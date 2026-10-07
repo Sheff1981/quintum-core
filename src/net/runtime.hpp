@@ -197,6 +197,8 @@ enum class NetworkWalletSendError {
     none,
     invalid_preview,
     stale_preview,
+    passphrase_required,
+    invalid_passphrase,
     wallet_create_failed,
     node_rejected,
     wallet_sync_failed,
@@ -320,7 +322,8 @@ public:
 
     [[nodiscard]] NetworkWalletSendResult
     confirm_send(
-        const NetworkWalletSendPreview& preview
+        const NetworkWalletSendPreview& preview,
+        std::string_view passphrase = {}
     );
 
     [[nodiscard]] NetworkWalletSendResult
