@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,13 +61,19 @@ private fun QuintumHome() {
     var page by remember { mutableStateOf<Page?>(null) }
     val context = LocalContext.current
     val controller = remember { MiningController(context.applicationContext) }
-    var stats by remember { mutableStateOf(controller.snapshot()) }
+    var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
     var startRequested by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
-            nodeRunning = NativeCore.nativeRunning()
-            stats = controller.snapshot()
+            val result = withContext(Dispatchers.IO) {
+                runCatching { Pair(NativeCore.nativeRunning(), controller.snapshot()) }
+            }
+            result.onSuccess { (running, snapshot) ->
+                nodeRunning = running
+                stats = snapshot
+            }
+            result.onFailure { android.util.Log.e("QUINTUM-UI", "Status polling failed", it) }
             delay(1000)
         }
     }
