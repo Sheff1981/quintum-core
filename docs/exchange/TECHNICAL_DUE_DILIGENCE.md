@@ -116,7 +116,7 @@ The height-0 subsidy is 50 QUINTUM but is paid to permanently reserved unspendab
 
 There is no developer mint, administrator balance override or privileged coin-generation path.
 
-The working GUI abbreviation is **QMU**. The final Mainnet exchange ticker remains a pre-launch decision and must not be treated as formally frozen yet.
+The native coin ticker and final Mainnet exchange ticker are **QMU**, branding-frozen on 2026-10-05 per `docs/DECISIONS.md`. This branding decision does not freeze Mainnet consensus parameters.
 
 ## 7. Proof of Work and difficulty
 
@@ -396,7 +396,7 @@ The current source head is a verified GitHub commit.
 The following must not be concealed from an exchange:
 
 - Mainnet has not launched;
-- final ticker is not frozen;
+- ticker QMU is branding-frozen; Mainnet consensus parameters are not frozen;
 - final Mainnet parameter freeze has not occurred;
 - only one public hardcoded Testnet seed is currently documented;
 - DNS seeds are not yet deployed;
