@@ -64,6 +64,8 @@ private fun QuintumHome() {
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
     var startRequested by remember { mutableStateOf(false) }
+    var nodeError by remember { mutableStateOf("") }
+    var startupSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
@@ -72,6 +74,20 @@ private fun QuintumHome() {
             result.onSuccess { (running, snapshot) ->
                 nodeRunning = running
                 stats = snapshot
+                if (running) {
+                    startRequested = false
+                    startupSeconds = 0
+                    nodeError = ""
+                } else {
+                    nodeError = context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
+                        .getString("last_error", "") ?: ""
+                    if (startRequested) startupSeconds++
+                    if (nodeError.isNotBlank() || startupSeconds >= 30) {
+                        if (startupSeconds >= 30 && nodeError.isBlank()) nodeError = "Node startup timed out. Check device logs."
+                        startRequested = false
+                        startupSeconds = 0
+                    }
+                }
             }
             result.onFailure { android.util.Log.e("QUINTUM-UI", "Status polling failed", it) }
             delay(1000)
@@ -115,9 +131,19 @@ private fun QuintumHome() {
                         if (!nodeRunning) {
                             Button(onClick = {
                                 startRequested = true
-                                ContextCompat.startForegroundService(context, Intent(context, NodeService::class.java))
+                                startupSeconds = 0
+                                nodeError = ""
+                                context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
+                                    .edit().putString("last_error", "").apply()
+                                try {
+                                    ContextCompat.startForegroundService(context, Intent(context, NodeService::class.java))
+                                } catch (e: RuntimeException) {
+                                    nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
+                                    startRequested = false
+                                }
                             }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
                         }
+                        if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
                         HorizontalDivider(color = Color(0xFF34466B))
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             StatusMetric("PEERS", "${stats.stats?.peers ?: 0}")
@@ -157,6 +183,7 @@ private fun QuintumHome() {
             } else when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Connecting…" else "Node stopped")
+                    if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
                     Spacer(Modifier.height(12.dp))
