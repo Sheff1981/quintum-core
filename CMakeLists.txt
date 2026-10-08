@@ -323,6 +323,8 @@ target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
 
 if(ANDROID)
+    # Static dependencies linked into the JNI shared library must be PIC on ARM64.
+    set_target_properties(quintum_core monocypher randomx PROPERTIES POSITION_INDEPENDENT_CODE ON)
     add_library(quintum_android SHARED
         src/android/native_bridge.cpp
     )
