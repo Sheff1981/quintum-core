@@ -1802,8 +1802,18 @@ void NetworkRuntime::run_loop() noexcept
             const std::uint64_t now =
                 unix_time_now();
 
-            accept_inbound(now);
+#ifdef __ANDROID__
+            android_p2p_diagnostic_.store(11, std::memory_order_relaxed);
+#endif
+            // Outbound discovery must not wait behind inbound handshake polling.
             maintain_outbound(now);
+#ifdef __ANDROID__
+            android_p2p_diagnostic_.store(
+                android_p2p_diagnostic_.load(std::memory_order_relaxed) == 11 ? 12 :
+                android_p2p_diagnostic_.load(std::memory_order_relaxed),
+                std::memory_order_relaxed);
+#endif
+            accept_inbound(now);
             flush_private_transactions(now);
             service_peers(now);
             service_stem_embargo(now);
