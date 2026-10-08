@@ -43,7 +43,6 @@ private enum class Page(val title: String, val subtitle: String, val symbol: Str
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ContextCompat.startForegroundService(this, Intent(this, NodeService::class.java))
         setContent {
             MaterialTheme(
                 colorScheme = lightColorScheme(primary = Blue, background = Canvas, surface = Color.White)
@@ -62,6 +61,7 @@ private fun QuintumHome() {
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(controller.snapshot()) }
     var nodeRunning by remember { mutableStateOf(false) }
+    var startRequested by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             nodeRunning = NativeCore.nativeRunning()
@@ -94,16 +94,22 @@ private fun QuintumHome() {
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("NETWORK STATUS", style = MaterialTheme.typography.labelMedium, color = Color(0xFFAFC4F4))
                         Text(
-                            if (nodeRunning) "Node running" else "Connecting…",
+                            if (nodeRunning) "Node running" else if (startRequested) "Connecting…" else "Node stopped",
                             style = MaterialTheme.typography.headlineSmall,
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (nodeRunning) "QUINTUM Core is active" else "Starting QUINTUM Core automatically",
+                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Starting QUINTUM Core" else "Start the node when ready",
                             color = Color(0xFFD3E0FA),
                             style = MaterialTheme.typography.bodySmall
                         )
+                        if (!nodeRunning) {
+                            Button(onClick = {
+                                startRequested = true
+                                ContextCompat.startForegroundService(context, Intent(context, NodeService::class.java))
+                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
+                        }
                         HorizontalDivider(color = Color(0xFF34466B))
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             StatusMetric("PEERS", "${stats.stats?.peers ?: 0}")
@@ -142,7 +148,7 @@ private fun QuintumHome() {
                 }
             } else when (page) {
                 Page.Network -> {
-                    DetailCard("Connection", if (nodeRunning) "Core running" else "Connecting…")
+                    DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Connecting…" else "Node stopped")
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
                     Spacer(Modifier.height(12.dp))
