@@ -52,6 +52,26 @@ jobs:
           printf 'cmake.dir=%s\n' "$cmake_root" > android/local.properties
           test -x "$cmake_root/bin/cmake"
 
+      - name: Configure stable APK signing
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.QUM_ANDROID_DEBUG_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.QUM_ANDROID_DEBUG_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf %s "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/quintum-signing.jks"
+            chmod 600 "$RUNNER_TEMP/quintum-signing.jks"
+            echo "QUM_ANDROID_DEBUG_KEYSTORE=$RUNNER_TEMP/quintum-signing.jks" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No persistent APK signing key configured; build cannot be used as an in-place update of previous APKs."
+          fi
+
       - name: Run Android unit tests
         working-directory: android
         run: gradle testDebugUnitTest --no-daemon
