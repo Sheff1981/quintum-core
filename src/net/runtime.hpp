@@ -637,6 +637,13 @@ private:
     std::atomic<std::size_t> peer_count_{0U};
     std::atomic<std::size_t> outbound_count_{0U};
     std::atomic<std::size_t> known_address_count_{0U};
+#ifdef __ANDROID__
+public:
+    [[nodiscard]] int android_p2p_diagnostic() const noexcept
+    { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
+private:
+    std::atomic<int> android_p2p_diagnostic_{0};
+#endif
     std::atomic<std::uint32_t> peer_best_height_{0U};
     std::atomic<bool> have_peer_height_{false};
     std::atomic<std::uint16_t> listen_port_{0U};
