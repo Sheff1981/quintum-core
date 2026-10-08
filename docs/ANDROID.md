@@ -179,3 +179,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - `cacf3a5dcecc0147585cb0be8a87e443c8747b9c`: persist service/native startup error codes locally in app preferences; no telemetry or private-key transmission.
 - `51b3154a5df297c048bcdbc3e9b06a9f5067b8c2`: show startup errors and reset stuck Connecting state after 30 seconds so user can retry.
 - Verification: **PENDING** Android CI, APK signing verification, and real-device startup; device logcat required if native process aborts.
+
+### AND-012 — Xiaomi Mi 11 Android 13 / MIUI 14 native crash investigation
+
+- User confirmed Xiaomi Mi 11, Android 13, MIUI Global 14.0.7; process disappears approximately 10 seconds after pressing Start node. ARM64 ABI and minSdk 26 are compatible with device. Exact native crash signal/stack trace not yet captured.
+- Investigated `src/crypto/randomx.cpp`: automatic `randomx_get_flags()` could select JIT/CPU-specific execution mode. On Android, disable JIT and auto CPU flags and use portable RandomX v2 interpreter (`RANDOMX_FLAG_V2`) for both light verification and mining. This is an Android-only execution-mode change, **not** a PoW algorithm/consensus change. Hash equivalence requires vector verification in CI.
+- Commit `8d57e7ae62a55e64fd2beecab49774ed6c95c000`. Verification **PENDING** CI and on-device startup. A crash tombstone/logcat is needed to establish root cause; do not assert JIT caused the crash without evidence.
