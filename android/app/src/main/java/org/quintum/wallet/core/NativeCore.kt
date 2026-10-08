@@ -28,5 +28,6 @@ object NativeCore {
     external fun nativePeerCount(): Long
     external fun nativeKnownAddressCount(): Long
     external fun nativeP2pDiagnostic(): Int
+    external fun nativePeerDetails(): String
     external fun nativeDifficulty(): Double
 }
