@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 @Composable
@@ -22,14 +24,20 @@ fun MiningScreen() {
     val scope = rememberCoroutineScope()
     var payout by rememberSaveable { mutableStateOf("") }
     var threadsText by rememberSaveable { mutableStateOf((Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1).toString()) }
-    var state by remember { mutableStateOf(controller.snapshot()) }
+    var state by remember { mutableStateOf(MiningUiState()) }
     var error by remember { mutableStateOf<String?>(null) }
     var nodeRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
-            state = controller.snapshot()
-            nodeRunning = NativeCore.nativeRunning()
+            val result = withContext(Dispatchers.IO) {
+                runCatching { Pair(controller.snapshot(), NativeCore.nativeRunning()) }
+            }
+            result.onSuccess { (snapshot, running) ->
+                state = snapshot
+                nodeRunning = running
+            }
+            result.onFailure { error = "Unable to read node status." }
             delay(1000)
         }
     }
@@ -55,7 +63,7 @@ fun MiningScreen() {
                         else -> "Unable to start mining."
                     }
                 }
-                state = controller.snapshot()
+                state = withContext(Dispatchers.IO) { controller.snapshot() }
             }
         }) { Text(if (state.running) "Stop mining" else "Start mining") }
         Text("Thermal status: " + state.thermalStatus)
