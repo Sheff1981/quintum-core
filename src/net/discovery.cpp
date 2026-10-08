@@ -277,7 +277,12 @@ std::size_t PeerDiscovery::bootstrap_dns_seeds(
                 .last_seen = now,
             };
 
-            if (addrman_.add(address)) {
+            const bool inserted = addrman_.add(address);
+            // DNS seeds must receive the same startup retry opportunity
+            // as fixed seeds, even when their addresses already exist
+            // in peers.dat with an expired or long backoff schedule.
+            addrman_.make_retry_eligible(address, now);
+            if (inserted) {
                 ++added;
             }
         }
