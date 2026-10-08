@@ -31,7 +31,7 @@ android {
     }
 
     signingConfigs {
-        getByName("debug") {
+        create("quintumTestnet") {
             val keyPath = System.getenv("QUM_ANDROID_DEBUG_KEYSTORE")
             if (!keyPath.isNullOrBlank()) {
                 storeFile = file(keyPath)
@@ -39,6 +39,12 @@ android {
                 keyAlias = System.getenv("QUM_ANDROID_DEBUG_KEY_ALIAS") ?: "androiddebugkey"
                 keyPassword = System.getenv("QUM_ANDROID_DEBUG_KEY_PASSWORD") ?: ""
             }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("quintumTestnet")
         }
     }
 
