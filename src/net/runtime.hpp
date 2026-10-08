@@ -639,10 +639,14 @@ private:
     std::atomic<std::size_t> known_address_count_{0U};
 #ifdef __ANDROID__
 public:
+    [[nodiscard]] std::string android_peer_details() const
+    { std::scoped_lock lock(android_peer_details_mutex_); return android_peer_details_; }
     [[nodiscard]] int android_p2p_diagnostic() const noexcept
     { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
 private:
     std::atomic<int> android_p2p_diagnostic_{0};
+    mutable std::mutex android_peer_details_mutex_{};
+    std::string android_peer_details_{};
 #endif
     std::atomic<std::uint32_t> peer_best_height_{0U};
     std::atomic<bool> have_peer_height_{false};
