@@ -81,3 +81,11 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Fix commit: `0df4e1f5bd26bfad07afa8915da04e5b6a571109` sets Java source and target compatibility to 17 in `android/app/build.gradle.kts`.
 - Verification: **PENDING** rerun of Android unit tests, APK build, native payload verification and device smoke test. Do not mark fixed until checks pass.
 - Scope: Android build configuration only; no consensus, keys or wallet storage changes.
+
+### AND-007 — Gradle APK packaging cannot locate CMake (2026-10-08)
+
+- Evidence: Android CI run 37725328706, job 113142080817. ARM64 C++ Core built and `testDebugUnitTest` passed; `assembleDebug` failed at `:app:configureCMakeDebug[arm64-v8a]`.
+- Exact error: `[CXX1300] CMake '3.25.1' was not found in SDK, PATH, or by cmake.dir property.`
+- Cause: Gradle pins Android SDK CMake 3.25.1, but CI did not provision that SDK package.
+- Fix commit: `750e8e81f62433d7922f073b71c51715e1f331d2` installs `cmake;3.25.1` through Android sdkmanager before running Gradle.
+- Verification: **PENDING** Android APK build, ARM64 JNI payload check and device smoke test.
