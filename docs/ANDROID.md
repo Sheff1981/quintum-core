@@ -153,3 +153,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Change: `3fb5b08907b821d00c9017c95fb19d4885579523` replaces bare tiles with a QMU-branded Material3 dashboard: dark network-status hero, live peers/height/mining status, four rounded navigation cards, separate detail cards, and explicit wallet-unavailable messaging.
 - Scope: presentation only; no PCoin source or branding copied; no changes to consensus, RandomX, genesis, QMU ticker, wallet or network magic.
 - Verification: **PENDING** CI and Android device visual/navigation smoke test. UI screenshot and performance not yet verified.
+
+### AND-016 — Node lifecycle blocks Android main thread (2026-10-08)
+
+- Root cause: `NodeService.onStartCommand` called synchronous `NativeCore.nativeStart` on Android main thread, potentially freezing UI while native node initializes. `onDestroy` also called blocking native stop on main thread.
+- Fix: `aacae76fab46e56518bf975cc120671b23219615` moves startup to service IO coroutine; `4cd91ad74f195868b5b84203d0e4daa96054a13a` prevents duplicate startup and offloads shutdown; `6590ff5001cd51c203af99a1d859dbef7829929d` catches/logs startup failures.
+- Verification: pending CI compile, real-device startup/restart, P2P peer discovery, chain sync and mining. Further lifecycle race review needed before production.
