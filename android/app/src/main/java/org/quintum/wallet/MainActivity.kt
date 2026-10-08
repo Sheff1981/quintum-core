@@ -111,6 +111,8 @@ private fun QuintumHome() {
     var p2pDiagnostic by remember { mutableIntStateOf(0) }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showCrashReport by remember { mutableStateOf(false) }
+    val crashReport = remember { runCatching { context.filesDir.resolve("diagnostics/last-java-crash.txt").takeIf { it.isFile }?.readText() }.getOrNull() }
     var tcpProbeResult by remember { mutableStateOf("Not tested") }
     var tcpProbeRunning by remember { mutableStateOf(false) }
     var diagnosticUpdatedAt by remember { mutableLongStateOf(0L) }
@@ -242,6 +244,18 @@ private fun QuintumHome() {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
+                    if (crashReport != null) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Previous app crash recorded", color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { showCrashReport = !showCrashReport }) { Text(if (showCrashReport) "Hide crash report" else "View last crash report") }
+                        if (showCrashReport) {
+                            Button(onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("QUINTUM crash report", crashReport))
+                            }) { Text("Copy crash report") }
+                            Text(crashReport.take(4000), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Network status", when {
                         !nodeRunning -> "Node is not running"
