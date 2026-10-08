@@ -2001,6 +2001,9 @@ void NetworkRuntime::maintain_outbound(
                 peer,
                 now,
                 true)) {
+#ifdef __ANDROID__
+            log_outbound_failure("reconnect-post-handshake", it->address, -1);
+#endif
             peer.session.close();
             addrman_.mark_failure(
                 it->address,
@@ -2092,6 +2095,11 @@ void NetworkRuntime::maintain_outbound(
             peer,
             now,
             true)) {
+#ifdef __ANDROID__
+        if (connected.address) {
+            log_outbound_failure("discovery-post-handshake", *connected.address, -1);
+        }
+#endif
         peer.session.close();
 
         if (connected.address) {
@@ -2113,6 +2121,14 @@ void NetworkRuntime::maintain_outbound(
         return;
     }
 
+#ifdef __ANDROID__
+    if (connected.address) {
+        __android_log_print(ANDROID_LOG_INFO, "QUINTUM-P2P",
+            "outbound-ready peer=%s:%u",
+            format_peer_host(*connected.address).c_str(),
+            static_cast<unsigned>(connected.address->port));
+    }
+#endif
     peers_.push_back(
         std::move(peer)
     );
