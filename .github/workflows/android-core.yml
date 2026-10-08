@@ -76,7 +76,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish direct-download Android Testnet prerelease
-        if: github.event_name == 'push' && github.ref == 'refs/heads/android-foundation'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/android-foundation') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'android-foundation')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -85,8 +85,9 @@ jobs:
           apk=android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$apk"
           tag="android-testnet-${GITHUB_RUN_NUMBER}"
+          target_sha="${{ github.event.pull_request.head.sha || github.sha }}"
           gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" \
-            --target "$GITHUB_SHA" \
+            --target "$target_sha" \
             --title "QUINTUM Android Testnet ${GITHUB_RUN_NUMBER}" \
             --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending." \
             --prerelease
