@@ -63,6 +63,7 @@ private fun QuintumHome() {
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
+    var knownAddresses by remember { mutableLongStateOf(0L) }
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
     var startupSeconds by remember { mutableIntStateOf(0) }
