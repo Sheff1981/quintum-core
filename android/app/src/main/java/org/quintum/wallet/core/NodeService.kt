@@ -32,10 +32,16 @@ class NodeService : Service() {
         if (startRequested) return START_STICKY
         startRequested = true
         scope.launch {
-            val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
-        if (result != 0 && result != 2) {
-            stopSelf(startId)
-        }
+            try {
+                val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
+                if (result != 0 && result != 2) {
+                    android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
+                    stopSelf(startId)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("QUINTUM-Node", "Node startup exception", e)
+                stopSelf(startId)
+            }
         }
 
         return START_STICKY
