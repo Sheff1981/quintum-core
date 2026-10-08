@@ -40,12 +40,14 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Install Android CMake 3.22.1
+      - name: Configure Gradle to use host CMake 3.25+
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'cmake;3.22.1'
-          test -x "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+          cmake --version
+          cmake_root="$(dirname "$(dirname "$(readlink -f "$(command -v cmake)")")")"
+          printf 'cmake.dir=%s\n' "$cmake_root" > android/local.properties
+          test -x "$cmake_root/bin/cmake"
 
       - name: Run Android unit tests
         working-directory: android
