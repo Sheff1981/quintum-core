@@ -216,6 +216,8 @@ private fun QuintumHome() {
                 Text("Your workspace", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(
+                    modifier = Modifier.fillMaxWidth().height(360.dp),
+                    userScrollEnabled = false,
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
