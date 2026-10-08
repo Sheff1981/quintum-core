@@ -27,28 +27,39 @@ class NodeService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        startForeground(NOTIFICATION_ID, notification("Starting QUINTUM node"))
+        try {
+            startForeground(NOTIFICATION_ID, notification("Starting QUINTUM node"))
+        } catch (e: RuntimeException) {
+            android.util.Log.e("QUINTUM-Node", "Foreground service startup rejected", e)
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (startRequested) return START_STICKY
+        if (startRequested) return START_NOT_STICKY
         startRequested = true
         scope.launch {
             try {
                 val result = synchronized(lifecycleLock) {
-                    if (destroyed) -1 else NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
+                    if (destroyed) -1 else {
+                        val dataDir = filesDir.resolve("core")
+                        if (!dataDir.isDirectory && !dataDir.mkdirs()) {
+                            android.util.Log.e("QUINTUM-Node", "Unable to create core data directory")
+                            -2
+                        } else NativeCore.nativeStart(dataDir.absolutePath)
+                    }
                 }
                 if (result != 0 && result != 2 && result != -1) {
                     android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
                     stopSelf(startId)
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 android.util.Log.e("QUINTUM-Node", "Node startup exception", e)
                 stopSelf(startId)
             }
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
