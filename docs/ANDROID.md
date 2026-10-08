@@ -58,3 +58,11 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Fix commit: `56b4113063a39e36bf74f1d96e98375602ffef1a` dispatches thermal stop to an IO coroutine and avoids repeated stop requests during a running mining session.
 - Verification: **PENDING** Android CI and on-device thermal/stop/restart testing. Review concurrency of manual stop and thermal stop before release.
 - Compatibility: Kotlin lifecycle only; no consensus, wallet, address, or network changes.
+
+### AND-004 — ARM64 shared-library link fails without PIC (2026-10-08)
+
+- Evidence: Android CI run 37722847058, job 113134253738; linker `ld.lld` reported `R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC` relocations and `recompile with -fPIC` while linking `libquintum_android.so`.
+- Root cause: static C++ Core and dependency objects were not guaranteed to be position-independent when linked into the Android JNI shared library.
+- Fix commit: `d693848a35e22bc352882d1eb81f6c55fcabc8d0`; CMake enables `POSITION_INDEPENDENT_CODE` for `quintum_core`, `monocypher`, and `randomx` only in the Android configuration.
+- Verification: **PENDING** clean ARM64 compile/link, Android unit tests, APK packaging and device smoke test. Keep this issue open until the checks pass.
+- Compatibility: build flags only; no consensus or wallet format changes.
