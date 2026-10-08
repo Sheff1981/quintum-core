@@ -1,5 +1,5 @@
 #include "consensus/chainparams.hpp"
-#include "consensus/script.hpp"
+#include "consensus/tx_auth.hpp"
 #include "net/runtime.hpp"
 #include "wallet/address.hpp"
 
