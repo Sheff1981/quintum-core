@@ -1946,6 +1946,7 @@ void NetworkRuntime::maintain_outbound(
 
         if (!connected.ok()) {
 #ifdef __ANDROID__
+            android_p2p_diagnostic_.store(1000 + static_cast<int>(connected.error));
             log_outbound_failure("reconnect", it->address, static_cast<int>(connected.error));
 #endif
             addrman_.mark_failure(
@@ -2002,6 +2003,7 @@ void NetworkRuntime::maintain_outbound(
                 now,
                 true)) {
 #ifdef __ANDROID__
+            android_p2p_diagnostic_.store(3001);
             log_outbound_failure("reconnect-post-handshake", it->address, -1);
 #endif
             peer.session.close();
@@ -2028,6 +2030,9 @@ void NetworkRuntime::maintain_outbound(
             return;
         }
 
+#ifdef __ANDROID__
+        android_p2p_diagnostic_.store(4000);
+#endif
         peers_.push_back(
             std::move(peer)
         );
@@ -2050,6 +2055,9 @@ void NetworkRuntime::maintain_outbound(
         }
     }
 
+#ifdef __ANDROID__
+    android_p2p_diagnostic_.store(10);
+#endif
     auto connected =
         discovery_.connect_one(
             params_,
@@ -2066,6 +2074,7 @@ void NetworkRuntime::maintain_outbound(
 
     if (!connected.ok()) {
 #ifdef __ANDROID__
+        android_p2p_diagnostic_.store(2000 + static_cast<int>(connected.error) * 100 + static_cast<int>(connected.peer_error));
         if (connected.address) {
             log_outbound_failure("discovery", *connected.address, static_cast<int>(connected.peer_error));
         } else {
@@ -2096,6 +2105,7 @@ void NetworkRuntime::maintain_outbound(
             now,
             true)) {
 #ifdef __ANDROID__
+        android_p2p_diagnostic_.store(3002);
         if (connected.address) {
             log_outbound_failure("discovery-post-handshake", *connected.address, -1);
         }
@@ -2128,6 +2138,9 @@ void NetworkRuntime::maintain_outbound(
             format_peer_host(*connected.address).c_str(),
             static_cast<unsigned>(connected.address->port));
     }
+#endif
+#ifdef __ANDROID__
+    android_p2p_diagnostic_.store(4000);
 #endif
     peers_.push_back(
         std::move(peer)
