@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,6 +48,7 @@ class NodeService : Service() {
         startRequested = true
         recordStatus("Initializing native QUINTUM Core")
         scope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
             try {
                 val result = synchronized(lifecycleLock) {
                     if (destroyed) -1 else {
@@ -58,6 +60,12 @@ class NodeService : Service() {
                         } else NativeCore.nativeStart(dataDir.absolutePath)
                     }
                 }
+                val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+                android.util.Log.i("QUINTUM-Node", "Native startup result=$result duration_ms=$elapsedMs")
+                getSharedPreferences("node_status", MODE_PRIVATE).edit()
+                    .putLong("last_start_duration_ms", elapsedMs)
+                    .putInt("last_start_result", result)
+                    .apply()
                 if (result == 0 || result == 2) {
                     recordStatus("")
                 }
