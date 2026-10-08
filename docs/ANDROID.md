@@ -165,3 +165,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Root cause: asynchronous native startup can finish after Android has destroyed its foreground service, potentially leaving a node alive without service ownership.
 - Fix: `38c47681b66087e6ff6b539d225a89c81ade9a2b` tracks service destruction and stops the node if initialization completes after destruction.
 - Verification: CI and on-device rapid-open/close/restart race testing pending. Further concurrency audit required before claiming lifecycle correctness.
+
+### AND-010 — Real Xiaomi test: node stopped and mining action crash (2026-10-08)
+
+- Device report: QUINTUM Android APK installs and UI renders on Xiaomi (user now reports a different Xiaomi handset). Screenshots show `Node stopped`, peers `0`, block height and difficulty unavailable, and mining inactive. User reports application terminates after tapping mining; exact action (opening Mining page vs tapping Start mining) and Android crash trace are not yet known.
+- Confirmed code defect: `nativeStartMining` previously assigned a new `std::thread` while a prior completed mining thread could remain `joinable`, which invokes `std::terminate`. Fix `e4da69acadd9f7e159624c93c67da93dfa703574` joins a completed worker before replacing it.
+- Verification: **PENDING** CI and on-device reproduction. Do not claim this fixes the reported crash without a logcat trace; investigate startup failure and P2P separately. Android wallet intentionally disabled in this test build.
