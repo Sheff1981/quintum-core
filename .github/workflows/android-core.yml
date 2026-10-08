@@ -125,8 +125,10 @@ jobs:
           test -s "$apk"
           tag="android-testnet-${GITHUB_RUN_NUMBER}"
           target_sha="${{ github.event.pull_request.head.sha || github.sha }}"
-          gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" \
+          digest="$(sha256sum "$apk" | cut -d' ' -f1)"
+          printf "%s  %s\n" "$digest" "QUINTUM-Android-Testnet-arm64.apk" > SHA256SUMS.txt
+          gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" "SHA256SUMS.txt" \
             --target "$target_sha" \
             --title "QUINTUM Android Testnet ${GITHUB_RUN_NUMBER}" \
-            --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending." \
+            --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending. APK size: $(stat -c%s "$apk") bytes. SHA-256: $digest. Verify against SHA256SUMS.txt." \
             --prerelease
