@@ -104,3 +104,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Cause: AND-008 workaround selected an available SDK CMake package without respecting root `cmake_minimum_required(VERSION 3.25)`.
 - Fix commits: `9cfe4158d8382438153363f59852064bf3224207` selects host CMake via `android/local.properties` `cmake.dir`; `6ed7681edca919db517a3136031525926c99a585` restores Gradle version 3.25.1. Root minimum stays unchanged.
 - Verification: **PENDING** APK packaging, embedded JNI check, real-device testing.
+
+### AND-010 — Gradle ignores host CMake while exact version is pinned (2026-10-08)
+
+- Evidence: Android CI run 37732505015, job 113164604986; host CMake configuration and unit tests passed, APK `configureCMakeDebug[arm64-v8a]` failed with `[CXX1300] CMake '3.25.1' was not found in SDK, PATH, or by cmake.dir property`.
+- Cause: Gradle's `externalNativeBuild.cmake.version` exact pin conflicts with using the host-installed CMake via `android/local.properties`.
+- Fix: commit `3db8bab94160462d9a34cfc9c3b30abdce48fe05` removes the exact Gradle CMake version pin, retaining root `cmake_minimum_required(VERSION 3.25)` and CI's host CMake configuration.
+- Verification: **PENDING** APK assembly, JNI payload and device smoke tests.
