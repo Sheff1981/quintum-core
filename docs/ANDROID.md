@@ -72,3 +72,12 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Risk: an Android APK may be produced without the expected `lib/arm64-v8a/libquintum_android.so`, leaving `NativeCore` unable to load the real C++ node/miner.
 - Preventive CI commit: `ad0635b71a4710f7c8b4ea63eb6b9d64e00f17a6` checks the nonempty debug APK and verifies the exact ARM64 JNI library entry before publishing the artifact.
 - Verification: **PENDING** a completed Android CI run and real-device smoke test; packaging presence alone does not prove runtime functionality.
+
+### AND-006 — Android Kotlin/Java JVM target mismatch (2026-10-08)
+
+- Evidence: android-core run 37723454641, job 113136139670 (`android-core` #76), `Run Android unit tests` failed at `:app:compileDebugKotlin`.
+- Exact error: `Inconsistent JVM-target compatibility detected for tasks 'compileDebugJavaWithJavac' (1.8) and 'compileDebugKotlin' (17)`.
+- Cause: Android Gradle plugin defaulted Java bytecode target to 1.8 while Kotlin targeted JVM 17.
+- Fix commit: `0df4e1f5bd26bfad07afa8915da04e5b6a571109` sets Java source and target compatibility to 17 in `android/app/build.gradle.kts`.
+- Verification: **PENDING** rerun of Android unit tests, APK build, native payload verification and device smoke test. Do not mark fixed until checks pass.
+- Scope: Android build configuration only; no consensus, keys or wallet storage changes.
