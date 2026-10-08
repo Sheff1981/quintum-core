@@ -1,5 +1,6 @@
 package org.quintum.wallet.mining
 
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,7 +23,8 @@ fun MiningScreen() {
     val context = LocalContext.current
     val controller = remember { MiningController(context.applicationContext) }
     val scope = rememberCoroutineScope()
-    var payout by rememberSaveable { mutableStateOf("") }
+    val payoutPreferences = remember(context) { context.getSharedPreferences("mining_payout", Context.MODE_PRIVATE) }
+    var payout by rememberSaveable { mutableStateOf(payoutPreferences.getString("address", "") ?: "") }
     var threadsText by rememberSaveable { mutableStateOf((Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1).toString()) }
     var state by remember { mutableStateOf(MiningUiState()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -47,7 +49,8 @@ fun MiningScreen() {
         Text("RandomX Testnet · real Proof-of-Work")
         Text(if (nodeRunning) "Node: running" else "Node: connecting…")
         Text("Peers: ${state.stats?.peers ?: 0} · Block height: ${state.stats?.blockHeight ?: 0}")
-        OutlinedTextField(value = payout, onValueChange = { payout = it }, enabled = !state.running, label = { Text("QMU payout address") }, singleLine = true)
+        OutlinedTextField(value = payout, onValueChange = { payout = it.trim() }, enabled = !state.running, label = { Text("QMU payout address") }, supportingText = { Text("Public address only. You may mine to a wallet on another device.") }, singleLine = true)
+        TextButton(onClick = { payout = ""; payoutPreferences.edit().remove("address").apply() }, enabled = !state.running && payout.isNotEmpty()) { Text("Clear saved payout address") }
         OutlinedTextField(value = threadsText, onValueChange = { threadsText = it.filter(Char::isDigit) }, enabled = !state.running, label = { Text("Mining threads") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
         Button(onClick = {
             error = null
@@ -55,7 +58,10 @@ fun MiningScreen() {
                 if (state.running) controller.stop() else {
                     val threads = threadsText.toIntOrNull()?.coerceAtLeast(1) ?: 1
                     error = when (controller.start(payout, threads)) {
-                        0 -> null
+                        0 -> {
+                            payoutPreferences.edit().putString("address", payout.trim()).apply()
+                            null
+                        }
                         1 -> "Payout address is required."
                         2 -> "QUINTUM node is not running."
                         3 -> "Mining is already running."
