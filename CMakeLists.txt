@@ -164,10 +164,11 @@ if(QUINTUM_ENABLE_NAT_MAPPING)
         )
     endif()
 
-    add_library(quintum_nat_mapping INTERFACE)
+    add_library(quintum_nat_mapping STATIC src/net/nat_mapping.cpp)
+    target_include_directories(quintum_nat_mapping PUBLIC src)
     target_link_libraries(
         quintum_nat_mapping
-        INTERFACE libminiupnpc-static quintum_natpmp
+        PUBLIC libminiupnpc-static quintum_natpmp
     )
 else()
     add_library(quintum_nat_mapping STATIC
