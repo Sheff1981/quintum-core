@@ -8,6 +8,9 @@
 #include "net/sync.hpp"
 
 #include <algorithm>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 #include <array>
 #include <chrono>
 #include <limits>
@@ -17,6 +20,16 @@
 
 namespace quintum::net {
 namespace {
+#ifdef __ANDROID__
+void log_outbound_failure(const char* phase, const PeerAddress& address, int code) noexcept
+{
+    __android_log_print(ANDROID_LOG_WARN, "QUINTUM-P2P",
+        "%s peer=%s:%u error=%d", phase,
+        format_peer_host(address).c_str(),
+        static_cast<unsigned>(address.port), code);
+}
+#endif
+
 
 std::uint64_t unix_time_now() noexcept
 {
@@ -1932,6 +1945,9 @@ void NetworkRuntime::maintain_outbound(
             );
 
         if (!connected.ok()) {
+#ifdef __ANDROID__
+            log_outbound_failure("reconnect", it->address, static_cast<int>(connected.error));
+#endif
             addrman_.mark_failure(
                 it->address,
                 now
@@ -2046,6 +2062,15 @@ void NetworkRuntime::maintain_outbound(
     );
 
     if (!connected.ok()) {
+#ifdef __ANDROID__
+        if (connected.address) {
+            log_outbound_failure("discovery", *connected.address, static_cast<int>(connected.peer_error));
+        } else {
+            __android_log_print(ANDROID_LOG_WARN, "QUINTUM-P2P",
+                "discovery no endpoint error=%d known=%zu",
+                static_cast<int>(connected.error), addrman_.size());
+        }
+#endif
         next_outbound_attempt_ =
             now +
             config_.outbound_retry_seconds;
