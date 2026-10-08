@@ -100,6 +100,9 @@ Java_org_quintum_wallet_core_NativeCore_nativeStartMining(
     std::scoped_lock lock(g_mutex);
     if (!g_runtime || !g_runtime->running()) return 2;
     if (g_mining_running.load(std::memory_order_relaxed)) return 3;
+    // A previous mining worker may have exited on its own while its
+    // std::thread remains joinable. Reassigning it would call std::terminate.
+    if (g_mining_thread.joinable()) g_mining_thread.join();
 
     const auto& params = quintum::consensus::chain_params(
         quintum::consensus::Network::randomx_testnet
