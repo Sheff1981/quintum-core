@@ -147,3 +147,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Critical release blocker: current Android CI uses default debug signing; this does not guarantee a stable signing certificate across builds. Do **not** tell users to uninstall a wallet-bearing app or promise seamless upgrades until a persistent signing key and upgrade test are implemented. Do not store private keys or signing secrets in the repository.
 - Current Android wallet is disabled. Never copy PCoin BIP39 derivation paths, wallet seed format, RPC calls, binary executables or chain parameters into QUINTUM without compatibility and security review.
 - Status: reference review completed; feature parity, signing continuity and device tests **NOT COMPLETE**.
+
+### AND-015 — Refined Android dashboard UI (2026-10-08)
+
+- Change: `3fb5b08907b821d00c9017c95fb19d4885579523` replaces bare tiles with a QMU-branded Material3 dashboard: dark network-status hero, live peers/height/mining status, four rounded navigation cards, separate detail cards, and explicit wallet-unavailable messaging.
+- Scope: presentation only; no PCoin source or branding copied; no changes to consensus, RandomX, genesis, QMU ticker, wallet or network magic.
+- Verification: **PENDING** CI and Android device visual/navigation smoke test. UI screenshot and performance not yet verified.
