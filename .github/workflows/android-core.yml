@@ -14,6 +14,9 @@ on:
       - "CMakeLists.txt"
       - ".github/workflows/android-core.yml"
 
+permissions:
+  contents: write
+
 jobs:
   configure-arm64-core:
     runs-on: ubuntu-latest
@@ -71,3 +74,19 @@ jobs:
           name: quintum-android-testnet-arm64
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      - name: Publish direct-download Android Testnet prerelease
+        if: github.event_name == 'push' && github.ref == 'refs/heads/android-foundation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          tag="android-testnet-${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" \
+            --target "$GITHUB_SHA" \
+            --title "QUINTUM Android Testnet ${GITHUB_RUN_NUMBER}" \
+            --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending." \
+            --prerelease
