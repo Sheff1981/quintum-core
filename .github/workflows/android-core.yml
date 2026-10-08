@@ -69,7 +69,8 @@ jobs:
             echo "QUM_ANDROID_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "QUM_ANDROID_DEBUG_KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}" >> "$GITHUB_ENV"
           else
-            echo "::warning::No persistent APK signing key configured; APK must not be distributed as an upgrade."
+            echo "::error::Missing persistent Android signing key. Refusing to publish an incompatible APK."
+            exit 1
           fi
 
       - name: Run Android unit tests
@@ -87,6 +88,15 @@ jobs:
           apk=android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$apk"
           unzip -Z1 "$apk" | grep -Fx 'lib/arm64-v8a/libquintum_android.so'
+
+      - name: Verify signing identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -list -v -keystore "$QUM_ANDROID_DEBUG_KEYSTORE" -storepass "$QUM_ANDROID_DEBUG_STORE_PASSWORD" -alias "$QUM_ANDROID_DEBUG_KEY_ALIAS" | grep "SHA256:"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          test -n "$apksigner"
+          "$apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | grep "Signer #1 certificate SHA-256 digest:"
 
       - name: Upload Android Testnet APK
         uses: actions/upload-artifact@v4
