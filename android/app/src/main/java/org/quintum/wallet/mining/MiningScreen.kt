@@ -33,7 +33,7 @@ fun MiningScreen() {
     LaunchedEffect(Unit) {
         while (true) {
             state = controller.snapshot()
-            nodeRunning = NativeCore.nativeNodeRunning()
+            nodeRunning = NativeCore.nativeRunning()
             if (nodeRunning) nodeStarting = false
             delay(1000)
         }
