@@ -139,3 +139,11 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Adopt proven workflows, not UI XML or consensus code: automatic node lifecycle, separate node/mining/wallet status, clear setup/backup and failure states, Android service behavior.
 - QUINTUM remains Kotlin/Compose/Material3 + native C++/RandomX, ticker QMU. Never claim wallet send/receive is functional before implementation and tests. No third-party code copied.
 - Pending: inspect detailed PCoin UI and implement equivalent user flows with QUINTUM-specific native interfaces, test navigation and device lifecycle.
+
+### AND-014 — PCoin Android reference audit (2026-10-08)
+
+- Reference: https://github.com/pars5555/pcoin/tree/main/contrib/android ; README inspected. Its app uses a full node, RandomX mining, wallet onboarding/restore, backup, service lifecycle and separate miner/wallet flavors.
+- QUINTUM adaptation: preserve native C++ QUINTUM consensus and RandomX, implement node status and sync, explicit mining controls and thermal safeguards, wallet onboarding/recovery only after QUINTUM-specific address/key compatibility is verified.
+- Critical release blocker: current Android CI uses default debug signing; this does not guarantee a stable signing certificate across builds. Do **not** tell users to uninstall a wallet-bearing app or promise seamless upgrades until a persistent signing key and upgrade test are implemented. Do not store private keys or signing secrets in the repository.
+- Current Android wallet is disabled. Never copy PCoin BIP39 derivation paths, wallet seed format, RPC calls, binary executables or chain parameters into QUINTUM without compatibility and security review.
+- Status: reference review completed; feature parity, signing continuity and device tests **NOT COMPLETE**.
