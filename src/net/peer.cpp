@@ -758,7 +758,8 @@ NativeSocket connect_tcp_socket(
     }
 
     addrinfo hints{};
-    hints.ai_family = AF_INET;
+    // Outbound peers may be reachable over IPv4 or IPv6.
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
