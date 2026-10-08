@@ -1,6 +1,9 @@
 package org.quintum.wallet
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -110,6 +113,7 @@ private fun QuintumHome() {
     var showDiagnostics by remember { mutableStateOf(false) }
     var tcpProbeResult by remember { mutableStateOf("Not tested") }
     var tcpProbeRunning by remember { mutableStateOf(false) }
+    var diagnosticUpdatedAt by remember { mutableLongStateOf(0L) }
     val diagnosticScope = rememberCoroutineScope()
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
@@ -122,6 +126,7 @@ private fun QuintumHome() {
             result.onSuccess { (snapshotTriple, diagnostic) ->
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
+                    diagnosticUpdatedAt = System.currentTimeMillis()
                 knownAddresses = known
                 lastStartupMs = context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
                     .getLong("last_start_duration_ms", 0L)
@@ -250,6 +255,27 @@ private fun QuintumHome() {
                         Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
                     }
                     if (showDiagnostics) {
+                        Text("QUINTUM P2P diagnostic report", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("Read-only local node diagnostics. TCP reachability is not a P2P handshake.", color = Muted)
+                        Spacer(Modifier.height(8.dp))
+                        val report = buildString {
+                            appendLine("QUINTUM Android / RandomX Testnet")
+                            appendLine("Timestamp UTC: ${java.time.Instant.ofEpochMilli(diagnosticUpdatedAt)}")
+                            appendLine("Core running: $nodeRunning")
+                            appendLine("P2P code: $p2pDiagnostic")
+                            appendLine("P2P status: ${p2pDiagnosticMessage(p2pDiagnostic)}")
+                            appendLine("Known addresses: $knownAddresses")
+                            appendLine("Connected peers: ${stats.stats?.peers ?: 0}")
+                            appendLine("Local block height: ${stats.stats?.blockHeight ?: "unavailable"}")
+                            appendLine("TCP probe: $tcpProbeResult")
+                            appendLine("Startup duration ms: $lastStartupMs")
+                            appendLine("Core error: ${nodeError.ifBlank { "none" }}")
+                        }
+                        Button(onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("QUINTUM diagnostics", report))
+                        }) { Text("Copy diagnostic report") }
+                        Spacer(Modifier.height(12.dp))
                         DetailCard("P2P connection diagnostic", p2pDiagnosticMessage(p2pDiagnostic))
                         Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
