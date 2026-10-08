@@ -87,8 +87,8 @@ private fun QuintumHome() {
                     nodeError = context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
                         .getString("last_error", "") ?: ""
                     if (startRequested) startupSeconds++
-                    if (nodeError.isNotBlank() || startupSeconds >= 30) {
-                        if (startupSeconds >= 30 && nodeError.isBlank()) nodeError = "Node startup timed out. Check device logs."
+                    if (nodeError.isNotBlank() || startupSeconds >= 240) {
+                        if (startupSeconds >= 240 && nodeError.isBlank()) nodeError = "Node startup exceeded 4 minutes. Check device logs."
                         startRequested = false
                         startupSeconds = 0
                     }
@@ -129,7 +129,7 @@ private fun QuintumHome() {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Starting QUINTUM Core" else "Start the node when ready",
+                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Initializing local blockchain (network connection follows)" else "Start the node when ready",
                             color = Color(0xFFD3E0FA),
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -187,7 +187,7 @@ private fun QuintumHome() {
                 }
             } else when (page) {
                 Page.Network -> {
-                    DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Connecting…" else "Node stopped")
+                    DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
