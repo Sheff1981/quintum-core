@@ -24,13 +24,20 @@ class NodeService : Service() {
     @Volatile private var destroyed = false
     private val lifecycleLock = Any()
 
+    private fun recordStatus(message: String) {
+        getSharedPreferences("node_status", MODE_PRIVATE).edit()
+            .putString("last_error", message).apply()
+    }
+
     override fun onCreate() {
         super.onCreate()
+        recordStatus("")
         createChannel()
         try {
             startForeground(NOTIFICATION_ID, notification("Starting QUINTUM node"))
         } catch (e: RuntimeException) {
             android.util.Log.e("QUINTUM-Node", "Foreground service startup rejected", e)
+            recordStatus("Android rejected foreground service: ${e.javaClass.simpleName}")
             stopSelf()
         }
     }
@@ -45,16 +52,19 @@ class NodeService : Service() {
                         val dataDir = filesDir.resolve("core")
                         if (!dataDir.isDirectory && !dataDir.mkdirs()) {
                             android.util.Log.e("QUINTUM-Node", "Unable to create core data directory")
+                            recordStatus("Cannot create node data directory")
                             -2
                         } else NativeCore.nativeStart(dataDir.absolutePath)
                     }
                 }
                 if (result != 0 && result != 2 && result != -1) {
                     android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
+                    recordStatus("Core startup failed (code $result)")
                     stopSelf(startId)
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("QUINTUM-Node", "Node startup exception", e)
+                recordStatus("Core exception: ${e.javaClass.simpleName}")
                 stopSelf(startId)
             }
         }
