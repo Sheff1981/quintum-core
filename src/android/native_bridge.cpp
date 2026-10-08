@@ -265,3 +265,13 @@ Java_org_quintum_wallet_core_NativeCore_nativeP2pDiagnostic(JNIEnv*, jobject)
     if (!g_runtime) return -1;
     return static_cast<jint>(g_runtime->android_p2p_diagnostic());
 }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativePeerDetails(JNIEnv* env, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    if (!g_runtime || g_runtime->status().peers == 0U)
+        return env->NewStringUTF("No active P2P peer");
+    const auto details = g_runtime->android_peer_details();
+    return env->NewStringUTF(details.empty() ? "Peer details unavailable" : details.c_str());
+}
