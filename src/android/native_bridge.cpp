@@ -201,6 +201,14 @@ Java_org_quintum_wallet_core_NativeCore_nativeBlockHeight(JNIEnv*, jobject)
 }
 
 extern "C" JNIEXPORT jlong JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeKnownAddressCount(JNIEnv*, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    if (!g_runtime) return 0;
+    return static_cast<jlong>(g_runtime->status().known_addresses);
+}
+
+extern "C" JNIEXPORT jlong JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativePeerCount(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
