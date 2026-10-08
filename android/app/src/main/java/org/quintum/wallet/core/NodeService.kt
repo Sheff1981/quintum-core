@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Owns the lifetime of QUINTUM Core while the user explicitly keeps the node
@@ -27,10 +28,11 @@ class NodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
+        scope.launch {
+            val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
         if (result != 0 && result != 2) {
             stopSelf(startId)
-            return START_NOT_STICKY
+        }
         }
 
         return START_STICKY
