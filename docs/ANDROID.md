@@ -132,3 +132,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Implementation: `d8e527fa0d695e1cab0d0c173ad8b14f904d9e92` introduces four Material3 dashboard tiles (Network, Wallet, Mining, Device), a dedicated view for each and Android back handling.
 - Network displays actual JNI status/peers/height; Mining retains real JNI RandomX control; Device shows measured device statistics; Wallet explicitly marks unsupported Android wallet features unavailable (no fake balances).
 - Verification: **PENDING** Android CI compilation and on-device navigation/P2P/mining checks. No consensus, network magic, ticker QMU or wallet formats changed.
+
+### Android UX reference audit — PCoin (2026-10-08)
+
+- Reference: https://github.com/pars5555/pcoin (`contrib/android/`). Inspected repository tree: `app/src/miner/java/org/pcoin/miner/MainActivity.kt`, `app/src/main/res/layout/activity_main.xml`, `NodeController.kt`, `MinerService.kt`, `SetupActivity.kt`, wallet and backup activities.
+- Adopt proven workflows, not UI XML or consensus code: automatic node lifecycle, separate node/mining/wallet status, clear setup/backup and failure states, Android service behavior.
+- QUINTUM remains Kotlin/Compose/Material3 + native C++/RandomX, ticker QMU. Never claim wallet send/receive is functional before implementation and tests. No third-party code copied.
+- Pending: inspect detailed PCoin UI and implement equivalent user flows with QUINTUM-specific native interfaces, test navigation and device lifecycle.
