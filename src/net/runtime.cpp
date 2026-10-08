@@ -2070,6 +2070,12 @@ void NetworkRuntime::maintain_outbound(
 #ifdef __ANDROID__
     android_p2p_diagnostic_.store(10);
 #endif
+#ifdef __ANDROID__
+    const auto discovery_started = std::chrono::steady_clock::now();
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-P2P",
+        "discovery-start known=%zu timeout_ms=%u",
+        addrman_.size(), static_cast<unsigned>(config_.io_timeout_ms));
+#endif
     auto connected =
         discovery_.connect_one(
             params_,
@@ -2080,6 +2086,14 @@ void NetworkRuntime::maintain_outbound(
             config_.proxies
         );
 
+#ifdef __ANDROID__
+    const auto discovery_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - discovery_started).count();
+    __android_log_print(connected.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
+        "QUINTUM-P2P", "discovery-finish elapsed_ms=%lld success=%d error=%d peer_error=%d",
+        static_cast<long long>(discovery_elapsed_ms), connected.ok() ? 1 : 0,
+        static_cast<int>(connected.error), static_cast<int>(connected.peer_error));
+#endif
     known_address_count_.store(
         addrman_.size()
     );
