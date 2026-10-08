@@ -118,3 +118,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Root cause: `MiningScreen` used a non-scrollable `Column` and exposed only mining controls; `NodeService` existed but was never started from the UI.
 - Fix: `2016ff6ad74af7063dceb6d9d97bed485bed4c31` adds vertical scrolling and foreground-service start/stop UI; `c3f438f148153ee8ee0dfaf698db4ec044c25aef` connects status to existing `NativeCore.nativeRunning()` JNI method.
 - Verification: **PENDING** Android CI, install and on-device node/P2P/mining smoke tests. Do not claim node/mining works until observed.
+
+### AND-012 — Automatic node start on Android app open (2026-10-08)
+
+- Requirement: match desktop UX: opening QUINTUM starts the RandomX Testnet node automatically, without a manual start/stop control. Mining remains manual.
+- Changes: `690893e2112fc9eb28bf0d5508a2d2af91bfb9df` replaces node button with node/peer/height status; `11401fbad6bd1afe852c28affa93d70dfed482ad` starts existing foreground `NodeService` from `MainActivity.onCreate`.
+- Compatibility: QMU ticker, RandomX consensus, wallet formats and network parameters unchanged.
+- Verification: **PENDING** CI build and on-device foreground-service start, peers, sync, and mining tests. Android battery policies can restrict long-lived background services.
