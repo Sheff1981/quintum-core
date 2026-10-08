@@ -35,3 +35,19 @@ RandomX remains the consensus implementation from the C++ Core and its pinned up
 Android work must not change Genesis, network magic, address encoding, ports, monetary policy, transaction serialization, wallet format or RandomX consensus behavior.
 
 See `android/UPDATE_SECURITY.md` for the update contract.
+
+## Android issue log
+
+### AND-001 — ARM64 JNI missing header (2026-10-08)
+
+- Failure: Android CI run 37720830691, job 113127815942; `native_bridge.cpp` included nonexistent `consensus/script.hpp`. The C++ core built, but the JNI target failed; APK and unit tests were skipped.
+- Cause: JNI bridge referenced a header that does not exist in the current consensus layout. `make_p2pk_locking_script` is declared in `consensus/tx_auth.hpp`.
+- Fix commit: `b2b1e597c41e7a691566958bddf5cd318d68361c` on `android-foundation` replaces the include with `consensus/tx_auth.hpp`.
+- Verification: **PENDING** — require a fresh Android ARM64 CI build, unit tests and APK artifact before closing.
+
+### AND-002 — Android PR merge conflict (2026-10-08)
+
+- Evidence: PR #45 (`android-foundation` into `main`) reported `mergeable=false`.
+- Status: **OPEN**. Resolve against current main and rerun all required checks before merge.
+
+Issue entries must record the failure, cause, fix commit, CI verification, and compatibility impact. Never mark a fix verified solely because the patch was committed. Ticker is QMU; RandomX Testnet address HRP remains `xqmu`.
