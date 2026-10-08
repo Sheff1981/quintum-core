@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 class NodeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var startRequested = false
+    @Volatile private var destroyed = false
 
     override fun onCreate() {
         super.onCreate()
@@ -34,7 +35,9 @@ class NodeService : Service() {
         scope.launch {
             try {
                 val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
-                if (result != 0 && result != 2) {
+                if (destroyed && (result == 0 || result == 2)) {
+                    NativeCore.nativeStop()
+                } else if (result != 0 && result != 2) {
                     android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
                     stopSelf(startId)
                 }
@@ -48,6 +51,7 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         scope.cancel()
         Thread { NativeCore.nativeStop() }.start()
         super.onDestroy()
