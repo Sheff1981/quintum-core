@@ -69,7 +69,7 @@ jobs:
             echo "QUM_ANDROID_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "QUM_ANDROID_DEBUG_KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}" >> "$GITHUB_ENV"
           else
-            echo "::warning::No persistent APK signing key configured; build cannot be used as an in-place update of previous APKs."
+            echo "::warning::No persistent APK signing key configured; APK must not be distributed as an upgrade."
           fi
 
       - name: Run Android unit tests
@@ -96,7 +96,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish direct-download Android Testnet prerelease
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/android-foundation') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'android-foundation')
+        if: env.QUM_ANDROID_DEBUG_KEYSTORE != '' && ((github.event_name == 'push' && github.ref == 'refs/heads/android-foundation') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'android-foundation'))
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
