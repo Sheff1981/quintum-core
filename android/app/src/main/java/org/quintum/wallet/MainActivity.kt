@@ -70,9 +70,10 @@ private fun QuintumHome() {
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Pair(NativeCore.nativeRunning(), controller.snapshot()) }
+                runCatching { Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()) }
             }
-            result.onSuccess { (running, snapshot) ->
+            result.onSuccess { (running, snapshot, known) ->
+                knownAddresses = known
                 nodeRunning = running
                 stats = snapshot
                 if (running) {
@@ -187,6 +188,9 @@ private fun QuintumHome() {
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
+                    Spacer(Modifier.height(12.dp))
+                    DetailCard("Known peer addresses", "$knownAddresses")
+                    if (nodeRunning && knownAddresses == 0L) Text("No bootstrap addresses found. Peer discovery needs attention.", color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Block height", "${stats.stats?.blockHeight ?: "Unavailable"}")
                     Spacer(Modifier.height(12.dp))
