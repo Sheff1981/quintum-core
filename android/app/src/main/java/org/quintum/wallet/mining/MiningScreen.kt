@@ -1,6 +1,12 @@
 package org.quintum.wallet.mining
 
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import org.quintum.wallet.core.NodeService
+import org.quintum.wallet.core.NativeCore
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,17 +27,37 @@ fun MiningScreen() {
     var threadsText by rememberSaveable { mutableStateOf((Runtime.getRuntime().availableProcessors() / 2).coerceAtLeast(1).toString()) }
     var state by remember { mutableStateOf(controller.snapshot()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var nodeStarting by remember { mutableStateOf(false) }
+    var nodeRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
             state = controller.snapshot()
+            nodeRunning = NativeCore.nativeNodeRunning()
+            if (nodeRunning) nodeStarting = false
             delay(1000)
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Mining", style = MaterialTheme.typography.headlineMedium)
         Text("RandomX Testnet · real Proof-of-Work")
+        Text(if (nodeRunning) "Node: running" else if (nodeStarting) "Node: starting…" else "Node: stopped")
+        Button(onClick = {
+            error = null
+            if (nodeRunning) {
+                context.stopService(Intent(context, NodeService::class.java))
+                nodeStarting = false
+            } else {
+                nodeStarting = true
+                try {
+                    ContextCompat.startForegroundService(context, Intent(context, NodeService::class.java))
+                } catch (e: Exception) {
+                    nodeStarting = false
+                    error = "Unable to start node: ${e.message ?: "service error"}"
+                }
+            }
+        }) { Text(if (nodeRunning) "Stop node" else "Start node") }
         OutlinedTextField(value = payout, onValueChange = { payout = it }, enabled = !state.running, label = { Text("QMU payout address") }, singleLine = true)
         OutlinedTextField(value = threadsText, onValueChange = { threadsText = it.filter(Char::isDigit) }, enabled = !state.running, label = { Text("Mining threads") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
         Button(onClick = {
