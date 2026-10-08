@@ -97,3 +97,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Fix commits: `7e5d67fd39094126655465db875446754dbc841a` and `5af7ebebb0d84de2a7962d7632bfc225b46f7e1e`; align Gradle and CI to SDK CMake 3.22.1 and assert the executable exists.
 - Verification: **PENDING** a fresh ARM64 build, unit tests, APK assembly and native-library payload check.
 - Compatibility: Android build toolchain only. QMU ticker, consensus, wallet data and RandomX settings unchanged.
+
+### AND-009 — Android CMake 3.22.1 below core minimum (2026-10-08)
+
+- Evidence: Android CI run 37730865277, job 113159431241: ARM64 core and unit tests passed; Gradle `assembleDebug` failed at `configureCMakeDebug[arm64-v8a]` with `CMake 3.25 or higher is required. You are running version 3.22.1`.
+- Cause: AND-008 workaround selected an available SDK CMake package without respecting root `cmake_minimum_required(VERSION 3.25)`.
+- Fix commits: `9cfe4158d8382438153363f59852064bf3224207` selects host CMake via `android/local.properties` `cmake.dir`; `6ed7681edca919db517a3136031525926c99a585` restores Gradle version 3.25.1. Root minimum stays unchanged.
+- Verification: **PENDING** APK packaging, embedded JNI check, real-device testing.
