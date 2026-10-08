@@ -109,6 +109,7 @@ private fun QuintumHome() {
     var nodeRunning by remember { mutableStateOf(false) }
     var knownAddresses by remember { mutableLongStateOf(0L) }
     var p2pDiagnostic by remember { mutableIntStateOf(0) }
+    var peerDetails by remember { mutableStateOf("No active P2P peer") }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var showCrashReport by remember { mutableStateOf(false) }
@@ -123,9 +124,10 @@ private fun QuintumHome() {
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Pair(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic()) }
+                runCatching { Triple(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()) }
             }
-            result.onSuccess { (snapshotTriple, diagnostic) ->
+            result.onSuccess { (snapshotTriple, diagnostic, details) ->
+                    peerDetails = details
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
                     diagnosticUpdatedAt = System.currentTimeMillis()
@@ -280,6 +282,8 @@ private fun QuintumHome() {
                             appendLine("Core running: $nodeRunning")
                             appendLine("P2P code: $p2pDiagnostic")
                             appendLine("P2P status: ${p2pDiagnosticMessage(p2pDiagnostic)}")
+                            appendLine("Remote peer details:")
+                            appendLine(peerDetails)
                             appendLine("Known addresses: $knownAddresses")
                             appendLine("Connected peers: ${stats.stats?.peers ?: 0}")
                             appendLine("Local block height: ${stats.stats?.blockHeight ?: "unavailable"}")
@@ -293,6 +297,7 @@ private fun QuintumHome() {
                         }) { Text("Copy diagnostic report") }
                         Spacer(Modifier.height(12.dp))
                         DetailCard("P2P connection diagnostic", p2pDiagnosticMessage(p2pDiagnostic))
+                        DetailCard("Connected node (verified handshake)", peerDetails)
                         Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
                         Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
