@@ -38,11 +38,15 @@ RandomXLightHasher::RandomXLightHasher(
     // supported) while keeping light mode and the explicit v2 ruleset.
     // RandomX guarantees identical hash output across these execution modes;
     // fixed cross-platform vectors enforce that consensus property in CI.
-    const auto flags =
-        static_cast<randomx_flags>(
-            randomx_get_flags() |
-            RANDOMX_FLAG_V2
-        );
+    // Android may forbid executable JIT mappings (W^X/SELinux).
+    // Interpreter mode computes the same consensus hashes without JIT.
+#if defined(__ANDROID__)
+    const auto flags = static_cast<randomx_flags>(RANDOMX_FLAG_V2);
+#else
+    const auto flags = static_cast<randomx_flags>(
+        randomx_get_flags() | RANDOMX_FLAG_V2
+    );
+#endif
 
     impl_->cache =
         randomx_alloc_cache(flags);
@@ -146,11 +150,14 @@ RandomXMiningContext::RandomXMiningContext(
                 64U
             );
 
-        auto flags =
-            static_cast<randomx_flags>(
-                randomx_get_flags() |
-                RANDOMX_FLAG_V2
-            );
+        // Android uses portable interpreter mode; no executable JIT pages.
+#if defined(__ANDROID__)
+        auto flags = static_cast<randomx_flags>(RANDOMX_FLAG_V2);
+#else
+        auto flags = static_cast<randomx_flags>(
+            randomx_get_flags() | RANDOMX_FLAG_V2
+        );
+#endif
 
         if (full_memory) {
             flags =
