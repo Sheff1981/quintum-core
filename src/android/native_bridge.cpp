@@ -257,3 +257,11 @@ Java_org_quintum_wallet_core_NativeCore_nativeRunning(JNIEnv*, jobject)
     std::scoped_lock lock(g_mutex);
     return g_runtime && g_runtime->running() ? JNI_TRUE : JNI_FALSE;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeP2pDiagnostic(JNIEnv*, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    if (!g_runtime) return -1;
+    return static_cast<jint>(g_runtime->android_p2p_diagnostic());
+}
