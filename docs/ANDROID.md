@@ -125,3 +125,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Changes: `690893e2112fc9eb28bf0d5508a2d2af91bfb9df` replaces node button with node/peer/height status; `11401fbad6bd1afe852c28affa93d70dfed482ad` starts existing foreground `NodeService` from `MainActivity.onCreate`.
 - Compatibility: QMU ticker, RandomX consensus, wallet formats and network parameters unchanged.
 - Verification: **PENDING** CI build and on-device foreground-service start, peers, sync, and mining tests. Android battery policies can restrict long-lived background services.
+
+### AND-013 — Android dashboard navigation (2026-10-08)
+
+- User requirement: avoid one long vertically scrolled home screen. Tap a tile to open a dedicated screen and Back to return home.
+- Implementation: `d8e527fa0d695e1cab0d0c173ad8b14f904d9e92` introduces four Material3 dashboard tiles (Network, Wallet, Mining, Device), a dedicated view for each and Android back handling.
+- Network displays actual JNI status/peers/height; Mining retains real JNI RandomX control; Device shows measured device statistics; Wallet explicitly marks unsupported Android wallet features unavailable (no fake balances).
+- Verification: **PENDING** Android CI compilation and on-device navigation/P2P/mining checks. No consensus, network magic, ticker QMU or wallet formats changed.
