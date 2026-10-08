@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -123,7 +125,7 @@ private fun QuintumHome() {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas)
         )
     }) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp).verticalScroll(rememberScrollState())) {
             if (page == null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -212,6 +214,16 @@ private fun QuintumHome() {
                         Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
                     }
                     if (showDiagnostics) {
+                        DetailCard("P2P connection diagnostic", when {
+                            p2pDiagnostic == 0 -> "Waiting for first connection attempt"
+                            p2pDiagnostic == 10 -> "Selecting peer / connecting"
+                            p2pDiagnostic == 4000 -> "Handshake and peer preparation completed"
+                            p2pDiagnostic == 3001 || p2pDiagnostic == 3002 -> "Handshake succeeded; peer preparation failed (code $p2pDiagnostic)"
+                            p2pDiagnostic >= 2000 && p2pDiagnostic < 3000 -> "Discovery or P2P connection failed (code $p2pDiagnostic)"
+                            p2pDiagnostic >= 1000 && p2pDiagnostic < 2000 -> "Reconnect failed (code $p2pDiagnostic)"
+                            else -> "Diagnostic code: $p2pDiagnostic"
+                        })
+                        Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
                         Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
                         Text("Result: $tcpProbeResult", color = if (tcpProbeResult.startsWith("TCP failed")) MaterialTheme.colorScheme.error else Navy)
@@ -242,15 +254,6 @@ private fun QuintumHome() {
                         Spacer(Modifier.height(12.dp))
                         DetailCard("Known peer addresses", "$knownAddresses")
                         Spacer(Modifier.height(12.dp))
-                        DetailCard("P2P connection diagnostic", when {
-                            p2pDiagnostic == 0 -> "Waiting for first connection attempt"
-                            p2pDiagnostic == 10 -> "Selecting peer / connecting"
-                            p2pDiagnostic == 4000 -> "Handshake and peer preparation completed"
-                            p2pDiagnostic == 3001 || p2pDiagnostic == 3002 -> "Handshake succeeded; peer preparation failed (code $p2pDiagnostic)"
-                            p2pDiagnostic >= 2000 && p2pDiagnostic < 3000 -> "Discovery or P2P connection failed (code $p2pDiagnostic)"
-                            p2pDiagnostic >= 1000 && p2pDiagnostic < 2000 -> "Reconnect failed (code $p2pDiagnostic)"
-                            else -> "Diagnostic code: $p2pDiagnostic"
-                        })
                         Spacer(Modifier.height(12.dp))
                         if (lastStartupMs > 0L) {
                             Spacer(Modifier.height(12.dp))
