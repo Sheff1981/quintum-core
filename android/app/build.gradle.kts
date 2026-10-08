@@ -30,6 +30,18 @@ android {
         }
     }
 
+    signingConfigs {
+        getByName("debug") {
+            val keyPath = System.getenv("QUM_ANDROID_DEBUG_KEYSTORE")
+            if (!keyPath.isNullOrBlank()) {
+                storeFile = file(keyPath)
+                storePassword = System.getenv("QUM_ANDROID_DEBUG_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("QUM_ANDROID_DEBUG_KEY_ALIAS") ?: "androiddebugkey"
+                keyPassword = System.getenv("QUM_ANDROID_DEBUG_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path = file("../../CMakeLists.txt")
