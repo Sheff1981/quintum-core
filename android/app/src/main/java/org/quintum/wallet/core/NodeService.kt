@@ -45,6 +45,7 @@ class NodeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (startRequested) return START_NOT_STICKY
         startRequested = true
+        recordStatus("Initializing native QUINTUM Core")
         scope.launch {
             try {
                 val result = synchronized(lifecycleLock) {
@@ -56,6 +57,9 @@ class NodeService : Service() {
                             -2
                         } else NativeCore.nativeStart(dataDir.absolutePath)
                     }
+                }
+                if (result == 0 || result == 2) {
+                    recordStatus("")
                 }
                 if (result != 0 && result != 2 && result != -1) {
                     android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
