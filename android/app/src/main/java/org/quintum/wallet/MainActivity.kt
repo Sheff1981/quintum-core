@@ -209,10 +209,6 @@ private fun QuintumHome() {
                         Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
                     }
                     if (showDiagnostics) {
-                        DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
-                        Spacer(Modifier.height(12.dp))
-                        DetailCard("Known peer addresses", "$knownAddresses")
-                        Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
                         Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
                         Text("Result: $tcpProbeResult", color = if (tcpProbeResult.startsWith("TCP failed")) MaterialTheme.colorScheme.error else Navy)
@@ -238,6 +234,11 @@ private fun QuintumHome() {
                             Text(if (tcpProbeRunning) "Testing VPS..." else "Test VPS connection")
                         }
 
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("Known peer addresses", "$knownAddresses")
+                        Spacer(Modifier.height(12.dp))
                         if (lastStartupMs > 0L) {
                             Spacer(Modifier.height(12.dp))
                             DetailCard("Last core startup", "${lastStartupMs / 1000L} s")
