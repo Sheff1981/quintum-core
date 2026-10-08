@@ -14,6 +14,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.net.InetSocketAddress
+import java.net.Socket
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +69,9 @@ private fun QuintumHome() {
     var knownAddresses by remember { mutableLongStateOf(0L) }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var tcpProbeResult by remember { mutableStateOf("Not tested") }
+    var tcpProbeRunning by remember { mutableStateOf(false) }
+    val diagnosticScope = rememberCoroutineScope()
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
     var startupSeconds by remember { mutableIntStateOf(0) }
@@ -206,6 +212,31 @@ private fun QuintumHome() {
                         DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
                         Spacer(Modifier.height(12.dp))
                         DetailCard("Known peer addresses", "$knownAddresses")
+                        Spacer(Modifier.height(12.dp))
+                        Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
+                        Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
+                        Button(onClick = {
+                            tcpProbeRunning = true
+                            tcpProbeResult = "Testing..."
+                            diagnosticScope.launch {
+                                tcpProbeResult = withContext(Dispatchers.IO) {
+                                    val start = android.os.SystemClock.elapsedRealtime()
+                                    try {
+                                        Socket().use { socket ->
+                                            socket.connect(InetSocketAddress("212.193.15.139", 39444), 5000)
+                                        }
+                                        "TCP connected in ${android.os.SystemClock.elapsedRealtime() - start} ms; handshake not tested"
+                                    } catch (e: Exception) {
+                                        "TCP failed: ${e.javaClass.simpleName}: ${e.message ?: "No details"}"
+                                    }
+                                }
+                                tcpProbeRunning = false
+                            }
+                        }, enabled = !tcpProbeRunning) {
+                            Text(if (tcpProbeRunning) "Testing VPS..." else "Test VPS connection")
+                        }
+                        Text(tcpProbeResult, color = if (tcpProbeResult.startsWith("TCP failed")) MaterialTheme.colorScheme.error else Muted)
+
                         if (lastStartupMs > 0L) {
                             Spacer(Modifier.height(12.dp))
                             DetailCard("Last core startup", "${lastStartupMs / 1000L} s")
