@@ -67,6 +67,7 @@ private fun QuintumHome() {
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
     var knownAddresses by remember { mutableLongStateOf(0L) }
+    var p2pDiagnostic by remember { mutableIntStateOf(0) }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var tcpProbeResult by remember { mutableStateOf("Not tested") }
@@ -78,9 +79,11 @@ private fun QuintumHome() {
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()) }
+                runCatching { Pair(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic()) }
             }
-            result.onSuccess { (running, snapshot, known) ->
+            result.onSuccess { (snapshotTriple, diagnostic) ->
+                    val (running, snapshot, known) = snapshotTriple
+                    p2pDiagnostic = diagnostic
                 knownAddresses = known
                 lastStartupMs = context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
                     .getLong("last_start_duration_ms", 0L)
@@ -238,6 +241,16 @@ private fun QuintumHome() {
                         DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
                         Spacer(Modifier.height(12.dp))
                         DetailCard("Known peer addresses", "$knownAddresses")
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("P2P connection diagnostic", when {
+                            p2pDiagnostic == 0 -> "Waiting for first connection attempt"
+                            p2pDiagnostic == 10 -> "Selecting peer / connecting"
+                            p2pDiagnostic == 4000 -> "Handshake and peer preparation completed"
+                            p2pDiagnostic == 3001 || p2pDiagnostic == 3002 -> "Handshake succeeded; peer preparation failed (code $p2pDiagnostic)"
+                            p2pDiagnostic >= 2000 && p2pDiagnostic < 3000 -> "Discovery or P2P connection failed (code $p2pDiagnostic)"
+                            p2pDiagnostic >= 1000 && p2pDiagnostic < 2000 -> "Reconnect failed (code $p2pDiagnostic)"
+                            else -> "Diagnostic code: $p2pDiagnostic"
+                        })
                         Spacer(Modifier.height(12.dp))
                         if (lastStartupMs > 0L) {
                             Spacer(Modifier.height(12.dp))
