@@ -66,3 +66,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Fix commit: `d693848a35e22bc352882d1eb81f6c55fcabc8d0`; CMake enables `POSITION_INDEPENDENT_CODE` for `quintum_core`, `monocypher`, and `randomx` only in the Android configuration.
 - Verification: **PENDING** clean ARM64 compile/link, Android unit tests, APK packaging and device smoke test. Keep this issue open until the checks pass.
 - Compatibility: build flags only; no consensus or wallet format changes.
+
+### AND-005 — APK native payload verification (2026-10-08)
+
+- Risk: an Android APK may be produced without the expected `lib/arm64-v8a/libquintum_android.so`, leaving `NativeCore` unable to load the real C++ node/miner.
+- Preventive CI commit: `ad0635b71a4710f7c8b4ea63eb6b9d64e00f17a6` checks the nonempty debug APK and verifies the exact ARM64 JNI library entry before publishing the artifact.
+- Verification: **PENDING** a completed Android CI run and real-device smoke test; packaging presence alone does not prove runtime functionality.
