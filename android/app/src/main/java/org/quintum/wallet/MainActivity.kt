@@ -39,6 +39,42 @@ private val Blue = Color(0xFF2563EB)
 private val Canvas = Color(0xFFF4F7FC)
 private val Muted = Color(0xFF64748B)
 private val Green = Color(0xFF12805C)
+private fun p2pDiagnosticMessage(code: Int): String {
+    val peerErrors = listOf(
+        "none", "socket runtime failed", "DNS resolve failed", "socket creation failed",
+        "bind failed", "listen failed", "accept failed", "TCP connect failed",
+        "connection timed out", "send failed", "receive failed",
+        "wire framing or network magic mismatch", "malformed version",
+        "unsupported protocol version", "self connection",
+        "unexpected P2P message", "malformed ping", "encrypted transport failed",
+        "proxy negotiation failed", "proxy rejected"
+    )
+    return when {
+        code == -1 -> "Native core unavailable"
+        code == 0 -> "No connection attempt recorded"
+        code == 10 -> "Selecting a peer / connecting"
+        code == 4000 -> "P2P handshake and peer setup completed"
+        code == 3001 || code == 3002 -> "Handshake succeeded, but sync / peer setup failed (code $code)"
+        code in 2000..2399 -> {
+            val discovery = (code - 2000) / 100
+            val peer = (code - 2000) % 100
+            val phase = when (discovery) {
+                1 -> "No eligible peer (retry backoff)"
+                2 -> "Outbound connection / handshake failed"
+                3 -> "Peer database save failed"
+                else -> "Discovery failed"
+            }
+            val detail = peerErrors.getOrNull(peer) ?: "error $peer"
+            "$phase: $detail (code $code)"
+        }
+        code in 1000..1099 -> {
+            val peer = code - 1000
+            "Reconnection failed: ${peerErrors.getOrNull(peer) ?: "error $peer"} (code $code)"
+        }
+        else -> "P2P diagnostic code: $code"
+    }
+}
+
 
 private enum class Page(val title: String, val subtitle: String, val symbol: String) {
     Network("Network", "Peers & synchronization", "◎"),
@@ -214,15 +250,7 @@ private fun QuintumHome() {
                         Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
                     }
                     if (showDiagnostics) {
-                        DetailCard("P2P connection diagnostic", when {
-                            p2pDiagnostic == 0 -> "Waiting for first connection attempt"
-                            p2pDiagnostic == 10 -> "Selecting peer / connecting"
-                            p2pDiagnostic == 4000 -> "Handshake and peer preparation completed"
-                            p2pDiagnostic == 3001 || p2pDiagnostic == 3002 -> "Handshake succeeded; peer preparation failed (code $p2pDiagnostic)"
-                            p2pDiagnostic >= 2000 && p2pDiagnostic < 3000 -> "Discovery or P2P connection failed (code $p2pDiagnostic)"
-                            p2pDiagnostic >= 1000 && p2pDiagnostic < 2000 -> "Reconnect failed (code $p2pDiagnostic)"
-                            else -> "Diagnostic code: $p2pDiagnostic"
-                        })
+                        DetailCard("P2P connection diagnostic", p2pDiagnosticMessage(p2pDiagnostic))
                         Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
                         Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
