@@ -65,6 +65,7 @@ private fun QuintumHome() {
     var nodeRunning by remember { mutableStateOf(false) }
     var knownAddresses by remember { mutableLongStateOf(0L) }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
+    var showDiagnostics by remember { mutableStateOf(false) }
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
     var startupSeconds by remember { mutableIntStateOf(0) }
@@ -190,18 +191,31 @@ private fun QuintumHome() {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
-                    DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
-                    Spacer(Modifier.height(12.dp))
-                    DetailCard("Known peer addresses", "$knownAddresses")
-                    if (lastStartupMs > 0L) {
-                        Spacer(Modifier.height(12.dp))
-                        DetailCard("Last core startup", "${lastStartupMs / 1000L} s")
-                    }
-                    if (nodeRunning && knownAddresses == 0L) Text("No bootstrap addresses found. Peer discovery needs attention.", color = MaterialTheme.colorScheme.error)
+                    DetailCard("Network status", when {
+                        !nodeRunning -> "Node is not running"
+                        (stats.stats?.peers ?: 0L) > 0L -> "Connected to QUINTUM Testnet"
+                        else -> "Searching for network peers"
+                    })
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Block height", "${stats.stats?.blockHeight ?: "Unavailable"}")
                     Spacer(Modifier.height(12.dp))
-                    DetailCard("Network difficulty", "${stats.stats?.networkDifficulty ?: "Unavailable"}")
+                    TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
+                        Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
+                    }
+                    if (showDiagnostics) {
+                        DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("Known peer addresses", "$knownAddresses")
+                        if (lastStartupMs > 0L) {
+                            Spacer(Modifier.height(12.dp))
+                            DetailCard("Last core startup", "${lastStartupMs / 1000L} s")
+                        }
+                        if (nodeRunning && knownAddresses == 0L) {
+                            Text("No bootstrap addresses found. Peer discovery needs attention.", color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("Network difficulty", "${stats.stats?.networkDifficulty ?: "Unavailable"}")
+                    }
                 }
                 Page.Wallet -> {
                     DetailCard("Wallet", "Not yet enabled in Android Testnet")
