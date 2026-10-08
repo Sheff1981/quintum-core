@@ -171,3 +171,11 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Device report: QUINTUM Android APK installs and UI renders on Xiaomi (user now reports a different Xiaomi handset). Screenshots show `Node stopped`, peers `0`, block height and difficulty unavailable, and mining inactive. User reports application terminates after tapping mining; exact action (opening Mining page vs tapping Start mining) and Android crash trace are not yet known.
 - Confirmed code defect: `nativeStartMining` previously assigned a new `std::thread` while a prior completed mining thread could remain `joinable`, which invokes `std::terminate`. Fix `e4da69acadd9f7e159624c93c67da93dfa703574` joins a completed worker before replacing it.
 - Verification: **PENDING** CI and on-device reproduction. Do not claim this fixes the reported crash without a logcat trace; investigate startup failure and P2P separately. Android wallet intentionally disabled in this test build.
+
+### AND-011 — Xiaomi Start node crash / indefinite Connecting (2026-10-08)
+
+- User clarified crash occurs on **Start node**, not Start mining; installed APK renders correctly but P2P and height remain unavailable. Root native crash cause **not yet proven** without device logcat.
+- `e18cad19002bffcddf150fbe39e8d44888a8f1df`: create private node directory and handle foreground service failures.
+- `cacf3a5dcecc0147585cb0be8a87e443c8747b9c`: persist service/native startup error codes locally in app preferences; no telemetry or private-key transmission.
+- `51b3154a5df297c048bcdbc3e9b06a9f5067b8c2`: show startup errors and reset stuck Connecting state after 30 seconds so user can retry.
+- Verification: **PENDING** Android CI, APK signing verification, and real-device startup; device logcat required if native process aborts.
