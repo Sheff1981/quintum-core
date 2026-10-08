@@ -51,3 +51,10 @@ See `android/UPDATE_SECURITY.md` for the update contract.
 - Status: **OPEN**. Resolve against current main and rerun all required checks before merge.
 
 Issue entries must record the failure, cause, fix commit, CI verification, and compatibility impact. Never mark a fix verified solely because the patch was committed. Ticker is QMU; RandomX Testnet address HRP remains `xqmu`.
+
+### AND-003 — Thermal stop blocked Android UI (2026-10-08)
+
+- Cause: `MiningController.snapshot()` synchronously called JNI `nativeStopMining()` when the device overheated. Native stop joins the mining thread, potentially blocking the Compose UI.
+- Fix commit: `56b4113063a39e36bf74f1d96e98375602ffef1a` dispatches thermal stop to an IO coroutine and avoids repeated stop requests during a running mining session.
+- Verification: **PENDING** Android CI and on-device thermal/stop/restart testing. Review concurrency of manual stop and thermal stop before release.
+- Compatibility: Kotlin lifecycle only; no consensus, wallet, address, or network changes.
