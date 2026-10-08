@@ -89,3 +89,11 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Cause: Gradle pins Android SDK CMake 3.25.1, but CI did not provision that SDK package.
 - Fix commit: `750e8e81f62433d7922f073b71c51715e1f331d2` installs `cmake;3.25.1` through Android sdkmanager before running Gradle.
 - Verification: **PENDING** Android APK build, ARM64 JNI payload check and device smoke test.
+
+### AND-008 — Requested Android SDK CMake version unavailable (2026-10-08)
+
+- Evidence: Android CI run 37730156507, job 113157221648 failed at `Install Android CMake 3.25.1`; sdkmanager returned `Failed to find package 'cmake;3.25.1'`.
+- Root cause: the Android SDK package catalog does not expose the pinned 3.25.1 package in CI. The Gradle configuration also pinned this unavailable version.
+- Fix commits: `7e5d67fd39094126655465db875446754dbc841a` and `5af7ebebb0d84de2a7962d7632bfc225b46f7e1e`; align Gradle and CI to SDK CMake 3.22.1 and assert the executable exists.
+- Verification: **PENDING** a fresh ARM64 build, unit tests, APK assembly and native-library payload check.
+- Compatibility: Android build toolchain only. QMU ticker, consensus, wallet data and RandomX settings unchanged.
