@@ -215,6 +215,8 @@ private fun QuintumHome() {
                         Spacer(Modifier.height(12.dp))
                         Text("VPS transport diagnostic", style = MaterialTheme.typography.titleSmall)
                         Text("Tests TCP reachability only; does not verify the QUINTUM P2P handshake.", color = Muted)
+                        Text("Result: $tcpProbeResult", color = if (tcpProbeResult.startsWith("TCP failed")) MaterialTheme.colorScheme.error else Navy)
+                        Spacer(Modifier.height(8.dp))
                         Button(onClick = {
                             tcpProbeRunning = true
                             tcpProbeResult = "Testing..."
@@ -235,7 +237,6 @@ private fun QuintumHome() {
                         }, enabled = !tcpProbeRunning) {
                             Text(if (tcpProbeRunning) "Testing VPS..." else "Test VPS connection")
                         }
-                        Text(tcpProbeResult, color = if (tcpProbeResult.startsWith("TCP failed")) MaterialTheme.colorScheme.error else Muted)
 
                         if (lastStartupMs > 0L) {
                             Spacer(Modifier.height(12.dp))
