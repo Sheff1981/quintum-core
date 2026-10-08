@@ -27,5 +27,6 @@ object NativeCore {
     external fun nativeBlockHeight(): Long
     external fun nativePeerCount(): Long
     external fun nativeKnownAddressCount(): Long
+    external fun nativeP2pDiagnostic(): Int
     external fun nativeDifficulty(): Double
 }
