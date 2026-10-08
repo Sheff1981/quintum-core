@@ -2043,6 +2043,18 @@ void NetworkRuntime::maintain_outbound(
         }
 
 #ifdef __ANDROID__
+        {
+            const auto& remote = peer.session.remote_version();
+            std::scoped_lock lock(android_peer_details_mutex_);
+            android_peer_details_ = "Endpoint: " +
+                (peer.address ? format_peer_host(*peer.address) + ":" +
+                    std::to_string(peer.address->port) : std::string("unknown")) +
+                "\\nP2P protocol: " + std::to_string(remote.protocol_version) +
+                "\\nServices: " + std::to_string(remote.services) +
+                "\\nAdvertised height: " + std::to_string(remote.start_height) +
+                "\\nListening port: " + std::to_string(remote.listen_port) +
+                "\\nHandshake: completed";
+        }
         android_p2p_diagnostic_.store(4000);
 #endif
         peers_.push_back(
@@ -2166,6 +2178,18 @@ void NetworkRuntime::maintain_outbound(
     }
 #endif
 #ifdef __ANDROID__
+    {
+        const auto& remote = peer.session.remote_version();
+        std::scoped_lock lock(android_peer_details_mutex_);
+        android_peer_details_ = "Endpoint: " +
+            (peer.address ? format_peer_host(*peer.address) + ":" +
+                std::to_string(peer.address->port) : std::string("unknown")) +
+            "\\nP2P protocol: " + std::to_string(remote.protocol_version) +
+            "\\nServices: " + std::to_string(remote.services) +
+            "\\nAdvertised height: " + std::to_string(remote.start_height) +
+            "\\nListening port: " + std::to_string(remote.listen_port) +
+            "\\nHandshake: completed";
+    }
     android_p2p_diagnostic_.store(4000);
 #endif
     peers_.push_back(
