@@ -159,3 +159,9 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Root cause: `NodeService.onStartCommand` called synchronous `NativeCore.nativeStart` on Android main thread, potentially freezing UI while native node initializes. `onDestroy` also called blocking native stop on main thread.
 - Fix: `aacae76fab46e56518bf975cc120671b23219615` moves startup to service IO coroutine; `4cd91ad74f195868b5b84203d0e4daa96054a13a` prevents duplicate startup and offloads shutdown; `6590ff5001cd51c203af99a1d859dbef7829929d` catches/logs startup failures.
 - Verification: pending CI compile, real-device startup/restart, P2P peer discovery, chain sync and mining. Further lifecycle race review needed before production.
+
+### AND-017 — Service destroyed during native startup (2026-10-08)
+
+- Root cause: asynchronous native startup can finish after Android has destroyed its foreground service, potentially leaving a node alive without service ownership.
+- Fix: `38c47681b66087e6ff6b539d225a89c81ade9a2b` tracks service destruction and stops the node if initialization completes after destruction.
+- Verification: CI and on-device rapid-open/close/restart race testing pending. Further concurrency audit required before claiming lifecycle correctness.
