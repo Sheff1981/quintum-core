@@ -97,7 +97,10 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
           test -n "$apksigner"
           expected="$(keytool -list -v -keystore "$QUM_ANDROID_DEBUG_KEYSTORE" -storepass "$QUM_ANDROID_DEBUG_STORE_PASSWORD" -alias "$QUM_ANDROID_DEBUG_KEY_ALIAS" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          actual="$("$apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          cert_output="$("$apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk)"
+          actual="$(printf '%s\n' "$cert_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          echo "Expected signing fingerprint: $expected"
+          echo "Actual APK fingerprint: ${actual:-missing}"
           test -n "$expected" && test -n "$actual"
           if [[ "$expected" != "$actual" ]]; then echo "::error::APK signing certificate mismatch"; exit 1; fi
           echo "APK signature matches persistent QUINTUM signing key: $actual"
