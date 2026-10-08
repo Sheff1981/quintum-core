@@ -22,6 +22,7 @@ class NodeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var startRequested = false
     @Volatile private var destroyed = false
+    private val lifecycleLock = Any()
 
     override fun onCreate() {
         super.onCreate()
@@ -34,10 +35,10 @@ class NodeService : Service() {
         startRequested = true
         scope.launch {
             try {
-                val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
-                if (destroyed && (result == 0 || result == 2)) {
-                    NativeCore.nativeStop()
-                } else if (result != 0 && result != 2) {
+                val result = synchronized(lifecycleLock) {
+                    if (destroyed) -1 else NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
+                }
+                if (result != 0 && result != 2 && result != -1) {
                     android.util.Log.e("QUINTUM-Node", "Node startup failed: $result")
                     stopSelf(startId)
                 }
@@ -53,7 +54,9 @@ class NodeService : Service() {
     override fun onDestroy() {
         destroyed = true
         scope.cancel()
-        Thread { NativeCore.nativeStop() }.start()
+        Thread {
+            synchronized(lifecycleLock) { NativeCore.nativeStop() }
+        }.start()
         super.onDestroy()
     }
 
