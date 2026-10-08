@@ -64,6 +64,7 @@ private fun QuintumHome() {
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
     var knownAddresses by remember { mutableLongStateOf(0L) }
+    var lastStartupMs by remember { mutableLongStateOf(0L) }
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
     var startupSeconds by remember { mutableIntStateOf(0) }
@@ -74,6 +75,8 @@ private fun QuintumHome() {
             }
             result.onSuccess { (running, snapshot, known) ->
                 knownAddresses = known
+                lastStartupMs = context.getSharedPreferences("node_status", android.content.Context.MODE_PRIVATE)
+                    .getLong("last_start_duration_ms", 0L)
                 nodeRunning = running
                 stats = snapshot
                 if (running) {
@@ -190,6 +193,10 @@ private fun QuintumHome() {
                     DetailCard("Connected peers", "${stats.stats?.peers ?: 0}")
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Known peer addresses", "$knownAddresses")
+                    if (lastStartupMs > 0L) {
+                        Spacer(Modifier.height(12.dp))
+                        DetailCard("Last core startup", "${lastStartupMs / 1000L} s")
+                    }
                     if (nodeRunning && knownAddresses == 0L) Text("No bootstrap addresses found. Peer discovery needs attention.", color = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Block height", "${stats.stats?.blockHeight ?: "Unavailable"}")
