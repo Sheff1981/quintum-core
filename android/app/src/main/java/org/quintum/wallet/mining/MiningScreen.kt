@@ -49,6 +49,9 @@ fun MiningScreen() {
         Text("RandomX Testnet · real Proof-of-Work")
         Text(if (nodeRunning) "Node: running" else "Node: connecting…")
         Text("Peers: ${state.stats?.peers ?: 0} · Block height: ${state.stats?.blockHeight ?: 0}")
+        if (nodeRunning && (state.stats?.peers ?: 0) == 0) {
+            Text("No connected peers. Blocks mined while disconnected may be replaced when the node synchronizes.", color = MaterialTheme.colorScheme.error)
+        }
         OutlinedTextField(value = payout, onValueChange = { payout = it.trim() }, enabled = !state.running, label = { Text("QMU payout address") }, supportingText = { Text("Public address only. You may mine to a wallet on another device.") }, singleLine = true)
         TextButton(onClick = { payout = ""; payoutPreferences.edit().remove("address").apply() }, enabled = !state.running && payout.isNotEmpty()) { Text("Clear saved payout address") }
         OutlinedTextField(value = threadsText, onValueChange = { threadsText = it.filter(Char::isDigit) }, enabled = !state.running, label = { Text("Mining threads") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
