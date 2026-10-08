@@ -3,7 +3,10 @@ package org.quintum.wallet.mining
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.quintum.wallet.core.NativeCore
 
@@ -11,6 +14,8 @@ class MiningController(
     private val context: Context,
 ) {
     private val statsReader = DeviceMiningStatsReader(context)
+    private val thermalStopScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var thermalStopRequested = false
     private val powerManager =
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
@@ -30,9 +35,12 @@ class MiningController(
             -1
         }
 
-        if (NativeCore.nativeMiningRunning() && ThermalGuard.shouldStop(thermal)) {
-            // Native cancellation is cooperative and safe to request here.
-            NativeCore.nativeStopMining()
+        val miningRunning = NativeCore.nativeMiningRunning()
+        if (!miningRunning) thermalStopRequested = false
+        if (miningRunning && ThermalGuard.shouldStop(thermal) && !thermalStopRequested) {
+            thermalStopRequested = true
+            // JNI stop joins the mining thread; never block the Compose/UI thread.
+            thermalStopScope.launch { NativeCore.nativeStopMining() }
         }
 
         val stats = statsReader.read(
