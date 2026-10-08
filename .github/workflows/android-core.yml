@@ -48,6 +48,14 @@ jobs:
         working-directory: android
         run: gradle assembleDebug --no-daemon
 
+      - name: Verify APK contains ARM64 native core
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          unzip -Z1 "$apk" | grep -Fx 'lib/arm64-v8a/libquintum_android.so'
+
       - name: Upload Android Testnet APK
         uses: actions/upload-artifact@v4
         with:
