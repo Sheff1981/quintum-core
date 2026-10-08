@@ -72,6 +72,10 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
 
     quintum::net::NetworkRuntimeConfig config;
     config.enable_nat_mapping = false;
+    // Android clients normally sit behind carrier NAT or a VPN. They still
+    // make outbound P2P connections, and must not fail startup when the
+    // default inbound port is already occupied by another local process.
+    config.allow_ephemeral_listener_fallback = true;
     config.wallet_enabled = false;
 
     const auto result = runtime->start(std::move(config));
