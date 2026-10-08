@@ -111,3 +111,10 @@ Issue entries must record the failure, cause, fix commit, CI verification, and c
 - Cause: Gradle's `externalNativeBuild.cmake.version` exact pin conflicts with using the host-installed CMake via `android/local.properties`.
 - Fix: commit `3db8bab94160462d9a34cfc9c3b30abdce48fe05` removes the exact Gradle CMake version pin, retaining root `cmake_minimum_required(VERSION 3.25)` and CI's host CMake configuration.
 - Verification: **PENDING** APK assembly, JNI payload and device smoke tests.
+
+### AND-011 — On-device mining UI cannot scroll or start the node (2026-10-08)
+
+- Evidence: HUAWEI HED-LX9 Android screenshot of installed Testnet APK: mining stats cut off, `QUINTUM node is not running`, no visible node start control; user reports no scrolling.
+- Root cause: `MiningScreen` used a non-scrollable `Column` and exposed only mining controls; `NodeService` existed but was never started from the UI.
+- Fix: `2016ff6ad74af7063dceb6d9d97bed485bed4c31` adds vertical scrolling and foreground-service start/stop UI; `c3f438f148153ee8ee0dfaf698db4ec044c25aef` connects status to existing `NativeCore.nativeRunning()` JNI method.
+- Verification: **PENDING** Android CI, install and on-device node/P2P/mining smoke tests. Do not claim node/mining works until observed.
