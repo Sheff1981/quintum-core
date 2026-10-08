@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
  */
 class NodeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var startRequested = false
 
     override fun onCreate() {
         super.onCreate()
@@ -28,6 +29,8 @@ class NodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (startRequested) return START_STICKY
+        startRequested = true
         scope.launch {
             val result = NativeCore.nativeStart(filesDir.resolve("core").absolutePath)
         if (result != 0 && result != 2) {
@@ -39,8 +42,8 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
-        NativeCore.nativeStop()
         scope.cancel()
+        Thread { NativeCore.nativeStop() }.start()
         super.onDestroy()
     }
 
