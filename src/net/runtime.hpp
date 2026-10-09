@@ -266,6 +266,8 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] NetworkRuntimeStatus status() const;
+    // UI polling must remain responsive while initial sync owns chain state.
+    [[nodiscard]] NetworkRuntimeStatus status_nonblocking() const { return status(); }
 
     [[nodiscard]] std::vector<
         wallet::WalletTransactionRecord>
