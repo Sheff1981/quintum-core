@@ -322,7 +322,8 @@ private fun QuintumHome() {
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-            } else when (page) {
+            } else {
+                when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
@@ -468,6 +469,7 @@ private fun QuintumHome() {
                 Page.Mining -> MiningScreen()
                 Page.Device -> stats.stats?.let { DeviceMiningStatsCard(it) }
                 null -> Unit
+                }
             }
         }
     }
