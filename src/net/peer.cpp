@@ -1,4 +1,7 @@
 #include "net/peer.hpp"
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #include "core/serialize.hpp"
 #include "net/socks5.hpp"
@@ -975,6 +978,9 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "version sent; waiting for remote version");
+#endif
     WireMessage remote_message;
     error = receive_plain_message(
         socket,
@@ -989,6 +995,9 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "remote command=%s", remote_message.command.c_str());
+#endif
     if (remote_message.command != "version") {
         out.error = PeerError::unexpected_message;
         return out;
@@ -1002,6 +1011,9 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "remote protocol=%u height=%u", remote->protocol_version, remote->start_height);
+#endif
     if (remote->protocol_version !=
         local.protocol_version) {
         out.error = PeerError::unsupported_protocol;
@@ -1027,6 +1039,9 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "verack sent; waiting for remote verack");
+#endif
     WireMessage verack;
     error = receive_plain_message(
         socket,
