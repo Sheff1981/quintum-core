@@ -273,15 +273,15 @@ struct SocketIoFailure {
 
 // Each handshake runs on one thread. Preserve the failing syscall evidence
 // before close/logging can overwrite errno, without changing wire behavior.
-thread_local SocketIoFailure last_io_failure{};
+thread_local SocketIoFailure thread_io_failure{};
 
 void attach_io_failure(PeerHandshakeResult& result) noexcept
 {
     if (result.error != PeerError::send_failed &&
         result.error != PeerError::receive_failed) return;
-    result.socket_error = last_io_failure.error;
-    result.remote_closed = last_io_failure.remote_closed;
-    result.partial_io_bytes = last_io_failure.transferred;
+    result.socket_error = thread_io_failure.error;
+    result.remote_closed = thread_io_failure.remote_closed;
+    result.partial_io_bytes = thread_io_failure.transferred;
 }
 
 bool send_all(
@@ -319,7 +319,7 @@ bool send_all(
 
         if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
-            last_io_failure = {result < 0 ? last_socket_error() : 0, false, sent};
+            thread_io_failure = {result < 0 ? last_socket_error() : 0, false, sent};
 #ifdef __ANDROID__
             const int socket_error = result < 0 ? last_socket_error() : 0;
             __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
@@ -370,7 +370,7 @@ bool receive_exact(
 
         if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
-            last_io_failure = {result < 0 ? last_socket_error() : 0, result == 0, received};
+            thread_io_failure = {result < 0 ? last_socket_error() : 0, result == 0, received};
 #ifdef __ANDROID__
             const int socket_error = result < 0 ? last_socket_error() : 0;
             __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
@@ -1200,7 +1200,7 @@ PeerHandshakeResult inbound_handshake(
     const std::shared_ptr<Diagnostics>& diagnostics)
 {
     PeerHandshakeResult out;
-    last_io_failure = {};
+    thread_io_failure = {};
     WireError wire_error{WireError::none};
     const auto started = std::chrono::steady_clock::now();
     struct Finish {
@@ -1399,7 +1399,8 @@ PeerSession::PeerSession(
       socket_(other.socket_),
       inbound_(other.inbound_),
       remote_(other.remote_),
-      transport_(std::move(other.transport_))
+      transport_(std::move(other.transport_)),
+      io_failure_(other.io_failure_)
 {
     other.socket_ = kInvalidSocket;
 }
@@ -1418,6 +1419,7 @@ PeerSession& PeerSession::operator=(
     inbound_ = other.inbound_;
     remote_ = other.remote_;
     transport_ = std::move(other.transport_);
+    io_failure_ = other.io_failure_;
 
     other.socket_ = kInvalidSocket;
     return *this;
@@ -1467,59 +1469,51 @@ bool PeerSession::wait_readable(
     );
 }
 
+PeerIoFailure PeerSession::last_io_failure() const noexcept
+{
+    return io_failure_;
+}
+
 PeerError PeerSession::send_command(
     std::string_view command,
     std::span<const Byte> payload)
 {
+    io_failure_ = {};
+    thread_io_failure = {};
     if (!valid()) {
-        return PeerError::send_failed;
+        io_failure_.error = PeerError::send_failed;
+        return io_failure_.error;
     }
 
     WireError wire_error{WireError::none};
-    if (transport_) {
-        return send_encrypted_message(
-            native_socket(socket_),
-            params_,
-            *transport_,
-            command,
-            payload,
-            wire_error
-        );
-    }
-
-    return send_plain_message(
-        native_socket(socket_),
-        params_,
-        command,
-        payload,
-        wire_error
-    );
+    const auto error = transport_
+        ? send_encrypted_message(native_socket(socket_), params_, *transport_,
+              command, payload, wire_error)
+        : send_plain_message(native_socket(socket_), params_, command,
+              payload, wire_error);
+    // Copy syscall evidence immediately, before logging or another session's IO.
+    io_failure_ = {error, wire_error, thread_io_failure.error,
+        thread_io_failure.remote_closed, thread_io_failure.transferred};
+    return error;
 }
 
-PeerError PeerSession::receive_command(
-    WireMessage& message)
+PeerError PeerSession::receive_command(WireMessage& message)
 {
+    io_failure_ = {};
+    thread_io_failure = {};
     if (!valid()) {
-        return PeerError::receive_failed;
+        io_failure_.error = PeerError::receive_failed;
+        return io_failure_.error;
     }
 
     WireError wire_error{WireError::none};
-    if (transport_) {
-        return receive_encrypted_message(
-            native_socket(socket_),
-            params_,
-            *transport_,
-            message,
-            wire_error
-        );
-    }
-
-    return receive_plain_message(
-        native_socket(socket_),
-        params_,
-        message,
-        wire_error
-    );
+    const auto error = transport_
+        ? receive_encrypted_message(native_socket(socket_), params_,
+              *transport_, message, wire_error)
+        : receive_plain_message(native_socket(socket_), params_, message, wire_error);
+    io_failure_ = {error, wire_error, thread_io_failure.error,
+        thread_io_failure.remote_closed, thread_io_failure.transferred};
+    return error;
 }
 
 PeerError PeerSession::ping(
@@ -2064,7 +2058,7 @@ PeerHandshakeResult connect_and_handshake(
             });
         }
     } finish{diagnostics, out, started};
-    last_io_failure = {};
+    thread_io_failure = {};
     PeerError dial_error{PeerError::none};
 
     NativeSocket connected =
@@ -2144,7 +2138,7 @@ PeerHandshakeResult connect_and_handshake(
             });
         }
     } finish{diagnostics, out, started};
-    last_io_failure = {};
+    thread_io_failure = {};
 
     if (!proxy.valid()) {
         out.error =

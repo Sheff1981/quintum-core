@@ -41,6 +41,17 @@ enum class PeerError {
     proxy_rejected,
 };
 
+// Evidence from this session's most recent send/receive operation. Counts
+// describe bytes transferred in the failing read/write segment. Successful
+// operations reset every field, preventing stale errno or EOF attribution.
+struct PeerIoFailure {
+    PeerError error{PeerError::none};
+    WireError wire_error{WireError::none};
+    int socket_error{0};
+    bool remote_closed{false};
+    std::size_t partial_io_bytes{0U};
+};
+
 class PeerSession {
 public:
     PeerSession() noexcept = default;
@@ -54,6 +65,7 @@ public:
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool inbound() const noexcept;
+    [[nodiscard]] PeerIoFailure last_io_failure() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
     [[nodiscard]] bool encrypted() const noexcept;
     [[nodiscard]] std::optional<Hash256> session_id() const noexcept;
@@ -98,7 +110,6 @@ public:
 private:
     friend class PeerListener;
     friend struct PeerHandshakeResult;
-class Diagnostics;
 
 
     static constexpr std::uintptr_t kInvalidSocket =
@@ -109,6 +120,7 @@ class Diagnostics;
     bool inbound_{false};
     VersionMessage remote_{};
     std::unique_ptr<V2Transport> transport_{};
+    PeerIoFailure io_failure_{};
 };
 
 struct PeerHandshakeResult {

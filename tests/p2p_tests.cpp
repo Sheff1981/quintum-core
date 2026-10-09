@@ -6,6 +6,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cerrno>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -588,9 +589,80 @@ void test_adversarial_wire_frame_corpus()
 
 #include "interrupted_receive_test.inc"
 
+#ifndef _WIN32
+namespace {
+void test_peer_io_failure_evidence()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+
+    for (const bool partial : {false, true}) {
+        int sockets[2]{};
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+        PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]),
+            false, version(0x1001U, 0U));
+        if (partial) {
+            const std::array<Byte, 3U> prefix{0U, 1U, 2U};
+            assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+        }
+        assert(::close(sockets[1]) == 0);
+        errno = EINVAL; // EOF must not inherit an unrelated errno value.
+        WireMessage message;
+        assert(receiver.receive_command(message) == PeerError::receive_failed);
+        const auto evidence = receiver.last_io_failure();
+        assert(evidence.error == PeerError::receive_failed);
+        assert(evidence.wire_error == WireError::none);
+        assert(evidence.socket_error == 0);
+        assert(evidence.remote_closed);
+        assert(evidence.partial_io_bytes == (partial ? 3U : 0U));
+        PeerSession moved = std::move(receiver);
+        assert(moved.last_io_failure().partial_io_bytes == evidence.partial_io_bytes);
+        assert(moved.last_io_failure().remote_closed);
+
+        // Another session's successful IO cannot erase retained failure evidence.
+        int other[2]{};
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, other) == 0);
+        PeerSession sender(params, static_cast<std::uintptr_t>(other[0]),
+            false, version(0x1002U, 0U));
+        PeerSession recipient(params, static_cast<std::uintptr_t>(other[1]),
+            true, version(0x1003U, 0U));
+        assert(sender.send_command("ping", serialize_nonce(17U)) == PeerError::none);
+        assert(recipient.receive_command(message) == PeerError::none);
+        assert(moved.last_io_failure().remote_closed);
+        assert(moved.last_io_failure().partial_io_bytes == evidence.partial_io_bytes);
+    }
+
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    timeval timeout{0, 50'000};
+    assert(setsockopt(sockets[0], SOL_SOCKET, SO_RCVTIMEO,
+        &timeout, sizeof(timeout)) == 0);
+    PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]),
+        false, version(0x2001U, 0U));
+    PeerSession sender(params, static_cast<std::uintptr_t>(sockets[1]),
+        true, version(0x2002U, 0U));
+    WireMessage message;
+    assert(receiver.receive_command(message) == PeerError::receive_failed);
+    const auto timed_out = receiver.last_io_failure();
+    assert(timed_out.socket_error == EAGAIN || timed_out.socket_error == EWOULDBLOCK);
+    assert(!timed_out.remote_closed);
+    assert(timed_out.partial_io_bytes == 0U);
+    assert(sender.send_command("ping", serialize_nonce(18U)) == PeerError::none);
+    assert(receiver.receive_command(message) == PeerError::none);
+    const auto recovered = receiver.last_io_failure();
+    assert(recovered.error == PeerError::none);
+    assert(recovered.socket_error == 0);
+    assert(!recovered.remote_closed);
+    assert(recovered.partial_io_bytes == 0U);
+}
+} // namespace
+#endif
+
 int main()
 {
 #ifndef _WIN32
+    test_peer_io_failure_evidence();
     test_interrupted_peer_receive();
     test_interrupted_peer_receive(true);
 #endif

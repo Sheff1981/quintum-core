@@ -13,6 +13,9 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#ifndef _WIN32
+#include <sys/socket.h>
+#endif
 
 namespace {
 
@@ -1430,10 +1433,69 @@ void test_full_known_header_batch_is_not_treated_as_stalled()
     ));
 }
 
+#ifndef _WIN32
+void test_sync_transport_failure_evidence(unsigned int test_case)
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("sync-io-evidence");
+    const auto now = params.genesis.timestamp + 10'000U;
+    NodeRuntime node{params, directory};
+    assert(node.start_at(now).ok());
+    auto diagnostics = std::make_shared<Diagnostics>(directory / "diagnostics");
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    if (test_case == 2U) {
+        timeval timeout{0, 50'000};
+        assert(setsockopt(sockets[0], SOL_SOCKET, SO_RCVTIMEO,
+            &timeout, sizeof(timeout)) == 0);
+    }
+    PeerSession client(params, static_cast<std::uintptr_t>(sockets[0]),
+        false, version(0x3001U, 0U));
+    PeerSession server(params, static_cast<std::uintptr_t>(sockets[1]),
+        true, version(0x3002U, 1U));
+    std::thread responder([&] {
+        WireMessage request;
+        assert(server.receive_command(request) == PeerError::none);
+        assert(request.command == "getheaders");
+        if (test_case == 1U) {
+            const std::array<Byte, 3U> prefix{0U, 1U, 2U};
+            assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+        } else if (test_case == 2U) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        }
+        server.close();
+    });
+    const auto result = sync_from_peer(client, node, now, diagnostics);
+    responder.join();
+    assert(result.error == SyncError::transport_failed);
+    assert(result.peer_error == PeerError::receive_failed);
+    const auto evidence = client.last_io_failure();
+    const auto events = diagnostics->export_log();
+    assert(events.find("header_wait") != std::string::npos);
+    assert(events.find("socket_error=" + std::to_string(evidence.socket_error)) !=
+        std::string::npos);
+    assert(events.find(test_case == 2U ? "eof=0" : "eof=1") != std::string::npos);
+    assert(events.find(test_case == 1U ? "partial_bytes=3" : "partial_bytes=0") !=
+        std::string::npos);
+    assert(events.find("fully_synchronized") == std::string::npos);
+    assert(node.chain().height() == std::optional<std::uint32_t>{0U});
+    client.close();
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+#endif
+
 } // namespace
 
 int main()
 {
+#ifndef _WIN32
+    test_sync_transport_failure_evidence(0U);
+    test_sync_transport_failure_evidence(1U);
+    test_sync_transport_failure_evidence(2U);
+#endif
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
     test_sync_tolerates_interleaved_block_inventory();

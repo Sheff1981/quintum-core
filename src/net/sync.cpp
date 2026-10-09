@@ -986,22 +986,31 @@ SyncResult sync_from_peer(
     struct Finish {
         std::shared_ptr<Diagnostics> diagnostics;
         SyncResult& result;
+        PeerSession& peer;
 
         ~Finish()
         {
             observe(diagnostics, [&](auto& journal) {
                 if (!result.ok()) {
+                    const auto last_io = peer.last_io_failure();
+                    const auto io = result.peer_error != PeerError::none &&
+                            last_io.error == result.peer_error
+                        ? last_io : PeerIoFailure{};
                     const std::string description =
                         "sync_error=" + std::to_string(static_cast<int>(result.error)) +
                         " peer_error=" + std::to_string(static_cast<int>(result.peer_error)) +
                         " chain_error=" + std::to_string(static_cast<int>(result.chain_error)) +
                         " submit_error=" + std::to_string(static_cast<int>(result.submit_error)) +
-                        " storage_error=" + std::to_string(static_cast<int>(result.storage_error));
+                        " storage_error=" + std::to_string(static_cast<int>(result.storage_error)) +
+                        " socket_error=" + std::to_string(io.socket_error) +
+                        " eof=" + std::to_string(io.remote_closed ? 1 : 0) +
+                        " partial_bytes=" + std::to_string(io.partial_io_bytes) +
+                        " wire_error=" + std::to_string(static_cast<int>(io.wire_error));
                     journal.failure("sync", static_cast<int>(result.error), description);
                 }
             });
         }
-    } finish{diagnostics, out};
+    } finish{diagnostics, out, peer};
 
     if (!node.started()) {
         out.error = SyncError::not_started;
