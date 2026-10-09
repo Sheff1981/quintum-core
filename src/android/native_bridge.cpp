@@ -3,6 +3,7 @@
 #include "net/runtime.hpp"
 #include "net/diagnostics.hpp"
 #include "wallet/address.hpp"
+#include "wallet/wallet.hpp"
 
 #include <jni.h>
 
@@ -72,6 +73,57 @@ void stop_mining()
 }
 
 } // namespace
+
+// Wallet provisioning is independent of P2P and RandomX synchronization.
+// Never replace an existing wallet, even when the node is stopped.
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeWalletExists(
+    JNIEnv* env, jobject, jstring directory)
+{
+    if (!directory) return JNI_FALSE;
+    const char* raw = env->GetStringUTFChars(directory, nullptr);
+    if (!raw) return JNI_FALSE;
+    const std::filesystem::path root{raw};
+    env->ReleaseStringUTFChars(directory, raw);
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(root / "wallet.dat", ec);
+    // Fail closed when the storage status cannot be established.
+    return (exists || static_cast<bool>(ec)) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeCreateEncryptedWallet(
+    JNIEnv* env, jobject, jstring directory, jstring password)
+{
+    if (!directory || !password) return nullptr;
+    const char* raw_path = env->GetStringUTFChars(directory, nullptr);
+    if (!raw_path) return nullptr;
+    const std::filesystem::path root{raw_path};
+    env->ReleaseStringUTFChars(directory, raw_path);
+    const char* raw_password = env->GetStringUTFChars(password, nullptr);
+    if (!raw_password) return nullptr;
+    std::string passphrase{raw_password};
+    env->ReleaseStringUTFChars(password, raw_password);
+    if (passphrase.empty()) return nullptr;
+
+    // Serialize provisioning against itself; do not share node wallet state.
+    static std::mutex wallet_mutex;
+    std::scoped_lock lock(wallet_mutex);
+    std::error_code ec;
+    if (std::filesystem::exists(root / "wallet.dat", ec) || ec)
+        return nullptr;
+    if (!std::filesystem::create_directories(root, ec) && ec)
+        return nullptr;
+
+    const auto& params = quintum::consensus::chain_params(
+        quintum::consensus::Network::randomx_testnet);
+    quintum::wallet::Wallet wallet(params, root);
+    const auto result = wallet.start(passphrase);
+    std::fill(passphrase.begin(), passphrase.end(), '\0');
+    if (!result.ok() || !result.created || result.receive_address.empty())
+        return nullptr;
+    return env->NewStringUTF(result.receive_address.c_str());
+}
 
 extern "C" JNIEXPORT jint JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativeStart(
