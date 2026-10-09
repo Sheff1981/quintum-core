@@ -283,3 +283,16 @@ Java_org_quintum_wallet_core_NativeCore_nativeConnectElapsedMs(JNIEnv*, jobject)
     if (!g_runtime) return 0;
     return static_cast<jlong>(g_runtime->android_connect_elapsed_ms());
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeLastConnectError(JNIEnv*, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    return g_runtime ? static_cast<jint>(g_runtime->android_last_connect_error()) : 0;
+}
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeConnectAttempts(JNIEnv*, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    return g_runtime ? static_cast<jlong>(g_runtime->android_connect_attempts()) : 0;
+}
