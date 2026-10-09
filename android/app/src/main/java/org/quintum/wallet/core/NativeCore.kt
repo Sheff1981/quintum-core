@@ -19,6 +19,7 @@ object NativeCore {
 
     external fun nativeWalletExists(walletDirectory: String): Boolean
     external fun nativeCreateEncryptedWallet(walletDirectory: String, password: String): String?
+    external fun nativeRestoreEncryptedWallet(walletDirectory: String, mnemonic: String, password: String): String?
 
     external fun nativeStart(dataDirectory: String): Int
     external fun nativeStop()
