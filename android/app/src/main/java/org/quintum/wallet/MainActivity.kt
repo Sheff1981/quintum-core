@@ -278,7 +278,7 @@ private fun QuintumHome() {
                                     nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
                                     startRequested = false
                                 }
-                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
+                            }, enabled = !startRequested) { Text(if (startRequested) "Starting full node…" else "Start Full Node (advanced)") }
                         }
                         if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
                         HorizontalDivider(color = Color(0xFF34466B))
