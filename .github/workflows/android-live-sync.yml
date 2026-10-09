@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build-probe -DQUINTUM_ENABLE_NAT_MAPPING=OFF
+        run: cmake -S . -B build-probe -DCMAKE_BUILD_TYPE=Release -DQUINTUM_ENABLE_NAT_MAPPING=OFF
       - name: Build production sync probe
         run: cmake --build build-probe --config Release --target quintum_android_sync_probe --parallel 2
       - name: Validate actual VPS headers and blocks and restart persisted node (Linux)
