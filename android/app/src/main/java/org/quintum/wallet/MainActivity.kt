@@ -111,6 +111,8 @@ private fun QuintumHome() {
     var p2pDiagnostic by remember { mutableIntStateOf(0) }
     var peerDetails by remember { mutableStateOf("No active P2P peer") }
     var connectElapsedMs by remember { mutableLongStateOf(0L) }
+    var lastConnectError by remember { mutableIntStateOf(0) }
+    var connectAttempts by remember { mutableLongStateOf(0L) }
     var lastStartupMs by remember { mutableLongStateOf(0L) }
     var showDiagnostics by remember { mutableStateOf(false) }
     var showCrashReport by remember { mutableStateOf(false) }
@@ -130,6 +132,8 @@ private fun QuintumHome() {
             result.onSuccess { (snapshotTriple, diagnostic, details) ->
                     peerDetails = details
                     connectElapsedMs = NativeCore.nativeConnectElapsedMs()
+                    lastConnectError = NativeCore.nativeLastConnectError()
+                    connectAttempts = NativeCore.nativeConnectAttempts()
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
                     diagnosticUpdatedAt = System.currentTimeMillis()
@@ -284,6 +288,8 @@ private fun QuintumHome() {
                             appendLine("Core running: $nodeRunning")
                             appendLine("P2P code: $p2pDiagnostic")
                             appendLine("Pending P2P attempt ms: $connectElapsedMs")
+                            appendLine("P2P attempts: $connectAttempts")
+                            appendLine("Last P2P failure code: $lastConnectError")
                             appendLine("P2P status: ${p2pDiagnosticMessage(p2pDiagnostic)}")
                             appendLine("Remote peer details:")
                             appendLine(peerDetails)
