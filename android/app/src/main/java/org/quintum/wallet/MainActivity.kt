@@ -19,9 +19,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -292,33 +289,40 @@ private fun QuintumHome() {
                 Spacer(Modifier.height(24.dp))
                 Text("Your workspace", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
-                LazyVerticalGrid(
-                    modifier = Modifier.fillMaxWidth().height((((Page.entries.size + 1) / 2) * 170 + 20).dp),
-                    userScrollEnabled = false,
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 20.dp)
-                ) {
-                    items(Page.entries) { item ->
-                        ElevatedCard(
-                            onClick = { page = item },
-                            modifier = Modifier.fillMaxWidth().height(158.dp),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxSize().padding(17.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                Text(item.symbol, style = MaterialTheme.typography.headlineMedium, color = Blue)
-                                Column {
-                                    Text(item.title, style = MaterialTheme.typography.titleMedium, color = Navy, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = Muted)
+                // A single verticalScroll owner: do not nest a LazyVerticalGrid
+                // inside this scrollable Column (Compose rejects infinite
+                // vertical constraints on some Android 12 layouts).
+                Page.entries.toList().chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        pair.forEach { item ->
+                            ElevatedCard(
+                                onClick = { page = item },
+                                modifier = Modifier.weight(1f).height(158.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
+                                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(17.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(item.symbol, style = MaterialTheme.typography.headlineMedium, color = Blue)
+                                    Column {
+                                        Text(item.title, style = MaterialTheme.typography.titleMedium, color = Navy, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                    }
                                 }
                             }
                         }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
+                    Spacer(Modifier.height(12.dp))
                 }
+            }
             } else when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
