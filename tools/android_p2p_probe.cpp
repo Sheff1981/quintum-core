@@ -36,6 +36,7 @@ int main(int argc, char** argv)
     auto result = connect_and_handshake(params, argv[1], params.p2p_port, local, 5'000U);
     std::cout << "endpoint=" << argv[1] << ':' << params.p2p_port
               << " handshake_ok=" << result.ok()
+              << " phase=" << result.phase
               << " peer_error=" << static_cast<int>(result.error)
               << " wire_error=" << static_cast<int>(result.wire_error)
               << " elapsed_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -822,7 +822,7 @@ NativeSocket connect_tcp_socket(
             continue;
         }
 
-    #ifdef __ANDROID__
+#ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_INFO, "QUINTUM-SOCKET",
             "TCP connect endpoint=%s:%u family=%d timeout_ms=%u",
             host_text.c_str(), static_cast<unsigned>(port), current->ai_family,
@@ -988,6 +988,7 @@ PeerHandshakeResult outbound_handshake(
     const auto version_payload =
         serialize_version(local);
 
+    out.phase = "version-send";
     auto error = send_plain_message(
         socket,
         params,
@@ -1006,6 +1007,7 @@ PeerHandshakeResult outbound_handshake(
     __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "version sent; waiting for remote version");
 #endif
     WireMessage remote_message;
+    out.phase = "version-receive";
     error = receive_plain_message(
         socket,
         params,
@@ -1049,6 +1051,7 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+    out.phase = "verack-send";
     error = send_plain_message(
         socket,
         params,
@@ -1067,6 +1070,7 @@ PeerHandshakeResult outbound_handshake(
     __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "verack sent; waiting for remote verack");
 #endif
     WireMessage verack;
+    out.phase = "verack-receive";
     error = receive_plain_message(
         socket,
         params,
@@ -1093,6 +1097,7 @@ PeerHandshakeResult outbound_handshake(
         supports_v2_transport(local, *remote) ? 1 : 0);
 #endif
     if (supports_v2_transport(local, *remote)) {
+        out.phase = "encrypted-upgrade";
         transport = outbound_v2_upgrade(
             socket,
             params,
@@ -1111,6 +1116,7 @@ PeerHandshakeResult outbound_handshake(
         "handshake completed protocol=%u remote_height=%u encrypted=%d",
         remote->protocol_version, remote->start_height, transport ? 1 : 0);
 #endif
+    out.phase = "completed";
     out.session.emplace(
         params,
         store_socket(socket),
@@ -1923,8 +1929,8 @@ PeerHandshakeResult connect_and_handshake(
     if (!out.ok()) {
 #ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_WARN, "QUINTUM-HANDSHAKE",
-            "handshake failed peer_error=%d wire_error=%d",
-            static_cast<int>(out.error), static_cast<int>(out.wire_error));
+            "handshake failed phase=%s peer_error=%d wire_error=%d",
+            out.phase.data(), static_cast<int>(out.error), static_cast<int>(out.wire_error));
 #endif
         close_native(connected);
     }

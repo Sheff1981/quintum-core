@@ -118,6 +118,8 @@ private:
 struct PeerHandshakeResult {
     PeerError error{PeerError::none};
     WireError wire_error{WireError::none};
+    // Last handshake phase; static labels only, no payload or credential data.
+    std::string_view phase{"tcp-connect"};
     std::optional<PeerSession> session{};
     std::optional<std::uint32_t> observed_ipv4{};
 
