@@ -30,5 +30,7 @@ object NativeCore {
     external fun nativeP2pDiagnostic(): Int
     external fun nativePeerDetails(): String
     external fun nativeConnectElapsedMs(): Long
+    external fun nativeLastConnectError(): Int
+    external fun nativeConnectAttempts(): Long
     external fun nativeDifficulty(): Double
 }
