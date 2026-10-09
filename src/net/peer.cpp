@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/select.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -188,32 +189,41 @@ bool interrupted_socket_call() noexcept
 bool wait_socket(
     NativeSocket socket,
     bool write,
-    std::uint32_t timeout_ms) noexcept
+    std::uint32_t timeout_ms,
+    int* failure_error = nullptr) noexcept
 {
+    if (failure_error) *failure_error = 0;
     const auto deadline = std::chrono::steady_clock::now() +
         std::chrono::milliseconds(timeout_ms);
     for (;;) {
-        fd_set set;
-        FD_ZERO(&set);
-        FD_SET(socket, &set);
         const auto remaining = std::max<std::int64_t>(0,
             std::chrono::duration_cast<std::chrono::microseconds>(
                 deadline - std::chrono::steady_clock::now()).count());
+#ifdef _WIN32
+        fd_set set;
+        FD_ZERO(&set);
+        FD_SET(socket, &set);
         timeval timeout{};
         timeout.tv_sec = static_cast<long>(remaining / 1'000'000);
         timeout.tv_usec = static_cast<long>(remaining % 1'000'000);
-        const int result = select(
-#ifdef _WIN32
-            0,
+        const int result = select(0, write ? nullptr : &set,
+            write ? &set : nullptr, nullptr, &timeout);
 #else
-            socket + 1,
+        // poll has no FD_SETSIZE limit in an Android process with many FDs.
+        pollfd descriptor{socket, static_cast<short>(write ? POLLOUT : POLLIN), 0};
+        const auto milliseconds = std::min<std::int64_t>(INT_MAX, (remaining + 999) / 1000);
+        const int result = poll(&descriptor, 1U, static_cast<int>(milliseconds));
+        if (result > 0 && (descriptor.revents & POLLNVAL) != 0) {
+            if (failure_error) *failure_error = EBADF;
+            return false;
+        }
 #endif
-            write ? nullptr : &set,
-            write ? &set : nullptr,
-            nullptr, &timeout);
         if (result >= 0) return result > 0;
-        if (!interrupted_socket_call() ||
-            std::chrono::steady_clock::now() >= deadline) return false;
+        if (!interrupted_socket_call()) {
+            if (failure_error) *failure_error = last_socket_error();
+            return false;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) return false;
     }
 }
 
@@ -269,11 +279,60 @@ struct SocketIoFailure {
     int error{0};
     bool remote_closed{false};
     std::size_t transferred{0U};
+    bool cancelled{false};
+    bool timed_out{false};
 };
 
 // Each handshake runs on one thread. Preserve the failing syscall evidence
 // before close/logging can overwrite errno, without changing wire behavior.
 thread_local SocketIoFailure thread_io_failure{};
+
+struct CancellableIo;
+thread_local CancellableIo* active_io{nullptr};
+struct CancellableIo {
+    const std::atomic<bool>* cancel;
+    std::uint32_t timeout_ms;
+    std::chrono::steady_clock::time_point deadline;
+    CancellableIo* previous;
+    CancellableIo(const std::atomic<bool>* token, std::uint32_t timeout) noexcept
+        : cancel(token), timeout_ms(timeout), previous(active_io)
+    {
+        progress();
+        active_io = this;
+    }
+    ~CancellableIo() { active_io = previous; }
+    void progress() noexcept
+    {
+        deadline = timeout_ms == 0U ? std::chrono::steady_clock::time_point::max()
+            : std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    }
+};
+
+bool prepare_cancellable_io(NativeSocket socket, bool write, std::size_t transferred) noexcept
+{
+    if (!active_io || !active_io->cancel) return true;
+    for (;;) {
+        if (active_io->cancel->load()) {
+            thread_io_failure = {0, false, transferred, true, false};
+            return false;
+        }
+        int wait_error = 0;
+        if (wait_socket(socket, write, 100U, &wait_error)) return true;
+        if (wait_error != 0) {
+            thread_io_failure = {wait_error, false, transferred};
+            return false;
+        }
+        if (std::chrono::steady_clock::now() >= active_io->deadline) {
+#ifdef _WIN32
+            constexpr int timeout_error = WSAETIMEDOUT;
+#else
+            constexpr int timeout_error = EAGAIN;
+#endif
+            thread_io_failure = {timeout_error, false, transferred, false, true};
+            return false;
+        }
+    }
+}
 
 void attach_io_failure(PeerHandshakeResult& result) noexcept
 {
@@ -291,6 +350,7 @@ bool send_all(
     std::size_t sent{0U};
 
     while (sent < bytes.size()) {
+        if (!prepare_cancellable_io(socket, true, sent)) return false;
         const std::size_t remaining =
             bytes.size() - sent;
         const int chunk =
@@ -330,6 +390,7 @@ bool send_all(
         }
 
         sent += static_cast<std::size_t>(result);
+        if (active_io) active_io->progress();
     }
 
     return true;
@@ -342,6 +403,7 @@ bool receive_exact(
     std::size_t received{0U};
 
     while (received < bytes.size()) {
+        if (!prepare_cancellable_io(socket, false, received)) return false;
         const std::size_t remaining =
             bytes.size() - received;
         const int chunk =
@@ -1400,7 +1462,9 @@ PeerSession::PeerSession(
       inbound_(other.inbound_),
       remote_(other.remote_),
       transport_(std::move(other.transport_)),
-      io_failure_(other.io_failure_)
+      io_failure_(other.io_failure_),
+      cancel_(other.cancel_),
+      io_timeout_ms_(other.io_timeout_ms_)
 {
     other.socket_ = kInvalidSocket;
 }
@@ -1420,6 +1484,8 @@ PeerSession& PeerSession::operator=(
     remote_ = other.remote_;
     transport_ = std::move(other.transport_);
     io_failure_ = other.io_failure_;
+    cancel_ = other.cancel_;
+    io_timeout_ms_ = other.io_timeout_ms_;
 
     other.socket_ = kInvalidSocket;
     return *this;
@@ -1494,6 +1560,7 @@ PeerError PeerSession::send_command(
     std::string_view command,
     std::span<const Byte> payload)
 {
+    CancellableIo cancellation(cancel_, io_timeout_ms_);
     io_failure_ = {};
     thread_io_failure = {};
     if (!valid()) {
@@ -1502,12 +1569,14 @@ PeerError PeerSession::send_command(
     }
 
     WireError wire_error{WireError::none};
-    const auto error = transport_
+    auto error = transport_
         ? send_encrypted_message(native_socket(socket_), params_, *transport_,
               command, payload, wire_error)
         : send_plain_message(native_socket(socket_), params_, command,
               payload, wire_error);
     // Copy syscall evidence immediately, before logging or another session's IO.
+    if (thread_io_failure.cancelled) error = PeerError::cancelled;
+    else if (thread_io_failure.timed_out) error = PeerError::timeout;
     io_failure_ = {error, wire_error, thread_io_failure.error,
         thread_io_failure.remote_closed, thread_io_failure.transferred};
     return error;
@@ -1515,6 +1584,7 @@ PeerError PeerSession::send_command(
 
 PeerError PeerSession::receive_command(WireMessage& message)
 {
+    CancellableIo cancellation(cancel_, io_timeout_ms_);
     io_failure_ = {};
     thread_io_failure = {};
     if (!valid()) {
@@ -1523,10 +1593,12 @@ PeerError PeerSession::receive_command(WireMessage& message)
     }
 
     WireError wire_error{WireError::none};
-    const auto error = transport_
+    auto error = transport_
         ? receive_encrypted_message(native_socket(socket_), params_,
               *transport_, message, wire_error)
         : receive_plain_message(native_socket(socket_), params_, message, wire_error);
+    if (thread_io_failure.cancelled) error = PeerError::cancelled;
+    else if (thread_io_failure.timed_out) error = PeerError::timeout;
     io_failure_ = {error, wire_error, thread_io_failure.error,
         thread_io_failure.remote_closed, thread_io_failure.transferred};
     return error;
@@ -1778,6 +1850,12 @@ PeerError PeerSession::service_discovery_once(
     }
 
     return PeerError::unexpected_message;
+}
+
+void PeerSession::set_cancellation(const std::atomic<bool>* cancel, std::uint32_t io_timeout_ms) noexcept
+{
+    cancel_ = cancel;
+    io_timeout_ms_ = io_timeout_ms;
 }
 
 void PeerSession::close() noexcept

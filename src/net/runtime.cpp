@@ -2189,6 +2189,7 @@ void NetworkRuntime::maintain_outbound(
 bool NetworkRuntime::begin_initial_peer(LivePeer&& peer, std::uint64_t now, bool outbound)
 {
     if (initializing_peer_ || !validation_worker_ || stop_requested_.load()) return false;
+    peer.session.set_cancellation(&stop_requested_, config_.io_timeout_ms);
     if (peer.resync_requested) peer.pending_ping.reset();
     if (peer.endpoint.empty()) peer.endpoint = peer.address
         ? format_peer_host(*peer.address) + ":" + std::to_string(peer.address->port)
@@ -2225,7 +2226,8 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
     }
     initialization_result_.reset();
     auto peer = std::move(initializing_peer_);
-    if (success && !stop_requested_.load()) {
+    success = success && !stop_requested_.load();
+    if (success) {
         (void)addrman_.add(peer->learned_addresses);
         success = addrman_.save() == AddrStoreError::none;
     }
@@ -2243,7 +2245,7 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
 #endif
     } else {
         peer->session.close();
-        if (peer->address) {
+        if (peer->address && !stop_requested_.load()) {
             addrman_.mark_failure(*peer->address, now);
             (void)addrman_.save();
             schedule_reconnect(*peer->address, now);

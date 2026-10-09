@@ -4,6 +4,11 @@
 #include "net/protocol.hpp"
 
 #include <array>
+#include <atomic>
+#include <future>
+#ifndef _WIN32
+#include <sys/ioctl.h>
+#endif
 #include <cassert>
 #include <cstdint>
 #include <cerrno>
@@ -591,6 +596,44 @@ void test_adversarial_wire_frame_corpus()
 
 #ifndef _WIN32
 namespace {
+void test_partial_wire_read_is_cancellable()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace std::chrono_literals;
+    const auto& params = consensus::regtest_params();
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    std::atomic<bool> cancel{false};
+    PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]), false, version(0x7342U, 0U));
+    receiver.set_cancellation(&cancel, 5'000U);
+    WireMessage message;
+    auto pending = std::async(std::launch::async, [&] { return receiver.receive_command(message); });
+    const std::array<Byte, 3U> prefix{0U, 0U, 0U};
+    assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+    int remaining = 3;
+    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    do {
+        assert(ioctl(sockets[0], FIONREAD, &remaining) == 0);
+        std::this_thread::yield();
+    } while (remaining != 0 && std::chrono::steady_clock::now() < deadline);
+    assert(remaining == 0);
+    // Ensure the reader consumed a prefix and is waiting inside the frame,
+    // rather than merely testing cancellation before receive_command().
+    cancel.store(true);
+    const bool ready = pending.wait_for(500ms) == std::future_status::ready;
+    if (!ready) assert(shutdown(sockets[1], SHUT_RDWR) == 0);
+    const auto result = pending.get();
+    assert(ready);
+    assert(result == PeerError::cancelled);
+    const auto io = receiver.last_io_failure();
+    assert(io.error == PeerError::cancelled);
+    assert(io.partial_io_bytes == 3U);
+    assert(io.socket_error == 0 && !io.remote_closed);
+    receiver.close();
+    assert(close(sockets[1]) == 0);
+}
+
 void test_peer_io_failure_evidence()
 {
     using namespace quintum;
@@ -662,6 +705,7 @@ void test_peer_io_failure_evidence()
 int main()
 {
 #ifndef _WIN32
+    test_partial_wire_read_is_cancellable();
     test_peer_io_failure_evidence();
     test_interrupted_peer_receive();
     test_interrupted_peer_receive(true);

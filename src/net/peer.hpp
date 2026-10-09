@@ -6,6 +6,7 @@
 #include "net/v2_transport.hpp"
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -40,6 +41,7 @@ enum class PeerError {
     encryption_failed,
     proxy_negotiation_failed,
     proxy_rejected,
+    cancelled,
 };
 
 // Evidence from this session's most recent send/receive operation. Counts
@@ -98,6 +100,10 @@ public:
         std::vector<PeerAddress>* learned = nullptr
     );
 
+    // Exclusive-owner operation. The token must outlive this session's IO.
+    // Polls cancellation inside framed reads/writes without closing from a
+    // second thread or changing existing idle socket timeout semantics.
+    void set_cancellation(const std::atomic<bool>* cancel, std::uint32_t io_timeout_ms) noexcept;
     void close() noexcept;
 
     // Internal adoption constructor used by the handshake layer.
@@ -123,6 +129,8 @@ private:
     VersionMessage remote_{};
     std::unique_ptr<V2Transport> transport_{};
     PeerIoFailure io_failure_{};
+    const std::atomic<bool>* cancel_{nullptr};
+    std::uint32_t io_timeout_ms_{5'000U};
 };
 
 struct PeerHandshakeResult {

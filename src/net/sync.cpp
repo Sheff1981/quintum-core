@@ -50,11 +50,11 @@ PeerError receive_sync_response(
          ++skipped) {
         if (options.cancel) {
             while (!peer.wait_readable(100U)) {
-                if (options.cancel->load()) return PeerError::timeout;
+                if (options.cancel->load()) return PeerError::cancelled;
                 if (std::chrono::steady_clock::now() >= deadline)
                     return PeerError::timeout;
             }
-            if (options.cancel->load()) return PeerError::timeout;
+            if (options.cancel->load()) return PeerError::cancelled;
         }
         WireMessage candidate;
         const auto error =
@@ -1117,7 +1117,7 @@ SyncResult sync_from_peer(
             );
 
         if (out.peer_error != PeerError::none) {
-            out.error = SyncError::transport_failed;
+            out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
             return out;
         }
 
@@ -1386,7 +1386,7 @@ SyncResult sync_from_peer(
                 );
 
             if (out.peer_error != PeerError::none) {
-                out.error = SyncError::transport_failed;
+                out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
                 return out;
             }
 
@@ -1424,8 +1424,7 @@ SyncResult sync_from_peer(
                 });
                 if (out.peer_error !=
                     PeerError::none) {
-                    out.error =
-                        SyncError::transport_failed;
+                    out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
                     return out;
                 }
 
