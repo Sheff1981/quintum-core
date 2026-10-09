@@ -1322,6 +1322,7 @@ SyncResult sync_from_peer(
         header_batch_validated = true;
         observe(diagnostics, [&](auto& d) {
             d.counter("header_batches_accepted",1);
+            d.peer_state("initializing");
         });
         std::vector<BlockHeader> missing_headers;
         missing_headers.reserve(headers->size());

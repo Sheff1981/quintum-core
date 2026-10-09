@@ -1447,8 +1447,8 @@ void test_status_polling_does_not_wait_for_initial_sync()
         params, "127.0.0.1", before.listen_port, remote, 5'000U);
     assert(connected.ok());
 
-    // Runtime drives sync from this higher peer and waits for its headers
-    // while holding state_mutex_. Deliberately leave that request unanswered.
+    // Runtime drives sync from this higher peer on the bounded worker.
+    // Deliberately leave headers unanswered; chain snapshots stay available.
     WireMessage request;
     assert(connected.session->receive_command(request) == PeerError::none);
     assert(request.command == "getheaders");
@@ -1459,11 +1459,11 @@ void test_status_polling_does_not_wait_for_initial_sync()
     const auto during = poll.get();
     assert(during.running);
     assert(during.listen_port == before.listen_port);
-    assert(!during.height.has_value());
-    assert(!during.difficulty.has_value());
+    assert(during.height == before.height);
+    assert(during.difficulty == before.difficulty);
 
     connected.session->close();
-    // The sync error releases chain state; a subsequent poll sees the chain.
+    // A transport failure must not damage the readable chain snapshot.
     assert(wait_until(std::chrono::seconds(5), [&] {
         return runtime.status_nonblocking().height == before.height;
     }));

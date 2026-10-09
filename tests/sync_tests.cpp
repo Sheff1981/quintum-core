@@ -1506,7 +1506,8 @@ void test_header_validation_services_ping_outside_chain_lock()
     const auto body = *source.chain().block(*source.chain().tip_hash());
     PeerListener listener{params};
     assert(listener.listen("127.0.0.1", 0U) == PeerError::none);
-    std::promise<void> ping_sent;
+    std::promise<void> ping_sent, validation_entered;
+    auto validation_started = validation_entered.get_future();
     auto ping_ready = ping_sent.get_future();
     std::thread server([&] {
         auto accepted = listener.accept_and_handshake(version(0x7171U, 1U), 5'000U);
@@ -1516,6 +1517,7 @@ void test_header_validation_services_ping_outside_chain_lock()
         assert(message.command == "getheaders");
         const std::array<BlockHeader, 1U> headers{header};
         assert(accepted.session->send_command("headers", serialize_headers(headers)) == PeerError::none);
+        validation_started.wait();
         assert(accepted.session->send_command("ping", serialize_nonce(0x1234U)) == PeerError::none);
         ping_sent.set_value();
         assert(accepted.session->receive_command(message) == PeerError::none);
@@ -1535,7 +1537,14 @@ void test_header_validation_services_ping_outside_chain_lock()
     const auto result = sync_from_peer(*connected.session, client, now, diagnostics,
         SyncOptions{.state_mutex = &state, .cancel = &cancel,
             .header_progress = [&](std::size_t, bool complete) {
-                if (!complete) ping_ready.wait();
+                if (!complete) {
+                    validation_entered.set_value();
+                    ping_ready.wait();
+                    // Model a slow verifier; synchronize packet arrival rather
+                    // than assuming send() defeats TCP delayed ACK/Nagle.
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    assert(connected.session->wait_readable(1'000U));
+                }
                 assert(state.try_lock()); state.unlock();
                 return true;
             }});
