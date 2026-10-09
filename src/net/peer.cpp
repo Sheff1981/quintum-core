@@ -444,6 +444,10 @@ bool receive_exact(
 
         received +=
             static_cast<std::size_t>(result);
+        // A partially received message is making forward progress. Keep the
+        // cancellable I/O idle deadline relative to the latest bytes, not
+        // the first byte of a large or fragmented P2P message.
+        if (active_io) active_io->progress();
     }
 
     return true;
