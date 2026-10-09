@@ -1959,6 +1959,7 @@ void NetworkRuntime::maintain_outbound(
         if (!connected.ok()) {
 #ifdef __ANDROID__
             android_p2p_diagnostic_.store(1000 + static_cast<int>(connected.error));
+        android_last_connect_error_.store(1000 + static_cast<int>(connected.error));
             log_outbound_failure("reconnect", it->address, static_cast<int>(connected.error));
 #endif
             addrman_.mark_failure(
@@ -2016,6 +2017,7 @@ void NetworkRuntime::maintain_outbound(
                 true)) {
 #ifdef __ANDROID__
             android_p2p_diagnostic_.store(3001);
+        android_last_connect_error_.store(3001);
             log_outbound_failure("reconnect-post-handshake", it->address, -1);
 #endif
             peer.session.close();
@@ -2080,6 +2082,7 @@ void NetworkRuntime::maintain_outbound(
     }
 
 #ifdef __ANDROID__
+    android_connect_attempts_.fetch_add(1U, std::memory_order_relaxed);
     android_p2p_diagnostic_.store(10);
     android_connect_started_ms_.store(static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2119,6 +2122,7 @@ void NetworkRuntime::maintain_outbound(
     if (!connected.ok()) {
 #ifdef __ANDROID__
         android_p2p_diagnostic_.store(2000 + static_cast<int>(connected.error) * 100 + static_cast<int>(connected.peer_error));
+        android_last_connect_error_.store(2000 + static_cast<int>(connected.error) * 100 + static_cast<int>(connected.peer_error));
         if (connected.address) {
             log_outbound_failure("discovery", *connected.address, static_cast<int>(connected.peer_error));
         } else {
@@ -2150,6 +2154,7 @@ void NetworkRuntime::maintain_outbound(
             true)) {
 #ifdef __ANDROID__
         android_p2p_diagnostic_.store(3002);
+        android_last_connect_error_.store(3002);
         if (connected.address) {
             log_outbound_failure("discovery-post-handshake", *connected.address, -1);
         }
