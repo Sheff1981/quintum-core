@@ -253,7 +253,7 @@ private fun QuintumHome() {
                     colors = CardDefaults.cardColors(containerColor = Navy)
                 ) {
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("NETWORK STATUS", style = MaterialTheme.typography.labelMedium, color = Color(0xFFAFC4F4))
+                        Text("FULL NODE · OPTIONAL", style = MaterialTheme.typography.labelMedium, color = Color(0xFFAFC4F4))
                         Text(
                             if (nodeRunning) "Node running" else if (startRequested) "Connecting…" else "Node stopped",
                             style = MaterialTheme.typography.headlineSmall,
@@ -261,7 +261,7 @@ private fun QuintumHome() {
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Initializing local blockchain (network connection follows)" else "Start the node when ready",
+                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Initializing local blockchain (network connection follows)" else "Wallet access does not require starting a full node",
                             color = Color(0xFFD3E0FA),
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -278,7 +278,7 @@ private fun QuintumHome() {
                                     nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
                                     startRequested = false
                                 }
-                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
+                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start full node (advanced)") }
                         }
                         if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
                         HorizontalDivider(color = Color(0xFF34466B))
@@ -319,7 +319,8 @@ private fun QuintumHome() {
                         }
                     }
                 }
-            } else when (page) {
+            } else {
+                when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
@@ -450,6 +451,7 @@ private fun QuintumHome() {
                 Page.Mining -> MiningScreen()
                 Page.Device -> stats.stats?.let { DeviceMiningStatsCard(it) }
                 null -> Unit
+                }
             }
         }
     }
