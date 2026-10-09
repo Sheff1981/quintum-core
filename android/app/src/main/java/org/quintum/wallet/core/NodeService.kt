@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.PowerManager
 import android.os.Build
+import android.os.BatteryManager
+import android.content.IntentFilter
 import android.os.IBinder
 import android.os.SystemClock
 import org.quintum.wallet.MainActivity
@@ -120,12 +122,16 @@ class NodeService : Service() {
         while (!destroyed) {
             try {
                 val hot = power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
-                if (!hot) thermalStopIssued = false
-                if (hot && !thermalStopIssued && NativeCore.nativeMiningRunning()) {
+                val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+                if (!hot && charging) thermalStopIssued = false
+                if ((hot || !charging) && !thermalStopIssued && NativeCore.nativeMiningRunning()) {
                     thermalStopIssued = true
                     NativeCore.nativeStopMining()
-                    recordStatus("Mining stopped: device thermal status is severe or higher")
-                    android.util.Log.w("QUINTUM-Node", "Mining stopped by background thermal guard")
+                    recordStatus(if (hot) "Mining stopped: device overheating" else "Mining stopped: charger disconnected")
+                    android.util.Log.w("QUINTUM-Node", "Mining stopped by background safety guard")
                 }
             } catch (e: Exception) {
                 android.util.Log.w("QUINTUM-Node", "Thermal guard status unavailable", e)
