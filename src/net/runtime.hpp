@@ -640,6 +640,10 @@ private:
     std::atomic<std::size_t> known_address_count_{0U};
 #ifdef __ANDROID__
 public:
+    [[nodiscard]] int android_last_connect_error() const noexcept
+    { return android_last_connect_error_.load(std::memory_order_relaxed); }
+    [[nodiscard]] std::uint64_t android_connect_attempts() const noexcept
+    { return android_connect_attempts_.load(std::memory_order_relaxed); }
     [[nodiscard]] std::uint64_t android_connect_elapsed_ms() const noexcept
     { const auto started = android_connect_started_ms_.load(std::memory_order_relaxed);
       if (started == 0U) return 0U;
@@ -653,6 +657,8 @@ public:
     { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
 private:
     std::atomic<int> android_p2p_diagnostic_{0};
+    std::atomic<int> android_last_connect_error_{0};
+    std::atomic<std::uint64_t> android_connect_attempts_{0U};
     std::atomic<std::uint64_t> android_connect_started_ms_{0U};
     mutable std::mutex android_peer_details_mutex_{};
     std::string android_peer_details_{};
