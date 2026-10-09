@@ -275,3 +275,11 @@ Java_org_quintum_wallet_core_NativeCore_nativePeerDetails(JNIEnv* env, jobject)
     const auto details = g_runtime->android_peer_details();
     return env->NewStringUTF(details.empty() ? "Peer details unavailable" : details.c_str());
 }
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeConnectElapsedMs(JNIEnv*, jobject)
+{
+    std::scoped_lock lock(g_mutex);
+    if (!g_runtime) return 0;
+    return static_cast<jlong>(g_runtime->android_connect_elapsed_ms());
+}
