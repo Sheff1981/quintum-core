@@ -833,6 +833,28 @@ WalletStoreError Wallet::recover_from_seed(
     return WalletStoreError::none;
 }
 
+WalletStoreError Wallet::recover_keys_from_mnemonic(
+    std::string_view mnemonic,
+    std::string_view passphrase)
+{
+    // Decode before creating files. recover_from_seed refuses to overwrite
+    // an existing wallet and persists encrypted deterministic keys atomically.
+    if (started_) {
+        return WalletStoreError::target_exists;
+    }
+    if (passphrase.empty()) {
+        return WalletStoreError::invalid_passphrase;
+    }
+
+    auto decoded = decode_recovery_mnemonic(mnemonic);
+    if (!decoded.ok()) {
+        return WalletStoreError::corrupt;
+    }
+
+    SecretArrayGuard seed_guard{&decoded.seed};
+    return recover_from_seed(decoded.seed, passphrase);
+}
+
 WalletRecoveryResult Wallet::recover_from_mnemonic(
     std::string_view mnemonic,
     std::string_view passphrase,
