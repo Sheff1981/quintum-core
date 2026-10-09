@@ -48,14 +48,17 @@ PeerError receive_sync_response(
     for (std::size_t skipped = 0U;
          skipped <= kMaxInterleavedSyncMessages;
          ++skipped) {
-        if (options.cancel) {
-            while (!peer.wait_readable(100U)) {
-                if (options.cancel->load()) return PeerError::cancelled;
-                if (std::chrono::steady_clock::now() >= deadline)
-                    return PeerError::timeout;
-            }
-            if (options.cancel->load()) return PeerError::cancelled;
+        // Bound the wait for the first byte independently of the framed
+        // receive. Once readable, receive_command owns its existing per-I/O
+        // timeout and cancellation handling; never consume bytes here.
+        while (!peer.wait_readable(100U)) {
+            if (options.cancel && options.cancel->load())
+                return PeerError::cancelled;
+            if (std::chrono::steady_clock::now() >= deadline)
+                return PeerError::timeout;
         }
+        if (options.cancel && options.cancel->load())
+            return PeerError::cancelled;
         WireMessage candidate;
         const auto error =
             peer.receive_command(candidate);
