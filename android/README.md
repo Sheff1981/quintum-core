@@ -55,3 +55,13 @@ Default Android operation must not download or retain the full QUINTUM chain. Pr
 - Prefer multiple independently operated servers, with automatic discovery and reconnect; the project VPS must not be a mandatory central authority.
 - Preserve existing app ID, wallet storage and recovery paths. Light-mode migration must be reversible and must not delete existing full-node chain data automatically.
 - Gate light-wallet activation on integration tests for send/receive, invalid proofs, reorgs, disconnected servers, and app restart. Until then keep existing full-node behavior unchanged.
+
+## Existing native wallet integration: implementation contract
+
+Core already implements `wallet::Wallet::start(passphrase)`, `new_receive_address()`, `encrypt_wallet(passphrase)`, `recovery_mnemonic()`, `recover_from_seed()`, `recover_from_mnemonic(...)`, `backup_bundle()` and `restore_bundle()` in `src/wallet/wallet.hpp`. Android's `NativeCore.kt` currently exposes **none** of these methods, and `MainActivity.kt` has disabled setup buttons. Do not duplicate key derivation or cryptography in Kotlin.
+
+Before enabling **Create wallet**, implement and test a JNI boundary that (1) detects existing `wallet.dat` without overwriting it; (2) obtains a user-chosen password through a non-logging UI; (3) creates and encrypts a wallet using native Core and fails closed if encryption or durable persistence fails; (4) returns a real testnet receive address only after successful persistence; (5) provides authenticated, user-confirmed recovery-phrase reveal and verification, without logging or exporting the phrase to diagnostics; (6) proves restart and backup/restore recovery in tests. No default hardcoded password or plaintext seed in preferences.
+
+Before enabling **Restore wallet**, ensure that seed/key recovery and storage are independent of full-chain sync. `recover_from_mnemonic()` currently requires `Chainstate` and `Mempool`; separate key recovery from optional balance/history discovery with no change to the wallet format or derivation. Test restoring to an empty light client, a wrong network, malformed phrases, pre-existing wallets and interrupted writes. Only then connect to verified light-client network data.
+
+Network and wallet creation must be independent: a user may create and back up an encrypted wallet while offline; balances remain unverified until the light-client protocol is ready. Do not enable UI buttons before the JNI and recovery tests pass.
