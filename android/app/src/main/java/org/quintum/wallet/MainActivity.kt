@@ -57,6 +57,10 @@ private fun p2pDiagnosticMessage(code: Int): String {
         code == 0 -> "No connection attempt recorded"
         code == 10 -> "Selecting a peer / connecting"
         code == 4000 -> "P2P handshake and peer setup completed"
+        code == 4001 -> "Handshake completed; negotiating chainwork"
+        code == 4002 -> "Handshake completed; initial blockchain synchronization"
+        code == 4003 -> "Blockchain synchronization completed; exchanging peer addresses"
+        code == 4004 -> "Exchanging mempool after blockchain synchronization"
         code == 3001 || code == 3002 -> "Handshake succeeded, but sync / peer setup failed (code $code)"
         code in 2000..2399 -> {
             val discovery = (code - 2000) / 100

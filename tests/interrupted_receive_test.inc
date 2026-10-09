@@ -10,8 +10,9 @@ namespace {
 volatile std::sig_atomic_t interrupted_receive_signals = 0;
 void interrupt_receive(int) { interrupted_receive_signals = 1; }
 
-void test_interrupted_peer_receive()
+void test_interrupted_peer_receive(bool during_wait = false)
 {
+    interrupted_receive_signals = 0;
     using namespace quintum;
     using namespace quintum::net;
     int sockets[2]{};
@@ -34,6 +35,7 @@ void test_interrupted_peer_receive()
     std::atomic<bool> ready{false};
     std::thread worker([&] {
         ready.store(true);
+        if (during_wait) assert(receiver.wait_readable(2'000U));
         error = receiver.receive_command(message);
     });
     while (!ready.load()) std::this_thread::yield();

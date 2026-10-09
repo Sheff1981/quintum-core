@@ -800,3 +800,10 @@ add_test(
     NAME stage28_release_hardening
     COMMAND quintum_stage28_release_hardening_tests
 )
+
+# Read-only seed connectivity diagnostic; never creates node/wallet state.
+if(NOT ANDROID)
+    add_executable(quintum_android_p2p_probe tools/android_p2p_probe.cpp)
+    target_link_libraries(quintum_android_p2p_probe PRIVATE quintum_core)
+    quintum_strict_warnings(quintum_android_p2p_probe)
+endif()

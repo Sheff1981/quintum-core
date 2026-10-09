@@ -2051,11 +2051,11 @@ void NetworkRuntime::maintain_outbound(
             android_peer_details_ = "Endpoint: " +
                 (peer.address ? format_peer_host(*peer.address) + ":" +
                     std::to_string(peer.address->port) : std::string("unknown")) +
-                "\\nP2P protocol: " + std::to_string(remote.protocol_version) +
-                "\\nServices: " + std::to_string(remote.services) +
-                "\\nAdvertised height: " + std::to_string(remote.start_height) +
-                "\\nListening port: " + std::to_string(remote.listen_port) +
-                "\\nHandshake: completed";
+                "\nP2P protocol: " + std::to_string(remote.protocol_version) +
+                "\nServices: " + std::to_string(remote.services) +
+                "\nAdvertised height: " + std::to_string(remote.start_height) +
+                "\nListening port: " + std::to_string(remote.listen_port) +
+                "\nHandshake: completed";
         }
         android_p2p_diagnostic_.store(4000);
 #endif
@@ -2195,11 +2195,11 @@ void NetworkRuntime::maintain_outbound(
         android_peer_details_ = "Endpoint: " +
             (peer.address ? format_peer_host(*peer.address) + ":" +
                 std::to_string(peer.address->port) : std::string("unknown")) +
-            "\\nP2P protocol: " + std::to_string(remote.protocol_version) +
-            "\\nServices: " + std::to_string(remote.services) +
-            "\\nAdvertised height: " + std::to_string(remote.start_height) +
-            "\\nListening port: " + std::to_string(remote.listen_port) +
-            "\\nHandshake: completed";
+            "\nP2P protocol: " + std::to_string(remote.protocol_version) +
+            "\nServices: " + std::to_string(remote.services) +
+            "\nAdvertised height: " + std::to_string(remote.start_height) +
+            "\nListening port: " + std::to_string(remote.listen_port) +
+            "\nHandshake: completed";
     }
     android_p2p_diagnostic_.store(4000);
 #endif
@@ -2219,6 +2219,19 @@ bool NetworkRuntime::prepare_live_peer(
         return false;
     }
 
+#ifdef __ANDROID__
+    android_p2p_diagnostic_.store(4001);
+    {
+        const auto& remote = peer.session.remote_version();
+        std::scoped_lock lock(android_peer_details_mutex_);
+        android_peer_details_ = "Endpoint: " +
+            (peer.address ? format_peer_host(*peer.address) + ":" +
+                std::to_string(peer.address->port) : std::string("inbound")) +
+            "\nP2P protocol: " + std::to_string(remote.protocol_version) +
+            "\nAdvertised height: " + std::to_string(remote.start_height) +
+            "\nHandshake: completed; peer setup pending";
+    }
+#endif
     std::uint32_t local_height{0U};
     Hash256 local_work{};
 
@@ -2240,6 +2253,12 @@ bool NetworkRuntime::prepare_live_peer(
     // New nodes advertise a service bit and exchange cumulative chainwork
     // immediately after the version/verack handshake. Older peers simply
     // omit the capability and retain the previous height-based fallback.
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-SYNC",
+        "prepare peer outbound=%d remote_height=%u services=%llu",
+        outbound ? 1 : 0, peer.reported_height,
+        static_cast<unsigned long long>(peer.session.remote_version().services));
+#endif
     if ((peer.session.remote_version().services &
             kServiceChainWork) != 0U) {
         const auto local_payload =
@@ -2316,6 +2335,9 @@ bool NetworkRuntime::prepare_live_peer(
     {
         std::scoped_lock lock(state_mutex_);
 
+#ifdef __ANDROID__
+        android_p2p_diagnostic_.store(4002);
+#endif
         const auto synced =
             sync_from_peer(
                 peer.session,
@@ -2323,6 +2345,15 @@ bool NetworkRuntime::prepare_live_peer(
                 now
             );
 
+#ifdef __ANDROID__
+        __android_log_print(synced.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
+            "QUINTUM-SYNC",
+            "initial sync success=%d sync_error=%d peer_error=%d chain_error=%d storage_error=%d headers=%zu requested=%zu accepted=%zu",
+            synced.ok() ? 1 : 0, static_cast<int>(synced.error),
+            static_cast<int>(synced.peer_error), static_cast<int>(synced.chain_error),
+            static_cast<int>(synced.storage_error), synced.headers_received,
+            synced.blocks_requested, synced.blocks_accepted);
+#endif
         if (!synced.ok()) {
             return false;
         }
@@ -2345,6 +2376,9 @@ bool NetworkRuntime::prepare_live_peer(
         );
     }
 
+#ifdef __ANDROID__
+    android_p2p_diagnostic_.store(4003);
+#endif
     const auto learned =
         discovery_.learn_from_peer(
             peer.session,
@@ -2353,6 +2387,12 @@ bool NetworkRuntime::prepare_live_peer(
                     consensus::Network::regtest
         );
 
+#ifdef __ANDROID__
+    __android_log_print(learned.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
+        "QUINTUM-SYNC", "address exchange success=%d error=%d peer_error=%d",
+        learned.ok() ? 1 : 0, static_cast<int>(learned.error),
+        static_cast<int>(learned.peer_error));
+#endif
     if (!learned.ok()) {
         return false;
     }
@@ -2364,12 +2404,21 @@ bool NetworkRuntime::prepare_live_peer(
     {
         std::scoped_lock lock(state_mutex_);
 
+#ifdef __ANDROID__
+        android_p2p_diagnostic_.store(4004);
+#endif
         const auto mempool_sync =
             sync_mempool_from_peer(
                 peer.session,
                 node_
             );
 
+#ifdef __ANDROID__
+        __android_log_print(mempool_sync.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
+            "QUINTUM-SYNC", "mempool exchange success=%d error=%d peer_error=%d",
+            mempool_sync.ok() ? 1 : 0, static_cast<int>(mempool_sync.error),
+            static_cast<int>(mempool_sync.peer_error));
+#endif
         if (!mempool_sync.ok()) {
             return false;
         }
@@ -4319,3 +4368,4 @@ bool NetworkRuntime::sync_wallet_locked()
 }
 
 } // namespace quintum::net
+

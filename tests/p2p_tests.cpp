@@ -557,6 +557,7 @@ int main()
 {
 #ifndef _WIN32
     test_interrupted_peer_receive();
+    test_interrupted_peer_receive(true);
 #endif
     test_wire_protocol();
     test_two_peer_handshake_and_ping();

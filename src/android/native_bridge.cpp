@@ -270,8 +270,8 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativePeerDetails(JNIEnv* env, jobject)
 {
     std::scoped_lock lock(g_mutex);
-    if (!g_runtime || g_runtime->status().peers == 0U)
-        return env->NewStringUTF("No active P2P peer");
+    if (!g_runtime)
+        return env->NewStringUTF("Native core unavailable");
     const auto details = g_runtime->android_peer_details();
     return env->NewStringUTF(details.empty() ? "Peer details unavailable" : details.c_str());
 }
