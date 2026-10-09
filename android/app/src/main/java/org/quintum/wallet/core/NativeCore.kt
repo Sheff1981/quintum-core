@@ -29,5 +29,6 @@ object NativeCore {
     external fun nativeKnownAddressCount(): Long
     external fun nativeP2pDiagnostic(): Int
     external fun nativePeerDetails(): String
+    external fun nativeConnectElapsedMs(): Long
     external fun nativeDifficulty(): Double
 }
