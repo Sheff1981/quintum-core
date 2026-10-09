@@ -70,7 +70,50 @@ metadata; nothing is uploaded by the Android application automatically.
   unchanged RandomX Testnet validators, and restart checking of validated height.
   Host probes are not proof of ARM64-device convergence or screen-off behavior.
 
-GitHub Actions execution and observed outcomes will be recorded after completion.
+## Observed GitHub Actions results (2026-10-09 UTC)
+
+- Commit `1c2d75b` integrated the preserved fixes and recovery diagnostics on
+  `android-foundation`, without merging PR #45 or #46.
+- [Native build 37896087180](https://github.com/Sheff1981/quintum-core/actions/runs/37896087180)
+  passed Linux/Windows suites. Linux recorded 38/38 tests passing, including
+  P2P, sync and journal tests. The live handshake probe recorded protocol 2,
+  encrypted transport, advertised height 4286 and no handshake failure.
+- [Sanitizers 37896087138](https://github.com/Sheff1981/quintum-core/actions/runs/37896087138)
+  passed all 38 tests. This includes the interrupted-receive regression cited
+  in PR #46 comment 6074309491; the EINTR fix is retained.
+- [ARM64 build 37896087111](https://github.com/Sheff1981/quintum-core/actions/runs/37896087111)
+  passed and produced the signed installable APK. Subsequent ARM64 builds and
+  JVM tests also passed compilation/tests; one obsolete run failed only during
+  prerelease publication with HTTP 403, after uploading its APK artifact.
+  Publication now belongs only to a current-head push; PR/stale runs retain
+  tested artifacts without attempting obsolete release tags.
+- [Android diagnostics 37897766358](https://github.com/Sheff1981/quintum-core/actions/runs/37897766358)
+  passed Kotlin/Robolectric Compose/export tests and both real JNI emulator
+  instrumentation invocations. The emulator exercised a backgrounded activity,
+  ongoing notification, foreground return, a stop-mining call that left core
+  running, and journal persistence across force-stop with a changed process PID.
+  It did not mine an actual block or prove physical ARM64 synchronization.
+- Initial diagnostics CI failed before tests because setup-android requested
+  the removed SDK package `tools`. Commit `45f3d91` selects `platform-tools`;
+  subsequent test jobs passed.
+- [Live comparison 37896087246](https://github.com/Sheff1981/quintum-core/actions/runs/37896087246):
+  Windows fully validated 4286 headers and 4286 block bodies, reported one active
+  prepared peer and restored height 4286 after restart, without wallet files.
+  It recovered after one header-wait receive failure. Header validation took
+  99.339 s; block validation 354.608 s; scoped RandomX hashes 288.134 s total
+  (overlapping the header/block durations), caches 2.029 s.
+- The initial Linux probe reached validated height 3260 before the external
+  timeout: headers 79.188 s, block validation 890.296 s and scoped RandomX
+  hashes 172.279 s at its final snapshot. It was progressing, not proven stalled.
+  It was configured without a Release build type while Windows used Release;
+  commit `550156c` corrects this comparison. Full Linux completion remains
+  pending a matched Release probe. No consensus optimization is inferred.
+- Commit `c4e005a` records per-session errno/EOF/partial-byte/wire evidence for
+  synchronization failures, not just handshake failures. New tests cover EOF,
+  partial receive, timeout, recovery, moves and session isolation. Verification
+  of that follow-up and matched Release comparison is running; final outcomes
+  are tracked in PR #45.
+
 No physical Android device is attached to this environment; user-device sync
 convergence, Xiaomi battery behavior, actual SAF picker and long screen-off
 acceptance must be verified on a device. No automatic PR merge is requested.

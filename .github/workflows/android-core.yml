@@ -115,16 +115,24 @@ jobs:
           if-no-files-found: error
 
       - name: Publish direct-download Android Testnet prerelease
-        if: env.QUM_ANDROID_DEBUG_KEYSTORE != '' && ((github.event_name == 'push' && github.ref == 'refs/heads/android-foundation') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'android-foundation'))
+        if: env.QUM_ANDROID_DEBUG_KEYSTORE != '' && github.event_name == 'push' && github.ref == 'refs/heads/android-foundation'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
+          # Every successful run retains its tested APK artifact. Publish a
+          # prerelease only for the current branch head, avoiding stale tags
+          # and permissions failures when a newer workflow commit exists.
+          target_sha="$GITHUB_SHA"
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/android-foundation" --jq '.object.sha')"
+          if [ "$current_sha" != "$target_sha" ]; then
+            echo '::notice::A newer Android commit exists; use this run APK artifact. Prerelease publication belongs to the current branch head.'
+            exit 0
+          fi
           apk=android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$apk"
           tag="android-testnet-${GITHUB_RUN_NUMBER}"
-          target_sha="${{ github.event.pull_request.head.sha || github.sha }}"
           digest="$(sha256sum "$apk" | cut -d' ' -f1)"
           printf "%s  %s\n" "$digest" "QUINTUM-Android-Testnet-arm64.apk" > SHA256SUMS.txt
           gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" "SHA256SUMS.txt" \
@@ -132,3 +140,4 @@ jobs:
             --title "QUINTUM Android Testnet ${GITHUB_RUN_NUMBER}" \
             --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending. APK size: $(stat -c%s "$apk") bytes. SHA-256: $digest. Verify against SHA256SUMS.txt." \
             --prerelease
+
