@@ -66,6 +66,7 @@ reconnect_backoff_delay(
 }
 
 struct NetworkRuntimeConfig {
+    std::shared_ptr<Diagnostics> diagnostics{};
     std::string bind_address{"0.0.0.0"};
     std::optional<std::uint16_t> listen_port{};
     bool allow_ephemeral_listener_fallback{false};
@@ -266,6 +267,8 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] NetworkRuntimeStatus status() const;
+    // UI polling must remain responsive while initial sync owns chain state.
+    [[nodiscard]] NetworkRuntimeStatus status_nonblocking() const;
 
     [[nodiscard]] std::vector<
         wallet::WalletTransactionRecord>
@@ -414,6 +417,8 @@ public:
     ) const;
 
 private:
+    [[nodiscard]] NetworkRuntimeStatus status_impl(bool wait_for_chain) const;
+
     struct PendingAnnouncement {
         std::uint32_t type{0U};
         Hash256 hash{};
@@ -459,6 +464,7 @@ private:
         std::uint64_t ping_sent_at{0U};
         std::optional<std::uint64_t> pending_ping{};
         std::uint32_t reported_height{0U};
+        std::optional<Hash256> diagnostic_remote_work{};
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
@@ -683,3 +689,4 @@ private:
 };
 
 } // namespace quintum::net
+

@@ -1,0 +1,116 @@
+name: Android diagnostics JVM tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-diagnostics-tests.yml"
+  push:
+    branches: [android-foundation]
+    paths:
+      - "android/**"
+      - ".github/workflows/android-diagnostics-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compose-and-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Use host CMake for any native Gradle prerequisites
+        run: |
+          cmake_root="$(dirname "$(dirname "$(readlink -f "$(command -v cmake)")")")"
+          printf 'cmake.dir=%s\n' "$cmake_root" > android/local.properties
+      - name: Run Kotlin and Robolectric Compose tests (no device or JNI claims)
+        working-directory: android
+        run: gradle testDebugUnitTest --no-daemon
+      - name: Preserve test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-diagnostics-jvm-test-reports
+          path: |
+            android/app/build/reports/tests/testDebugUnitTest
+            android/app/build/test-results/testDebugUnitTest
+          if-no-files-found: warn
+
+  x86-emulator-service-and-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Configure native build tools
+        run: |
+          sdkmanager 'platforms;android-35' 'ndk;26.1.10909125'
+          cmake_root="$(dirname "$(dirname "$(readlink -f "$(command -v cmake)")")")"
+          printf 'cmake.dir=%s\n' "$cmake_root" > android/local.properties
+      - name: Configure existing debug signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.QUM_ANDROID_DEBUG_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.QUM_ANDROID_DEBUG_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo '::error::Persistent debug signing secret is required to install emulator test APKs.'
+            exit 1
+          fi
+          printf %s "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/quintum-signing.jks"
+          chmod 600 "$RUNNER_TEMP/quintum-signing.jks"
+          echo "QUM_ANDROID_DEBUG_KEYSTORE=$RUNNER_TEMP/quintum-signing.jks" >> "$GITHUB_ENV"
+          echo "QUM_ANDROID_DEBUG_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "QUM_ANDROID_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "QUM_ANDROID_DEBUG_KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}" >> "$GITHUB_ENV"
+      - name: Build real JNI x86_64 emulator APKs
+        working-directory: android
+        run: gradle -PquintumTestAbi=x86_64 assembleDebug assembleDebugAndroidTest --no-daemon
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise real service, backgrounding and process restart (x86_64 only)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell pm grant org.quintum.wallet android.permission.POST_NOTIFICATIONS
+            adb shell am instrument -w -e class org.quintum.wallet.core.ServiceLifecycleTest org.quintum.wallet.test/androidx.test.runner.AndroidJUnitRunner | tee service-lifecycle-results.txt
+            grep -q 'OK (1 test)' service-lifecycle-results.txt
+            adb shell am force-stop org.quintum.wallet
+            adb shell am instrument -w -e class org.quintum.wallet.core.DiagnosticRestartTest org.quintum.wallet.test/androidx.test.runner.AndroidJUnitRunner | tee diagnostic-restart-results.txt
+            grep -q 'OK (1 test)' diagnostic-restart-results.txt
+      - name: Preserve emulator test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-x86-emulator-test-results
+          path: |
+            service-lifecycle-results.txt
+            diagnostic-restart-results.txt
+          if-no-files-found: warn

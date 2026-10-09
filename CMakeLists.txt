@@ -279,6 +279,7 @@ add_library(quintum_core STATIC
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
+    src/net/diagnostics.cpp
     src/net/sync.cpp
     src/net/compact_block.cpp
     src/net/relay.cpp
@@ -800,3 +801,21 @@ add_test(
     NAME stage28_release_hardening
     COMMAND quintum_stage28_release_hardening_tests
 )
+
+# Read-only seed connectivity diagnostic; never creates node/wallet state.
+if(NOT ANDROID)
+    add_executable(quintum_android_p2p_probe tools/android_p2p_probe.cpp)
+    target_link_libraries(quintum_android_p2p_probe PRIVATE quintum_core)
+    quintum_strict_warnings(quintum_android_p2p_probe)
+    add_executable(quintum_android_sync_probe tools/android_sync_probe.cpp)
+    target_link_libraries(quintum_android_sync_probe PRIVATE quintum_core)
+    quintum_strict_warnings(quintum_android_sync_probe)
+endif()
+
+
+# Local metadata persistence is independent of wallet/chain storage.
+add_executable(quintum_diagnostics_tests tests/diagnostics_tests.cpp)
+target_link_libraries(quintum_diagnostics_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_diagnostics_tests)
+quintum_test_assertions(quintum_diagnostics_tests)
+add_test(NAME diagnostics COMMAND quintum_diagnostics_tests)

@@ -16,6 +16,7 @@
 namespace quintum::net {
 
 struct PeerHandshakeResult;
+class Diagnostics;
 
 enum class PeerError {
     none,
@@ -97,13 +98,8 @@ public:
 private:
     friend class PeerListener;
     friend struct PeerHandshakeResult;
-    friend PeerHandshakeResult connect_and_handshake(
-        const consensus::ChainParams&,
-        std::string_view,
-        std::uint16_t,
-        const VersionMessage&,
-        std::uint32_t
-    );
+class Diagnostics;
+
 
     static constexpr std::uintptr_t kInvalidSocket =
         std::numeric_limits<std::uintptr_t>::max();
@@ -118,6 +114,11 @@ private:
 struct PeerHandshakeResult {
     PeerError error{PeerError::none};
     WireError wire_error{WireError::none};
+    // Last handshake phase; static labels only, no payload or credential data.
+    std::string_view phase{"tcp-connect"};
+    int socket_error{0};
+    bool remote_closed{false};
+    std::size_t partial_io_bytes{0U};
     std::optional<PeerSession> session{};
     std::optional<std::uint32_t> observed_ipv4{};
 
@@ -157,7 +158,8 @@ public:
     [[nodiscard]] PeerHandshakeResult accept_and_handshake(
         const VersionMessage& local,
         std::uint32_t accept_timeout_ms,
-        std::uint32_t io_timeout_ms
+        std::uint32_t io_timeout_ms,
+        std::shared_ptr<Diagnostics> diagnostics = {}
     );
 
     void close() noexcept;
@@ -176,7 +178,8 @@ private:
     std::string_view host,
     std::uint16_t port,
     const VersionMessage& local,
-    std::uint32_t timeout_ms
+    std::uint32_t timeout_ms,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 [[nodiscard]] PeerHandshakeResult connect_and_handshake(
@@ -185,7 +188,8 @@ private:
     std::uint16_t port,
     const VersionMessage& local,
     std::uint32_t timeout_ms,
-    const Socks5Proxy& proxy
+    const Socks5Proxy& proxy,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 class ConnectionManager {
@@ -205,3 +209,4 @@ private:
 };
 
 } // namespace quintum::net
+

@@ -14,9 +14,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-dev"
+        val sourceRevision = System.getenv("GITHUB_SHA")?.takeIf { it.matches(Regex("[0-9a-fA-F]{40}")) } ?: "local"
+        buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += "arm64-v8a"
+            // Opt-in emulator testing; production builds retain their ARM64-only default.
+            val testAbi = providers.gradleProperty("quintumTestAbi").orNull
+            require(testAbi == null || testAbi == "x86_64") { "quintumTestAbi supports only x86_64 emulator testing" }
+            abiFilters += testAbi ?: "arm64-v8a"
         }
 
         externalNativeBuild {
@@ -64,6 +70,10 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         jniLibs.useLegacyPackaging = true
     }
@@ -78,4 +88,12 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
+

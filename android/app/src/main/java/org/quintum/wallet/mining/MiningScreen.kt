@@ -2,8 +2,6 @@ package org.quintum.wallet.mining
 
 import android.content.Context
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import org.quintum.wallet.core.NativeCore
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -44,18 +42,11 @@ fun MiningScreen() {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Mining", style = MaterialTheme.typography.headlineMedium)
-        Text("RandomX Testnet · real Proof-of-Work")
-        Text(if (nodeRunning) "Node: running" else "Node: connecting…")
-        Text("Peers: ${state.stats?.peers ?: 0} · Block height: ${state.stats?.blockHeight ?: 0}")
-        if (nodeRunning && (state.stats?.peers ?: 0L) == 0L) {
-            Text("No connected peers. Blocks mined while disconnected may be replaced when the node synchronizes.", color = MaterialTheme.colorScheme.error)
-        }
-        OutlinedTextField(value = payout, onValueChange = { payout = it.trim() }, enabled = !state.running, label = { Text("QMU payout address") }, supportingText = { Text("Public address only. You may mine to a wallet on another device.") }, singleLine = true)
-        TextButton(onClick = { payout = ""; payoutPreferences.edit().remove("address").apply() }, enabled = !state.running && payout.isNotEmpty()) { Text("Clear saved payout address") }
-        OutlinedTextField(value = threadsText, onValueChange = { threadsText = it.filter(Char::isDigit) }, enabled = !state.running, label = { Text("Mining threads") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
-        Button(onClick = {
+    MiningScreenContent(state, nodeRunning, payout, threadsText, error,
+        onPayoutChange = { payout = it.trim() },
+        onThreadsChange = { threadsText = it.filter(Char::isDigit) },
+        onClearPayout = { payout = ""; payoutPreferences.edit().remove("address").apply() },
+        onToggleMining = {
             error = null
             scope.launch {
                 if (state.running) controller.stop() else {
@@ -74,7 +65,25 @@ fun MiningScreen() {
                 }
                 state = withContext(Dispatchers.IO) { controller.snapshot() }
             }
-        }) { Text(if (state.running) "Stop mining" else "Start mining") }
+        })
+}
+
+@Composable
+fun MiningScreenContent(state: MiningUiState, nodeRunning: Boolean, payout: String, threadsText: String,
+    error: String?, onPayoutChange: (String) -> Unit, onThreadsChange: (String) -> Unit,
+    onClearPayout: () -> Unit, onToggleMining: () -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Mining", style = MaterialTheme.typography.headlineMedium)
+        Text("RandomX Testnet · real Proof-of-Work")
+        Text(if (nodeRunning) "Node: running" else "Node: connecting…")
+        Text("Peers: ${state.stats?.peers ?: 0} · Block height: ${state.stats?.blockHeight ?: 0}")
+        if (nodeRunning && (state.stats?.peers ?: 0L) == 0L) {
+            Text("No connected peers. Blocks mined while disconnected may be replaced when the node synchronizes.", color = MaterialTheme.colorScheme.error)
+        }
+        OutlinedTextField(value = payout, onValueChange = onPayoutChange, enabled = !state.running, label = { Text("QMU payout address") }, supportingText = { Text("Public address only. You may mine to a wallet on another device.") }, singleLine = true)
+        TextButton(onClick = onClearPayout, enabled = !state.running && payout.isNotEmpty()) { Text("Clear saved payout address") }
+        OutlinedTextField(value = threadsText, onValueChange = onThreadsChange, enabled = !state.running, label = { Text("Mining threads") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+        Button(onClick = onToggleMining) { Text(if (state.running) "Stop mining" else "Start mining") }
         Text("Thermal status: " + state.thermalStatus)
         if (state.stoppedForThermalSafety) Text("Mining stopped for thermal safety.", color = MaterialTheme.colorScheme.error)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

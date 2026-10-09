@@ -11,6 +11,12 @@ object NativeCore {
         System.loadLibrary("quintum_android")
     }
 
+    external fun nativeInitializeDiagnostics(dataDirectory: String)
+    external fun nativeDiagnostics(): String
+    external fun nativeDiagnosticLog(): String
+    external fun nativeClearDiagnosticLog(): Boolean
+    external fun nativeServiceEvent(name: String)
+
     external fun nativeStart(dataDirectory: String): Int
     external fun nativeStop()
     external fun nativeRunning(): Boolean
@@ -34,3 +40,4 @@ object NativeCore {
     external fun nativeConnectAttempts(): Long
     external fun nativeDifficulty(): Double
 }
+

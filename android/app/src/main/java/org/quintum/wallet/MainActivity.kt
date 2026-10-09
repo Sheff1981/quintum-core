@@ -6,6 +6,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.lifecycle.lifecycleScope
+import org.quintum.wallet.core.DiagnosticsSnapshot
+import org.quintum.wallet.core.DiagnosticsPresentation
+import org.quintum.wallet.diagnostics.DiagnosticsScreen
+import org.quintum.wallet.diagnostics.writeDiagnosticsExport
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -57,6 +64,10 @@ private fun p2pDiagnosticMessage(code: Int): String {
         code == 0 -> "No connection attempt recorded"
         code == 10 -> "Selecting a peer / connecting"
         code == 4000 -> "P2P handshake and peer setup completed"
+        code == 4001 -> "Handshake completed; negotiating chainwork"
+        code == 4002 -> "Handshake completed; initial blockchain synchronization"
+        code == 4003 -> "Blockchain synchronization completed; exchanging peer addresses"
+        code == 4004 -> "Exchanging mempool after blockchain synchronization"
         code == 3001 || code == 3002 -> "Handshake succeeded, but sync / peer setup failed (code $code)"
         code in 2000..2399 -> {
             val discovery = (code - 2000) / 100
@@ -83,10 +94,23 @@ private enum class Page(val title: String, val subtitle: String, val symbol: Str
     Network("Network", "Peers & synchronization", "◎"),
     Wallet("Wallet", "Addresses & payments", "◈"),
     Mining("Mining", "RandomX · CPU mining", "✦"),
-    Device("Device", "Battery & thermal safety", "▣")
+    Device("Device", "Battery & thermal safety", "▣"),
+    Diagnostics("Diagnostics", "Local events & sync progress", "≡")
 }
 
 class MainActivity : ComponentActivity() {
+    private fun recordActivityEvent(name: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                NativeCore.nativeInitializeDiagnostics(filesDir.resolve("core").absolutePath)
+                NativeCore.nativeServiceEvent(name)
+            }
+        }
+    }
+
+    override fun onStart() { super.onStart(); recordActivityEvent("activity_foreground") }
+    override fun onStop() { recordActivityEvent("activity_background"); super.onStop() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -121,19 +145,64 @@ private fun QuintumHome() {
     var tcpProbeRunning by remember { mutableStateOf(false) }
     var diagnosticUpdatedAt by remember { mutableLongStateOf(0L) }
     val diagnosticScope = rememberCoroutineScope()
+    var diagnosticsSnapshot by remember { mutableStateOf(DiagnosticsSnapshot()) }
+    var diagnosticEvents by remember { mutableStateOf(emptyList<String>()) }
+    var diagnosticActionStatus by remember { mutableStateOf("") }
+    var exportSnapshot by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/x-ndjson")) { uri ->
+        val content = exportSnapshot
+        exportSnapshot = null
+        if (uri != null && content != null) diagnosticScope.launch {
+            diagnosticActionStatus = withContext(Dispatchers.IO) {
+                runCatching {
+                    writeDiagnosticsExport(context.contentResolver, uri, content.toByteArray(Charsets.UTF_8))
+                    "Log exported"
+                }.getOrElse { "Export failed: ${it.javaClass.simpleName}" }
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching { NativeCore.nativeInitializeDiagnostics(context.filesDir.resolve("core").absolutePath) }
+        }
+        while (true) {
+            val snapshot = withContext(Dispatchers.IO) { runCatching { DiagnosticsPresentation.parse(NativeCore.nativeDiagnostics()) } }
+            snapshot.onSuccess { diagnosticsSnapshot = it }
+                .onFailure { diagnosticsSnapshot = DiagnosticsSnapshot(mapOf("log_error" to "Diagnostics unavailable: ${it.javaClass.simpleName}")) }
+            delay(1000)
+        }
+    }
+    LaunchedEffect(page) {
+        if (page == Page.Diagnostics) while (true) {
+            withContext(Dispatchers.IO) { runCatching { DiagnosticsPresentation.recentEvents(NativeCore.nativeDiagnosticLog()) } }
+                .onSuccess { diagnosticEvents = it }
+            delay(2000)
+        }
+    }
     var startRequested by remember { mutableStateOf(false) }
     var nodeError by remember { mutableStateOf("") }
     var startupSeconds by remember { mutableIntStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Triple(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()) }
+                runCatching {
+                    val snapshot = Triple(
+                        Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()),
+                        NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()
+                    )
+                    snapshot to Triple(
+                        NativeCore.nativeConnectElapsedMs(),
+                        NativeCore.nativeLastConnectError(),
+                        NativeCore.nativeConnectAttempts()
+                    )
+                }
             }
-            result.onSuccess { (snapshotTriple, diagnostic, details) ->
+            result.onSuccess { (polled, connection) ->
+                    val (snapshotTriple, diagnostic, details) = polled
                     peerDetails = details
-                    connectElapsedMs = NativeCore.nativeConnectElapsedMs()
-                    lastConnectError = NativeCore.nativeLastConnectError()
-                    connectAttempts = NativeCore.nativeConnectAttempts()
+                    connectElapsedMs = connection.first
+                    lastConnectError = connection.second
+                    connectAttempts = connection.third
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
                     diagnosticUpdatedAt = System.currentTimeMillis()
@@ -215,7 +284,7 @@ private fun QuintumHome() {
                         HorizontalDivider(color = Color(0xFF34466B))
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             StatusMetric("PEERS", "${stats.stats?.peers ?: 0}")
-                            StatusMetric("HEIGHT", "${stats.stats?.blockHeight ?: "—"}")
+                            StatusMetric("HEIGHT", "${(diagnosticsSnapshot.values["local_height"]?.toLongOrNull() ?: stats.stats?.blockHeight) ?: "—"}")
                             StatusMetric("MINING", if (stats.running) "ACTIVE" else "OFF")
                         }
                     }
@@ -224,7 +293,7 @@ private fun QuintumHome() {
                 Text("Your workspace", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(
-                    modifier = Modifier.fillMaxWidth().height(360.dp),
+                    modifier = Modifier.fillMaxWidth().height((((Page.entries.size + 1) / 2) * 170 + 20).dp),
                     userScrollEnabled = false,
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -269,11 +338,10 @@ private fun QuintumHome() {
                     Spacer(Modifier.height(12.dp))
                     DetailCard("Network status", when {
                         !nodeRunning -> "Node is not running"
-                        (stats.stats?.peers ?: 0L) > 0L -> "Connected to QUINTUM Testnet"
-                        else -> "Searching for network peers"
+                        else -> diagnosticsSnapshot.stage.takeUnless { it == "Unavailable" } ?: p2pDiagnosticMessage(p2pDiagnostic)
                     })
                     Spacer(Modifier.height(12.dp))
-                    DetailCard("Block height", "${stats.stats?.blockHeight ?: "Unavailable"}")
+                    DetailCard("Block height", "${(diagnosticsSnapshot.values["local_height"]?.toLongOrNull() ?: stats.stats?.blockHeight) ?: "Unavailable"}")
                     Spacer(Modifier.height(12.dp))
                     TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
                         Text(if (showDiagnostics) "Hide technical details" else "Show technical details")
@@ -295,7 +363,7 @@ private fun QuintumHome() {
                             appendLine(peerDetails)
                             appendLine("Known addresses: $knownAddresses")
                             appendLine("Connected peers: ${stats.stats?.peers ?: 0}")
-                            appendLine("Local block height: ${stats.stats?.blockHeight ?: "unavailable"}")
+                            appendLine("Local block height: ${(diagnosticsSnapshot.values["local_height"]?.toLongOrNull() ?: stats.stats?.blockHeight) ?: "unavailable"}")
                             appendLine("TCP probe: $tcpProbeResult")
                             appendLine("Startup duration ms: $lastStartupMs")
                             appendLine("Core error: ${nodeError.ifBlank { "none" }}")
@@ -350,6 +418,30 @@ private fun QuintumHome() {
                         DetailCard("Network difficulty", "${stats.stats?.networkDifficulty ?: "Unavailable"}")
                     }
                 }
+                Page.Diagnostics -> DiagnosticsScreen(
+                    snapshot = diagnosticsSnapshot, coreRunning = diagnosticsSnapshot.values["core_running"]?.let { it == "1" || it == "true" } ?: nodeRunning,
+                    activePeers = diagnosticsSnapshot.values["active_peers"]?.toLongOrNull() ?: stats.stats?.peers, knownPeers = diagnosticsSnapshot.values["known_peers"]?.toLongOrNull() ?: knownAddresses,
+                    events = diagnosticEvents, actionStatus = diagnosticActionStatus, currentError = nodeError,
+                    onCopy = {
+                        (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                            .setPrimaryClip(ClipData.newPlainText("QUINTUM diagnostics", diagnosticsSnapshot.report(diagnosticsSnapshot.values["core_running"]?.let { it == "1" || it == "true" } ?: nodeRunning, diagnosticsSnapshot.values["active_peers"]?.toLongOrNull() ?: stats.stats?.peers, diagnosticsSnapshot.values["known_peers"]?.toLongOrNull() ?: knownAddresses) + "Current core / service error: ${nodeError.ifBlank { "None reported" }}\n"))
+                        diagnosticActionStatus = "Report copied"
+                    },
+                    onExport = {
+                        diagnosticScope.launch {
+                            withContext(Dispatchers.IO) { runCatching { NativeCore.nativeDiagnosticLog() } }
+                                .onSuccess { exportSnapshot = it; exportLauncher.launch("quintum-diagnostics.jsonl") }
+                                .onFailure { diagnosticActionStatus = "Log unavailable: ${it.javaClass.simpleName}" }
+                        }
+                    },
+                    onClear = {
+                        diagnosticScope.launch {
+                            val cleared = withContext(Dispatchers.IO) { runCatching { NativeCore.nativeClearDiagnosticLog() }.getOrDefault(false) }
+                            if (cleared) diagnosticEvents = emptyList()
+                            diagnosticActionStatus = if (cleared) "Diagnostic log cleared" else "Could not clear diagnostic log"
+                        }
+                    }
+                )
                 Page.Wallet -> {
                     DetailCard("Wallet", "Not yet enabled in Android Testnet")
                     Spacer(Modifier.height(12.dp))
@@ -386,3 +478,4 @@ private fun DetailCard(label: String, value: String) {
         }
     }
 }
+

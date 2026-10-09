@@ -1,0 +1,51 @@
+name: Android live sync comparison
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-foundation, fix/android-p2p-service]
+    paths:
+      - 'src/net/**'
+      - 'src/crypto/randomx*'
+      - 'tools/android_sync_probe.cpp'
+      - '.github/workflows/android-live-sync.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validated-live-sync:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build-probe -DQUINTUM_ENABLE_NAT_MAPPING=OFF
+      - name: Build production sync probe
+        run: cmake --build build-probe --config Release --target quintum_android_sync_probe --parallel 2
+      - name: Validate actual VPS headers and blocks and restart persisted node (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 22m ./build-probe/quintum_android_sync_probe 212.193.15.139 "$RUNNER_TEMP/qmu-live-sync" | tee live-sync.txt
+      - name: Validate actual VPS headers and blocks and restart persisted node (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\build-probe\Release\quintum_android_sync_probe.exe 212.193.15.139 "$env:RUNNER_TEMP/qmu-live-sync" | Tee-Object -FilePath live-sync.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve observed progress and bounded journal (no wallet or chain bodies)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qmu-live-sync-${{ runner.os }}
+          path: |
+            live-sync.txt
+            ${{ runner.temp }}/qmu-live-sync/diagnostics/*.jsonl
+            ${{ runner.temp }}/qmu-live-sync/diagnostic-export.jsonl
+          if-no-files-found: warn

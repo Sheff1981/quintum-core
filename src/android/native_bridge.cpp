@@ -1,6 +1,7 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/tx_auth.hpp"
 #include "net/runtime.hpp"
+#include "net/diagnostics.hpp"
 #include "wallet/address.hpp"
 
 #include <jni.h>
@@ -19,6 +20,30 @@ namespace {
 
 std::mutex g_mutex;
 std::unique_ptr<quintum::net::NetworkRuntime> g_runtime;
+
+// The diagnostic journal has a separate lifetime and lock. Reading it must
+// never wait for native startup, shutdown, or the chain-state mutex.
+std::mutex g_diagnostics_mutex;
+std::shared_ptr<quintum::net::Diagnostics> g_diagnostics;
+std::atomic<bool> g_core_running{false};
+std::atomic<std::size_t> g_active_peers{0U};
+std::atomic<std::size_t> g_known_peers{0U};
+
+std::shared_ptr<quintum::net::Diagnostics> diagnostics()
+{
+    std::scoped_lock lock(g_diagnostics_mutex);
+    return g_diagnostics;
+}
+
+std::shared_ptr<quintum::net::Diagnostics> initialize_diagnostics(
+    const std::filesystem::path& root)
+{
+    std::scoped_lock lock(g_diagnostics_mutex);
+    if (!g_diagnostics) {
+        g_diagnostics = std::make_shared<quintum::net::Diagnostics>(root / "diagnostics");
+    }
+    return g_diagnostics;
+}
 
 std::atomic<bool> g_mining_cancel{false};
 std::atomic<bool> g_mining_running{false};
@@ -60,6 +85,13 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
     const std::filesystem::path root{raw};
     env->ReleaseStringUTFChars(data_directory, raw);
 
+    std::shared_ptr<quintum::net::Diagnostics> journal;
+    try {
+        journal = initialize_diagnostics(root);
+        journal->event("core", "info", "starting");
+    } catch (...) {
+        // Diagnostics must not prevent a node from starting.
+    }
     std::scoped_lock lock(g_mutex);
     if (g_runtime) return 2;
 
@@ -77,13 +109,17 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
     // default inbound port is already occupied by another local process.
     config.allow_ephemeral_listener_fallback = true;
     config.wallet_enabled = false;
+    config.diagnostics = journal;
 
     const auto result = runtime->start(std::move(config));
     if (!result.ok()) {
+        if (journal) journal->failure("core", static_cast<int>(result.error), "native startup failed");
         runtime->stop();
         return 3;
     }
     g_runtime = std::move(runtime);
+    g_core_running.store(true);
+    if (journal) journal->event("core", "info", "started");
     return 0;
 }
 
@@ -200,7 +236,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeBlockHeight(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return -1;
-    const auto value = g_runtime->status().height;
+    const auto value = g_runtime->status_nonblocking().height;
     return value ? static_cast<jlong>(*value) : -1;
 }
 
@@ -209,7 +245,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeKnownAddressCount(JNIEnv*, jobject
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return 0;
-    return static_cast<jlong>(g_runtime->status().known_addresses);
+    return static_cast<jlong>(g_runtime->status_nonblocking().known_addresses);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -217,7 +253,7 @@ Java_org_quintum_wallet_core_NativeCore_nativePeerCount(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return 0;
-    return static_cast<jlong>(g_runtime->status().peers);
+    return static_cast<jlong>(g_runtime->status_nonblocking().peers);
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
@@ -225,7 +261,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeDifficulty(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return -1.0;
-    const auto value = g_runtime->status().difficulty;
+    const auto value = g_runtime->status_nonblocking().difficulty;
     return value ? static_cast<jdouble>(*value) : -1.0;
 }
 
@@ -243,12 +279,17 @@ Java_org_quintum_wallet_core_NativeCore_nativeMiningHashRate(JNIEnv*, jobject)
 extern "C" JNIEXPORT void JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativeStop(JNIEnv*, jobject)
 {
+    if (const auto journal = diagnostics()) journal->stage("core_stopping", "core");
     stop_mining();
     std::scoped_lock lock(g_mutex);
     if (g_runtime) {
         g_runtime->stop();
         g_runtime.reset();
     }
+    g_core_running.store(false);
+    g_active_peers.store(0U);
+    g_known_peers.store(0U);
+    if (const auto journal = diagnostics()) journal->event("core", "info", "stopped");
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -270,8 +311,8 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativePeerDetails(JNIEnv* env, jobject)
 {
     std::scoped_lock lock(g_mutex);
-    if (!g_runtime || g_runtime->status().peers == 0U)
-        return env->NewStringUTF("No active P2P peer");
+    if (!g_runtime)
+        return env->NewStringUTF("Native core unavailable");
     const auto details = g_runtime->android_peer_details();
     return env->NewStringUTF(details.empty() ? "Peer details unavailable" : details.c_str());
 }
@@ -295,4 +336,83 @@ Java_org_quintum_wallet_core_NativeCore_nativeConnectAttempts(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     return g_runtime ? static_cast<jlong>(g_runtime->android_connect_attempts()) : 0;
+}
+
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeInitializeDiagnostics(
+    JNIEnv* env, jobject, jstring directory)
+{
+    if (directory == nullptr) return;
+    const char* raw = env->GetStringUTFChars(directory, nullptr);
+    if (raw == nullptr) return;
+    const std::filesystem::path root{raw};
+    env->ReleaseStringUTFChars(directory, raw);
+    try { (void)initialize_diagnostics(root); } catch (...) { }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeDiagnostics(JNIEnv* env, jobject)
+{
+    try {
+        const auto journal = diagnostics();
+
+        // Try, never wait: startup/shutdown owns g_mutex for longer than a UI
+        // polling interval. The journal and cached counters remain readable.
+        std::unique_lock lock(g_mutex, std::try_to_lock);
+        if (lock.owns_lock() && g_runtime) {
+            const auto status = g_runtime->status_nonblocking();
+            g_core_running.store(status.running);
+            g_active_peers.store(status.peers);
+            g_known_peers.store(status.known_addresses);
+        }
+        if (journal) {
+            journal->gauge("core_running", g_core_running.load() ? 1U : 0U);
+            journal->gauge("active_peers", g_active_peers.load());
+            journal->gauge("known_peers", g_known_peers.load());
+        }
+        const auto snapshot = journal ? journal->snapshot_json() : std::string{"{}"};
+        return env->NewStringUTF(snapshot.c_str());
+    } catch (...) {
+        return env->NewStringUTF("{\"log_error\":\"native diagnostics unavailable\"}");
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeDiagnosticLog(JNIEnv* env, jobject)
+{
+    try {
+        const auto journal = diagnostics();
+        const auto log = journal ? journal->export_log() : std::string{};
+        return env->NewStringUTF(log.c_str());
+    } catch (...) { return env->NewStringUTF(""); }
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeClearDiagnosticLog(JNIEnv*, jobject)
+{
+    const auto journal = diagnostics();
+    return journal && journal->clear_log() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeServiceEvent(
+    JNIEnv* env, jobject, jstring event)
+{
+    if (event == nullptr) return;
+    const char* raw = env->GetStringUTFChars(event, nullptr);
+    if (raw == nullptr) return;
+    const std::string name{raw};
+    env->ReleaseStringUTFChars(event, raw);
+    // No arbitrary lifecycle exception text, extras, addresses or credentials.
+    constexpr std::string_view allowed[] = {
+        "created", "start_request", "core_started", "core_already_running",
+        "start_failed", "destroyed", "timeout", "task_removed",
+        "activity_foreground", "activity_background"
+    };
+    if (std::find(std::begin(allowed), std::end(allowed), name) == std::end(allowed)) return;
+    if (const auto journal = diagnostics()) {
+        const bool failed = name == "start_failed" || name == "timeout";
+        journal->event("android", failed ? "warning" : "info", name);
+    }
 }

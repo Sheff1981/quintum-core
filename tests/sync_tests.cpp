@@ -2,6 +2,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/peer.hpp"
+#include "net/diagnostics.hpp"
 #include "net/sync.hpp"
 #include "node/node.hpp"
 
@@ -366,14 +367,33 @@ void test_genesis_to_tip_sync_and_restart()
 
     assert(connected.ok());
 
+    auto diagnostics = std::make_shared<Diagnostics>(client_dir / "diagnostics");
     const auto synced =
         sync_from_peer(
             *connected.session,
             client,
-            now + 100U
+            now + 100U,
+            diagnostics
         );
 
     assert(synced.ok());
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {
+             "\"headers_received\":5", "\"headers_verified\":5",
+             "\"blocks_requested\":5", "\"blocks_received\":5",
+             "\"blocks_accepted\":5", "\"blocks_rejected\":0",
+             "\"local_height\":5", "\"header_batches_accepted\":1"}) {
+        assert(snapshot.find(field) != std::string::npos);
+    }
+    const auto events = diagnostics->export_log();
+    for (const auto phase : {
+             "headers_sync", "header_wait", "header_validation",
+             "blocks_sync", "block_wait", "block_validation"}) {
+        assert(events.find(phase) != std::string::npos);
+    }
+    // The sync helper cannot declare global runtime synchronization.
+    assert(events.find("fully_synchronized") == std::string::npos);
+
     assert(synced.headers_received == 5U);
     assert(synced.blocks_requested == 5U);
     assert(synced.block_request_batches == 1U);
@@ -1125,7 +1145,9 @@ void test_randomx_headers_first_uses_randomx_pow()
 }
 
 
-void test_invalid_difficulty_headers_stop_before_block_download()
+enum class InvalidHeaderCase { difficulty, proof_of_work, malformed };
+
+void test_invalid_headers_stop_before_block_download(InvalidHeaderCase test_case)
 {
     using namespace quintum;
     using namespace quintum::net;
@@ -1149,26 +1171,40 @@ void test_invalid_difficulty_headers_stop_before_block_download()
     invalid.timestamp =
         params.genesis.timestamp + 1U;
 
-    // Regtest expects the parent's unchanged 0x2100ffff target here. This
-    // harder target is still below the PoW limit and can therefore carry a
-    // perfectly valid hash while remaining consensus-invalid bad-diffbits.
-    invalid.bits = 0x207fffffU;
-
-    const auto mined =
-        consensus::mine_header(
-            invalid,
-            4'096U
-        );
-    assert(mined.found());
-    assert(consensus::check_proof_of_work(
-               invalid,
-               params.pow) ==
-           consensus::PowCheckError::none);
-    assert(client.chain().
-               next_work_required(
-                   invalid.timestamp) !=
-           std::optional<std::uint32_t>{
-               invalid.bits});
+    if (test_case == InvalidHeaderCase::proof_of_work) {
+        invalid.bits = *client.chain().next_work_required(invalid.timestamp);
+        bool invalid_pow = false;
+        for (std::uint64_t nonce = 0U; nonce < 1'000'000U; ++nonce) {
+            invalid.nonce = nonce;
+            if (consensus::check_proof_of_work(invalid, params.pow) ==
+                consensus::PowCheckError::hash_above_target) {
+                invalid_pow = true;
+                break;
+            }
+        }
+        assert(invalid_pow);
+    } else {
+        // Regtest expects the parent's unchanged 0x2100ffff target here. This
+        // harder target is still below the PoW limit and can therefore carry a
+        // perfectly valid hash while remaining consensus-invalid bad-diffbits.
+        invalid.bits = 0x207fffffU;
+    
+        const auto mined =
+            consensus::mine_header(
+                invalid,
+                4'096U
+            );
+        assert(mined.found());
+        assert(consensus::check_proof_of_work(
+                   invalid,
+                   params.pow) ==
+               consensus::PowCheckError::none);
+        assert(client.chain().
+                   next_work_required(
+                       invalid.timestamp) !=
+               std::optional<std::uint32_t>{
+                   invalid.bits});
+    }
 
     PeerListener listener{params};
     assert(listener.listen(
@@ -1214,7 +1250,8 @@ void test_invalid_difficulty_headers_stop_before_block_download()
         server_error =
             accepted.session->send_command(
                 "headers",
-                serialize_headers(headers)
+                test_case == InvalidHeaderCase::malformed
+                    ? Bytes{0xffU} : serialize_headers(headers)
             );
 
         if (server_error ==
@@ -1245,20 +1282,41 @@ void test_invalid_difficulty_headers_stop_before_block_download()
         );
     assert(connected.ok());
 
+    auto diagnostics = std::make_shared<Diagnostics>(client_dir / "diagnostics");
     const auto synced =
         sync_from_peer(
             *connected.session,
             client,
-            now
+            now,
+            diagnostics
         );
 
-    assert(synced.error ==
-           SyncError::
-               invalid_header_consensus);
-    assert(synced.chain_error ==
-           ChainConnectError::
-               unexpected_difficulty);
-    assert(synced.headers_received == 1U);
+    if (test_case == InvalidHeaderCase::malformed) {
+        assert(synced.error == SyncError::malformed_message);
+        assert(synced.headers_received == 0U);
+    } else if (test_case == InvalidHeaderCase::proof_of_work) {
+        assert(synced.error == SyncError::invalid_header_pow);
+        assert(synced.chain_error == ChainConnectError::invalid_proof_of_work);
+        assert(synced.headers_received == 1U);
+    } else {
+        assert(synced.error == SyncError::invalid_header_consensus);
+        assert(synced.chain_error == ChainConnectError::unexpected_difficulty);
+        assert(synced.headers_received == 1U);
+    }
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {
+             "\"headers_verified\":0", "\"header_batches_received\":1",
+             "\"header_batches_rejected\":1", "\"blocks_requested\":0",
+             "\"blocks_accepted\":0"}) {
+        assert(snapshot.find(field) != std::string::npos);
+    }
+    if (test_case != InvalidHeaderCase::malformed) {
+        assert(snapshot.find("\"headers_rejected\":1") != std::string::npos);
+    }
+    const auto events = diagnostics->export_log();
+    assert(events.find("\"event\":\"failure\"") != std::string::npos);
+    assert(events.find("fully_synchronized") == std::string::npos);
+
     assert(synced.blocks_requested == 0U);
     assert(synced.block_request_batches == 0U);
     assert(client.chain().height() ==
@@ -1383,8 +1441,11 @@ int main()
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
     test_randomx_headers_first_uses_randomx_pow();
-    test_invalid_difficulty_headers_stop_before_block_download();
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::difficulty);
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::proof_of_work);
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::malformed);
     test_chainwork_sync_selection();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }
+

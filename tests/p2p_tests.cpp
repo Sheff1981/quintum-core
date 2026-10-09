@@ -1,10 +1,14 @@
 #include "consensus/chainparams.hpp"
 #include "net/peer.hpp"
+#include "net/diagnostics.hpp"
 #include "net/protocol.hpp"
 
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <chrono>
+#include <filesystem>
+#include <string>
 #include <span>
 #include <thread>
 #include <utility>
@@ -162,6 +166,11 @@ void test_two_peer_handshake_and_ping()
     const auto& params =
         quintum::consensus::regtest_params();
 
+    const auto diagnostic_dir = std::filesystem::temp_directory_path() /
+        ("quintum-p2p-diagnostic-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto diagnostics = std::make_shared<Diagnostics>(diagnostic_dir);
+
     PeerListener listener{params};
     assert(listener.listen(
                "127.0.0.1",
@@ -218,10 +227,22 @@ void test_two_peer_handshake_and_ping()
             "127.0.0.1",
             listener.local_port(),
             version(0xbbb2U, 5U),
-            5'000U
+            5'000U,
+            diagnostics
         );
 
     assert(connected.ok());
+    const auto events = diagnostics->export_log();
+    for (const auto phase : {
+             "peer_selected", "tcp_connecting", "tcp_connected",
+             "version_sent", "version_received", "protocol_validation",
+             "verack_sent", "verack_received", "handshake_complete"}) {
+        assert(events.find(phase) != std::string::npos);
+    }
+    const auto snapshot = diagnostics->snapshot_json();
+    assert(snapshot.find("\"remote_height\":7") != std::string::npos);
+    assert(snapshot.find("127.0.0.1:") != std::string::npos);
+
     assert(!connected.session->inbound());
     assert(connected.session->remote_version()
                .start_height == 7U);
@@ -246,6 +267,9 @@ void test_two_peer_handshake_and_ping()
     assert(server_saw_height == 5U);
     assert(server_saw_inbound);
     assert(server_after_prune == 0U);
+    std::error_code ec;
+    std::filesystem::remove_all(diagnostic_dir, ec);
+
 }
 
 void test_encrypted_peer_handshake_and_ping()
@@ -255,6 +279,10 @@ void test_encrypted_peer_handshake_and_ping()
     const auto& params =
         quintum::consensus::regtest_params();
 
+    const auto diagnostic_dir = std::filesystem::temp_directory_path() /
+        ("quintum-p2p-encrypted-diagnostic-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto diagnostics = std::make_shared<Diagnostics>(diagnostic_dir);
     PeerListener listener{params};
     assert(listener.listen(
                "127.0.0.1",
@@ -299,11 +327,15 @@ void test_encrypted_peer_handshake_and_ping()
                 0xc002U,
                 12U
             ),
-            5'000U
+            5'000U,
+            diagnostics
         );
 
     assert(connected.ok());
     assert(connected.session->encrypted());
+    const auto events = diagnostics->export_log();
+    assert(events.find("encrypted_transport") != std::string::npos);
+    assert(events.find("handshake_complete") != std::string::npos);
     const auto client_session_id =
         connected.session->session_id();
     assert(client_session_id.has_value());
@@ -319,6 +351,9 @@ void test_encrypted_peer_handshake_and_ping()
     assert(server_session_id.has_value());
     assert(*server_session_id ==
            *client_session_id);
+    std::error_code ec;
+    std::filesystem::remove_all(diagnostic_dir, ec);
+
 }
 
 void test_wrong_network_rejected()
@@ -551,8 +586,14 @@ void test_adversarial_wire_frame_corpus()
 
 } // namespace
 
+#include "interrupted_receive_test.inc"
+
 int main()
 {
+#ifndef _WIN32
+    test_interrupted_peer_receive();
+    test_interrupted_peer_receive(true);
+#endif
     test_wire_protocol();
     test_two_peer_handshake_and_ping();
     test_encrypted_peer_handshake_and_ping();
@@ -562,3 +603,4 @@ int main()
     test_adversarial_wire_frame_corpus();
     return 0;
 }
+

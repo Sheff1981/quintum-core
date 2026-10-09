@@ -151,7 +151,9 @@ parse_inventory(
 [[nodiscard]] SyncResult sync_from_peer(
     PeerSession& peer,
     NodeRuntime& node,
-    std::uint64_t adjusted_time
+    std::uint64_t adjusted_time,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 } // namespace quintum::net
+

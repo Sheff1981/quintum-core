@@ -1,3 +1,6 @@
+#include "net/diagnostics.hpp"
+#include "crypto/randomx.hpp"
+#include <chrono>
 #include "net/sync.hpp"
 
 #include "consensus/pow.hpp"
@@ -9,9 +12,25 @@
 #include <array>
 #include <limits>
 #include <string_view>
+#include <string>
 #include <utility>
 
 namespace quintum::net {
+
+template<class F>
+void observe(
+    const std::shared_ptr<Diagnostics>& diagnostics,
+    F&& callback) noexcept
+{
+    if (diagnostics) {
+        try {
+            callback(*diagnostics);
+        } catch (...) {
+            // Diagnostics must never change networking or validation results.
+        }
+    }
+}
+
 namespace {
 
 constexpr std::size_t kHeaderSize = 88U;
@@ -933,9 +952,56 @@ SyncServiceResult serve_sync_once(
 SyncResult sync_from_peer(
     PeerSession& peer,
     NodeRuntime& node,
-    std::uint64_t adjusted_time)
+    std::uint64_t adjusted_time,
+    std::shared_ptr<Diagnostics> diagnostics)
 {
     SyncResult out;
+    crypto::RandomXVerificationScope randomx_scope(
+        [](void* context, std::string_view name, std::uint64_t microseconds) {
+            const auto& journal =
+                *static_cast<const std::shared_ptr<Diagnostics>*>(context);
+            observe(journal, [&](auto& diagnostics_state) {
+                if (name == "randomx_cache_started") {
+                    diagnostics_state.gauge("randomx_active", 1U);
+                    diagnostics_state.event("randomx", "info", "cache_initializing");
+                    return;
+                }
+                if (name == "randomx_hash_started") {
+                    diagnostics_state.gauge("randomx_active", 2U);
+                    return;
+                }
+                if (name == "randomx_operation_complete") {
+                    diagnostics_state.gauge("randomx_active", 0U);
+                    return;
+                }
+                if (name == "randomx_verify_ms") {
+                    diagnostics_state.counter("randomx_calls", 1U);
+                }
+                diagnostics_state.duration(name, microseconds);
+            });
+        },
+        &diagnostics
+    );
+
+    struct Finish {
+        std::shared_ptr<Diagnostics> diagnostics;
+        SyncResult& result;
+
+        ~Finish()
+        {
+            observe(diagnostics, [&](auto& journal) {
+                if (!result.ok()) {
+                    const std::string description =
+                        "sync_error=" + std::to_string(static_cast<int>(result.error)) +
+                        " peer_error=" + std::to_string(static_cast<int>(result.peer_error)) +
+                        " chain_error=" + std::to_string(static_cast<int>(result.chain_error)) +
+                        " submit_error=" + std::to_string(static_cast<int>(result.submit_error)) +
+                        " storage_error=" + std::to_string(static_cast<int>(result.storage_error));
+                    journal.failure("sync", static_cast<int>(result.error), description);
+                }
+            });
+        }
+    } finish{diagnostics, out};
 
     if (!node.started()) {
         out.error = SyncError::not_started;
@@ -995,6 +1061,9 @@ SyncResult sync_from_peer(
             .stop = {},
         };
 
+        observe(diagnostics, [](auto& d) {
+            d.stage("headers_sync", "sync");
+        });
         const auto request_payload =
             serialize_getheaders(request);
 
@@ -1009,6 +1078,10 @@ SyncResult sync_from_peer(
             return out;
         }
 
+        observe(diagnostics, [](auto& d) {
+            d.stage("header_wait", "sync");
+        });
+        const auto header_wait_started = std::chrono::steady_clock::now();
         WireMessage response;
         out.peer_error =
             receive_sync_response(
@@ -1018,6 +1091,10 @@ SyncResult sync_from_peer(
                 response
             );
 
+        observe(diagnostics, [&](auto& d) {
+            d.duration("header_wait_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-header_wait_started).count());
+            if (out.peer_error == PeerError::none) d.network_progress();
+        });
         if (out.peer_error != PeerError::none) {
             out.error = SyncError::transport_failed;
             return out;
@@ -1028,17 +1105,54 @@ SyncResult sync_from_peer(
             return out;
         }
 
+        observe(diagnostics, [](auto& journal) {
+            journal.counter("header_batches_received", 1U);
+        });
         const auto headers =
             parse_headers(response.payload);
 
         if (!headers) {
+            observe(diagnostics, [](auto& journal) {
+                journal.counter("header_batches_rejected", 1U);
+                journal.gauge("header_batch_size", 0U);
+            });
             out.error = SyncError::malformed_message;
             return out;
         }
 
         out.headers_received += headers->size();
+        observe(diagnostics, [&](auto& d) {
+            d.counter("headers_received", headers->size());
+            d.gauge("header_batch_size",headers->size());
+            d.stage("header_validation", "sync");
+        });
+        bool header_batch_validated = false;
+        std::size_t validated_prefix = 0U;
+        struct HeaderBatch {
+            std::shared_ptr<Diagnostics> diagnostics;
+            std::size_t count;
+            bool& validated;
+            std::size_t& prefix;
+
+            ~HeaderBatch()
+            {
+                if (!validated) {
+                    observe(diagnostics, [&](auto& journal) {
+                        // One header caused rejection. The suffix was not
+                        // validated; the whole batch remains unaccepted.
+                        journal.counter("headers_rejected", count > 0U ? 1U : 0U);
+                        journal.counter("headers_unvalidated", count > prefix ? count - prefix - 1U : 0U);
+                        journal.counter("header_batches_rejected", 1U);
+                    });
+                }
+            }
+        } header_batch{diagnostics, headers->size(), header_batch_validated, validated_prefix};
 
         if (headers->empty()) {
+            header_batch_validated = true;
+            observe(diagnostics, [](auto& d) {
+                d.counter("header_batches_accepted",1);
+            });
             return out;
         }
 
@@ -1072,13 +1186,29 @@ SyncResult sync_from_peer(
         // Reject consensus-invalid header chains before requesting any block
         // body. Chainstate owns the rules so headers-first and full block
         // acceptance cannot diverge on difficulty, MTP or RandomX seeds.
+        const auto new_header_count = std::count_if(headers->begin(), headers->end(), [&](const auto& h) { return !node.chain().has_block(block_hash(h)); });
+        const auto header_validation_started = std::chrono::steady_clock::now();
         const auto validated =
             node.chain().validate_headers(
                 *headers,
                 adjusted_time
             );
 
+        observe(diagnostics, [&](auto& d) {
+            d.duration("headers_verify_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-header_validation_started).count());
+        });
         if (!validated.ok()) {
+            validated_prefix = validated.header_index;
+            const auto verified_prefix = std::count_if(
+                headers->begin(), headers->begin() +
+                    static_cast<std::ptrdiff_t>(validated_prefix),
+                [&](const auto& header) {
+                    return !node.chain().has_block(block_hash(header));
+                });
+            observe(diagnostics, [&](auto& journal) {
+                journal.counter("headers_verified", static_cast<std::uint64_t>(verified_prefix));
+                journal.counter("headers_known", validated_prefix - static_cast<std::size_t>(verified_prefix));
+            });
             out.chain_error = validated.error;
             out.error =
                 validated.error ==
@@ -1091,6 +1221,12 @@ SyncResult sync_from_peer(
             return out;
         }
 
+        header_batch_validated = true;
+        observe(diagnostics, [&](auto& d) {
+            d.counter("headers_verified", new_header_count);
+            d.counter("headers_known", headers->size() - new_header_count);
+            d.counter("header_batches_accepted",1);
+        });
         std::vector<BlockHeader> missing_headers;
         missing_headers.reserve(headers->size());
 
@@ -1135,6 +1271,9 @@ SyncResult sync_from_peer(
                 );
             }
 
+            observe(diagnostics, [](auto& d) {
+                d.stage("blocks_sync", "sync");
+            });
             const auto inventory =
                 serialize_inventory(request_items);
 
@@ -1150,6 +1289,9 @@ SyncResult sync_from_peer(
             }
 
             out.blocks_requested += batch_size;
+            observe(diagnostics, [&](auto& d) {
+                d.counter("blocks_requested",batch_size);
+            });
             ++out.block_request_batches;
 
             for (std::size_t i = 0U;
@@ -1160,6 +1302,10 @@ SyncResult sync_from_peer(
                 const Hash256 expected_hash =
                     block_hash(header);
 
+                observe(diagnostics, [](auto& d) {
+                    d.stage("block_wait", "sync");
+                });
+                const auto block_wait_started = std::chrono::steady_clock::now();
                 WireMessage block_message;
                 out.peer_error =
                     receive_sync_response(
@@ -1169,6 +1315,10 @@ SyncResult sync_from_peer(
                         block_message
                     );
 
+                observe(diagnostics, [&](auto& d) {
+                    d.duration("block_wait_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-block_wait_started).count());
+                    if (out.peer_error == PeerError::none) d.network_progress();
+                });
                 if (out.peer_error !=
                     PeerError::none) {
                     out.error =
@@ -1206,6 +1356,29 @@ SyncResult sync_from_peer(
                     return out;
                 }
 
+                observe(diagnostics, [](auto& d) {
+                    d.counter("blocks_received",1);
+                    d.stage("block_validation", "sync");
+                });
+                bool block_accepted = false;
+                const auto block_validation_started = std::chrono::steady_clock::now();
+                struct BlockValidation {
+                    std::shared_ptr<Diagnostics> diagnostics;
+                    bool& accepted;
+                    std::chrono::steady_clock::time_point started;
+
+                    ~BlockValidation()
+                    {
+                        observe(diagnostics, [&](auto& journal) {
+                            journal.duration("block_verify_ms",
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::steady_clock::now() - started).count());
+                            if (!accepted) {
+                                journal.counter("blocks_rejected", 1U);
+                            }
+                        });
+                    }
+                } block_validation{diagnostics, block_accepted, block_validation_started};
                 const auto block =
                     parse_block_payload(
                         block_message.payload,
@@ -1263,6 +1436,11 @@ SyncResult sync_from_peer(
                     return out;
                 }
 
+                block_accepted = true;
+                observe(diagnostics, [&](auto& d) {
+                    d.counter("blocks_accepted",1);
+                    if (auto height = node.chain().height()) d.local_height(*height);
+                });
                 if (metadata_known) {
                     ++out.block_bodies_restored;
                 } else {
@@ -1286,3 +1464,4 @@ SyncResult sync_from_peer(
 }
 
 } // namespace quintum::net
+

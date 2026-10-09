@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -1415,6 +1416,62 @@ void test_reconnect_backoff_grows_and_caps()
 }
 
 
+
+void test_status_polling_does_not_wait_for_initial_sync()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto dir = unique_dir("status-during-stalled-sync");
+    NetworkRuntime runtime{params, dir};
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 10U;
+    config.io_timeout_ms = 5'000U;
+    assert(runtime.start(config).ok());
+    const auto before = runtime.status();
+    assert(before.height.has_value());
+
+    VersionMessage remote;
+    remote.protocol_version = kProtocolVersion;
+    remote.services = kServiceNetwork;
+    remote.timestamp = params.genesis.timestamp + 81'000U;
+    remote.nonce = 0x535441545553ULL;
+    remote.start_height = *before.height + 1U;
+    remote.listen_port = 39444U;
+    auto connected = connect_and_handshake(
+        params, "127.0.0.1", before.listen_port, remote, 5'000U);
+    assert(connected.ok());
+
+    // Runtime drives sync from this higher peer and waits for its headers
+    // while holding state_mutex_. Deliberately leave that request unanswered.
+    WireMessage request;
+    assert(connected.session->receive_command(request) == PeerError::none);
+    assert(request.command == "getheaders");
+    auto poll = std::async(std::launch::async, [&] {
+        return runtime.status_nonblocking();
+    });
+    assert(poll.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+    const auto during = poll.get();
+    assert(during.running);
+    assert(during.listen_port == before.listen_port);
+    assert(!during.height.has_value());
+    assert(!during.difficulty.has_value());
+
+    connected.session->close();
+    // The sync error releases chain state; a subsequent poll sees the chain.
+    assert(wait_until(std::chrono::seconds(5), [&] {
+        return runtime.status_nonblocking().height == before.height;
+    }));
+    runtime.stop();
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 void test_stalled_transaction_requests_are_bounded_and_expire()
 {
     using namespace quintum;
@@ -1893,6 +1950,7 @@ void test_repeated_partition_reconnect_converges_to_heavier_chain()
 
 int main()
 {
+    test_status_polling_does_not_wait_for_initial_sync();
     test_default_listener_port_fallback();
     test_walletless_seed_runtime_creates_no_wallet();
     test_peer_message_flood_is_disconnected();
