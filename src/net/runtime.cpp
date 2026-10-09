@@ -2081,6 +2081,9 @@ void NetworkRuntime::maintain_outbound(
 
 #ifdef __ANDROID__
     android_p2p_diagnostic_.store(10);
+    android_connect_started_ms_.store(static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count()));
 #endif
 #ifdef __ANDROID__
     const auto discovery_started = std::chrono::steady_clock::now();
@@ -2109,6 +2112,9 @@ void NetworkRuntime::maintain_outbound(
     known_address_count_.store(
         addrman_.size()
     );
+#ifdef __ANDROID__
+    android_connect_started_ms_.store(0U);
+#endif
 
     if (!connected.ok()) {
 #ifdef __ANDROID__
