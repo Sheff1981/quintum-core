@@ -156,7 +156,9 @@ struct SyncOptions {
     std::mutex* state_mutex{nullptr};
     const std::atomic<bool>* cancel{nullptr};
     std::uint32_t io_timeout_ms{5'000U};
-    std::uint64_t ping_interval_seconds{30U};
+    // Keep the peer session active during slow RandomX header validation.
+    // A 30-second idle period can exceed the remote peer's idle budget.
+    std::uint64_t ping_interval_seconds{10U};
     std::uint64_t ping_timeout_seconds{30U};
     std::function<bool(std::size_t, bool)> header_progress{};
 };
