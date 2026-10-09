@@ -3,10 +3,12 @@ package org.quintum.wallet.core
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.SystemClock
+import org.quintum.wallet.MainActivity
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +46,7 @@ class NodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (startRequested) return START_NOT_STICKY
+        if (startRequested) return START_STICKY
         startRequested = true
         recordStatus("Initializing native QUINTUM Core")
         scope.launch {
@@ -81,7 +83,7 @@ class NodeService : Service() {
             }
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onDestroy() {
@@ -111,6 +113,10 @@ class NodeService : Service() {
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("QUINTUM Testnet")
             .setContentText(text)
+            .setContentIntent(PendingIntent.getActivity(this, 0,
+                Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setOngoing(true)
             .build()
 
