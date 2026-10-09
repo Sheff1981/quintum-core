@@ -217,6 +217,22 @@ bool wait_socket(
             if (failure_error) *failure_error = EBADF;
             return false;
         }
+        // POLLERR/POLLHUP alone are not requested read/write readiness.
+        // Surface the socket failure instead of treating a dead peer as ready.
+        if (result > 0 &&
+            (descriptor.revents & (POLLERR | POLLHUP)) != 0 &&
+            (descriptor.revents & (write ? POLLOUT : POLLIN)) == 0) {
+            int socket_error = 0;
+            socklen_t socket_error_size = sizeof(socket_error);
+            if (getsockopt(socket, SOL_SOCKET, SO_ERROR,
+                    &socket_error, &socket_error_size) != 0 ||
+                socket_error == 0) {
+                socket_error = last_socket_error();
+                if (socket_error == 0) socket_error = ECONNRESET;
+            }
+            if (failure_error) *failure_error = socket_error;
+            return false;
+        }
 #endif
         if (result >= 0) return result > 0;
         if (!interrupted_socket_call()) {
