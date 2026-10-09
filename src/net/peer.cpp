@@ -248,6 +248,25 @@ bool set_io_timeout(
 #endif
 }
 
+struct SocketIoFailure {
+    int error{0};
+    bool remote_closed{false};
+    std::size_t transferred{0U};
+};
+
+// Each handshake runs on one thread. Preserve the failing syscall evidence
+// before close/logging can overwrite errno, without changing wire behavior.
+thread_local SocketIoFailure last_io_failure{};
+
+void attach_io_failure(PeerHandshakeResult& result) noexcept
+{
+    if (result.error != PeerError::send_failed &&
+        result.error != PeerError::receive_failed) return;
+    result.socket_error = last_io_failure.error;
+    result.remote_closed = last_io_failure.remote_closed;
+    result.partial_io_bytes = last_io_failure.transferred;
+}
+
 bool send_all(
     NativeSocket socket,
     std::span<const Byte> bytes) noexcept
@@ -283,6 +302,7 @@ bool send_all(
 
         if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
+            last_io_failure = {result < 0 ? last_socket_error() : 0, false, sent};
 #ifdef __ANDROID__
             const int socket_error = result < 0 ? last_socket_error() : 0;
             __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
@@ -333,6 +353,7 @@ bool receive_exact(
 
         if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
+            last_io_failure = {result < 0 ? last_socket_error() : 0, result == 0, received};
 #ifdef __ANDROID__
             const int socket_error = result < 0 ? last_socket_error() : 0;
             __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
@@ -1905,6 +1926,7 @@ PeerHandshakeResult connect_and_handshake(
     std::uint32_t timeout_ms)
 {
     PeerHandshakeResult out;
+    last_io_failure = {};
     PeerError dial_error{PeerError::none};
 
     NativeSocket connected =
@@ -1927,10 +1949,12 @@ PeerHandshakeResult connect_and_handshake(
     );
 
     if (!out.ok()) {
+        attach_io_failure(out);
 #ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_WARN, "QUINTUM-HANDSHAKE",
-            "handshake failed phase=%s peer_error=%d wire_error=%d",
-            out.phase.data(), static_cast<int>(out.error), static_cast<int>(out.wire_error));
+            "handshake failed phase=%s peer_error=%d wire_error=%d errno=%d eof=%d partial_bytes=%zu",
+            out.phase.data(), static_cast<int>(out.error), static_cast<int>(out.wire_error),
+            out.socket_error, out.remote_closed ? 1 : 0, out.partial_io_bytes);
 #endif
         close_native(connected);
     }
@@ -1947,6 +1971,7 @@ PeerHandshakeResult connect_and_handshake(
     const Socks5Proxy& proxy)
 {
     PeerHandshakeResult out;
+    last_io_failure = {};
 
     if (!proxy.valid()) {
         out.error =
@@ -1988,6 +2013,7 @@ PeerHandshakeResult connect_and_handshake(
     );
 
     if (!out.ok()) {
+        attach_io_failure(out);
 #ifdef __ANDROID__
         __android_log_print(ANDROID_LOG_WARN, "QUINTUM-HANDSHAKE",
             "handshake failed peer_error=%d wire_error=%d",

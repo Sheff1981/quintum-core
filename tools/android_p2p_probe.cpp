@@ -39,6 +39,9 @@ int main(int argc, char** argv)
               << " phase=" << result.phase
               << " peer_error=" << static_cast<int>(result.error)
               << " wire_error=" << static_cast<int>(result.wire_error)
+              << " socket_error=" << result.socket_error
+              << " remote_closed=" << result.remote_closed
+              << " partial_io_bytes=" << result.partial_io_bytes
               << " elapsed_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
                      std::chrono::steady_clock::now() - started).count() << std::endl;
     if (!result.ok()) return 1;
