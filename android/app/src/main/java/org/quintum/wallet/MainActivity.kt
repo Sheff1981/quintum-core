@@ -322,7 +322,6 @@ private fun QuintumHome() {
                     }
                     Spacer(Modifier.height(12.dp))
                 }
-            }
             } else when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
