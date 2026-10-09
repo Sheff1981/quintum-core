@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -639,12 +640,20 @@ private:
     std::atomic<std::size_t> known_address_count_{0U};
 #ifdef __ANDROID__
 public:
+    [[nodiscard]] std::uint64_t android_connect_elapsed_ms() const noexcept
+    { const auto started = android_connect_started_ms_.load(std::memory_order_relaxed);
+      if (started == 0U) return 0U;
+      const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count();
+      return now > 0 && static_cast<std::uint64_t>(now) >= started
+          ? static_cast<std::uint64_t>(now) - started : 0U; }
     [[nodiscard]] std::string android_peer_details() const
     { std::scoped_lock lock(android_peer_details_mutex_); return android_peer_details_; }
     [[nodiscard]] int android_p2p_diagnostic() const noexcept
     { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
 private:
     std::atomic<int> android_p2p_diagnostic_{0};
+    std::atomic<std::uint64_t> android_connect_started_ms_{0U};
     mutable std::mutex android_peer_details_mutex_{};
     std::string android_peer_details_{};
 #endif
