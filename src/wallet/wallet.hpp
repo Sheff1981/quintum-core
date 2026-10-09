@@ -287,6 +287,13 @@ public:
         std::string_view passphrase
     );
 
+    // Restore deterministic keys offline. Transaction history must be
+    // discovered separately after connecting to a validated chain source.
+    [[nodiscard]] WalletStoreError recover_keys_from_mnemonic(
+        std::string_view mnemonic,
+        std::string_view passphrase
+    );
+
     [[nodiscard]] WalletRecoveryResult recover_from_mnemonic(
         std::string_view mnemonic,
         std::string_view passphrase,
