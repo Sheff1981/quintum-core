@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.PowerManager
+import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import org.quintum.wallet.MainActivity
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 /**
  * Owns the lifetime of QUINTUM Core while the user explicitly keeps the node
@@ -27,6 +29,7 @@ class NodeService : Service() {
     @Volatile private var startRequested = false
     @Volatile private var destroyed = false
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var thermalStopIssued = false
 
     private fun diagnosticEvent(name: String) {
         diagnosticExecutor.execute {
@@ -49,6 +52,7 @@ class NodeService : Service() {
         createChannel()
         try {
             startForeground(NOTIFICATION_ID, notification("Starting QUINTUM node"))
+            scope.launch { enforceMiningThermalSafety() }
             wakeLock = getSystemService(PowerManager::class.java)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QUINTUM:Node").apply {
                     setReferenceCounted(false)
@@ -105,6 +109,29 @@ class NodeService : Service() {
         }
 
         return START_STICKY
+    }
+
+    /** Thermal enforcement belongs to the foreground service, not a visible screen.
+     * Closing the mining page must never disable overheat protection.
+     */
+    private suspend fun enforceMiningThermalSafety() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val power = getSystemService(PowerManager::class.java)
+        while (!destroyed) {
+            try {
+                val hot = power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
+                if (!hot) thermalStopIssued = false
+                if (hot && !thermalStopIssued && NativeCore.nativeMiningRunning()) {
+                    thermalStopIssued = true
+                    NativeCore.nativeStopMining()
+                    recordStatus("Mining stopped: device thermal status is severe or higher")
+                    android.util.Log.w("QUINTUM-Node", "Mining stopped by background thermal guard")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("QUINTUM-Node", "Thermal guard status unavailable", e)
+            }
+            delay(3000)
+        }
     }
 
     override fun onDestroy() {
