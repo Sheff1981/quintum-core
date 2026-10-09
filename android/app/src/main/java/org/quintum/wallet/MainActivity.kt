@@ -443,9 +443,24 @@ private fun QuintumHome() {
                     }
                 )
                 Page.Wallet -> {
-                    DetailCard("Wallet", "Not yet enabled in Android Testnet")
+                    DetailCard("QUINTUM Wallet", "Testnet · Wallet setup")
                     Spacer(Modifier.height(12.dp))
-                    Text("Receiving, sending and balance will appear here after secure QUINTUM wallet integration. No simulated funds.", color = Muted)
+                    Text("New to QUINTUM? Choose how to set up your wallet.", color = Muted)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                        Text("Create new wallet — coming soon")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                        Text("Restore wallet — coming soon")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Wallet creation and recovery are disabled until native key generation, encrypted storage, verified backup and restore, and light-wallet synchronization pass security tests. No keys or addresses are simulated.",
+                        color = Muted
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Existing node data is preserved. Never enter a recovery phrase into an unverified test build.", color = Muted)
                 }
                 Page.Mining -> MiningScreen()
                 Page.Device -> stats.stats?.let { DeviceMiningStatsCard(it) }
