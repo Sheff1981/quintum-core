@@ -2,8 +2,6 @@ package org.quintum.wallet.mining
 
 import android.content.Context
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import org.quintum.wallet.core.NativeCore
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -44,7 +42,7 @@ fun MiningScreen() {
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Mining", style = MaterialTheme.typography.headlineMedium)
         Text("RandomX Testnet · real Proof-of-Work")
         Text(if (nodeRunning) "Node: running" else "Node: connecting…")

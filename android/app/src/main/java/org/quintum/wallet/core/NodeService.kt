@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.os.PowerManager
 import android.os.IBinder
 import android.os.SystemClock
 import org.quintum.wallet.MainActivity
@@ -25,7 +26,7 @@ class NodeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var startRequested = false
     @Volatile private var destroyed = false
-    private val lifecycleLock = Any()
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private fun recordStatus(message: String) {
         getSharedPreferences("node_status", MODE_PRIVATE).edit()
@@ -38,29 +39,34 @@ class NodeService : Service() {
         createChannel()
         try {
             startForeground(NOTIFICATION_ID, notification("Starting QUINTUM node"))
+            wakeLock = getSystemService(PowerManager::class.java)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QUINTUM:Node").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
         } catch (e: RuntimeException) {
             android.util.Log.e("QUINTUM-Node", "Foreground service startup rejected", e)
+            destroyed = true
             recordStatus("Android rejected foreground service: ${e.javaClass.simpleName}")
             stopSelf()
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (destroyed) return START_NOT_STICKY
         if (startRequested) return START_STICKY
         startRequested = true
         recordStatus("Initializing native QUINTUM Core")
         scope.launch {
             val startedAt = SystemClock.elapsedRealtime()
             try {
-                val result = synchronized(lifecycleLock) {
-                    if (destroyed) -1 else {
+                val result = ownership.start(this@NodeService, { destroyed }) {
                         val dataDir = filesDir.resolve("core")
                         if (!dataDir.isDirectory && !dataDir.mkdirs()) {
                             android.util.Log.e("QUINTUM-Node", "Unable to create core data directory")
                             recordStatus("Cannot create node data directory")
                             -2
                         } else NativeCore.nativeStart(dataDir.absolutePath)
-                    }
                 }
                 val elapsedMs = SystemClock.elapsedRealtime() - startedAt
                 android.util.Log.i("QUINTUM-Node", "Native startup result=$result duration_ms=$elapsedMs")
@@ -89,10 +95,20 @@ class NodeService : Service() {
     override fun onDestroy() {
         destroyed = true
         scope.cancel()
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
         Thread {
-            synchronized(lifecycleLock) { NativeCore.nativeStop() }
+            ownership.stop(this@NodeService) { NativeCore.nativeStop() }
         }.start()
         super.onDestroy()
+    }
+
+    // Android 15 limits background dataSync foreground services. Stop promptly
+    // when the platform budget expires rather than triggering an ANR/crash.
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        recordStatus("Android foreground data-sync time limit reached; reopen app to resume")
+        android.util.Log.w("QUINTUM-Node", "Foreground timeout startId=$startId type=$fgsType")
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -121,6 +137,7 @@ class NodeService : Service() {
             .build()
 
     private companion object {
+        val ownership = NodeOwnership()
         const val CHANNEL_ID = "quintum-node"
         const val NOTIFICATION_ID = 1001
     }

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <chrono>
 #include <cstring>
 #include <limits>
 #include <string>
@@ -158,42 +159,45 @@ bool connect_in_progress(int error) noexcept
 #endif
 }
 
+bool interrupted_socket_call() noexcept
+{
+#ifdef _WIN32
+    return last_socket_error() == WSAEINTR;
+#else
+    return last_socket_error() == EINTR;
+#endif
+}
+
 bool wait_socket(
     NativeSocket socket,
     bool write,
     std::uint32_t timeout_ms) noexcept
 {
-    fd_set set;
-    FD_ZERO(&set);
-    FD_SET(socket, &set);
-
-    timeval timeout{};
-    timeout.tv_sec =
-        static_cast<long>(timeout_ms / 1'000U);
-    timeout.tv_usec =
-        static_cast<long>(
-            (timeout_ms % 1'000U) * 1'000U
-        );
-
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(timeout_ms);
+    for (;;) {
+        fd_set set;
+        FD_ZERO(&set);
+        FD_SET(socket, &set);
+        const auto remaining = std::max<std::int64_t>(0,
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                deadline - std::chrono::steady_clock::now()).count());
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remaining / 1'000'000);
+        timeout.tv_usec = static_cast<long>(remaining % 1'000'000);
+        const int result = select(
 #ifdef _WIN32
-    const int result = select(
-        0,
-        write ? nullptr : &set,
-        write ? &set : nullptr,
-        nullptr,
-        &timeout
-    );
+            0,
 #else
-    const int result = select(
-        socket + 1,
-        write ? nullptr : &set,
-        write ? &set : nullptr,
-        nullptr,
-        &timeout
-    );
+            socket + 1,
 #endif
-
-    return result > 0;
+            write ? nullptr : &set,
+            write ? &set : nullptr,
+            nullptr, &timeout);
+        if (result >= 0) return result > 0;
+        if (!interrupted_socket_call() ||
+            std::chrono::steady_clock::now() >= deadline) return false;
+    }
 }
 
 bool set_io_timeout(
@@ -244,6 +248,25 @@ bool set_io_timeout(
 #endif
 }
 
+struct SocketIoFailure {
+    int error{0};
+    bool remote_closed{false};
+    std::size_t transferred{0U};
+};
+
+// Each handshake runs on one thread. Preserve the failing syscall evidence
+// before close/logging can overwrite errno, without changing wire behavior.
+thread_local SocketIoFailure last_io_failure{};
+
+void attach_io_failure(PeerHandshakeResult& result) noexcept
+{
+    if (result.error != PeerError::send_failed &&
+        result.error != PeerError::receive_failed) return;
+    result.socket_error = last_io_failure.error;
+    result.remote_closed = last_io_failure.remote_closed;
+    result.partial_io_bytes = last_io_failure.transferred;
+}
+
 bool send_all(
     NativeSocket socket,
     std::span<const Byte> bytes) noexcept
@@ -277,7 +300,15 @@ bool send_all(
         ));
 #endif
 
+        if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
+            last_io_failure = {result < 0 ? last_socket_error() : 0, false, sent};
+#ifdef __ANDROID__
+            const int socket_error = result < 0 ? last_socket_error() : 0;
+            __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
+                "socket I/O failed result=%d errno=%d (%s)", result,
+                socket_error, result == 0 ? "remote closed" : std::strerror(socket_error));
+#endif
             return false;
         }
 
@@ -320,7 +351,15 @@ bool receive_exact(
         ));
 #endif
 
+        if (result < 0 && interrupted_socket_call()) continue;
         if (result <= 0) {
+            last_io_failure = {result < 0 ? last_socket_error() : 0, result == 0, received};
+#ifdef __ANDROID__
+            const int socket_error = result < 0 ? last_socket_error() : 0;
+            __android_log_print(ANDROID_LOG_WARN, "QUINTUM-SOCKET",
+                "socket I/O failed result=%d errno=%d (%s)", result,
+                socket_error, result == 0 ? "remote closed" : std::strerror(socket_error));
+#endif
             return false;
         }
 
@@ -804,6 +843,12 @@ NativeSocket connect_tcp_socket(
             continue;
         }
 
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_INFO, "QUINTUM-SOCKET",
+            "TCP connect endpoint=%s:%u family=%d timeout_ms=%u",
+            host_text.c_str(), static_cast<unsigned>(port), current->ai_family,
+            static_cast<unsigned>(timeout_ms));
+#endif
         const int result = ::connect(
             candidate,
             current->ai_addr,
@@ -964,6 +1009,7 @@ PeerHandshakeResult outbound_handshake(
     const auto version_payload =
         serialize_version(local);
 
+    out.phase = "version-send";
     auto error = send_plain_message(
         socket,
         params,
@@ -982,6 +1028,7 @@ PeerHandshakeResult outbound_handshake(
     __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "version sent; waiting for remote version");
 #endif
     WireMessage remote_message;
+    out.phase = "version-receive";
     error = receive_plain_message(
         socket,
         params,
@@ -1025,6 +1072,7 @@ PeerHandshakeResult outbound_handshake(
         return out;
     }
 
+    out.phase = "verack-send";
     error = send_plain_message(
         socket,
         params,
@@ -1043,6 +1091,7 @@ PeerHandshakeResult outbound_handshake(
     __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE", "verack sent; waiting for remote verack");
 #endif
     WireMessage verack;
+    out.phase = "verack-receive";
     error = receive_plain_message(
         socket,
         params,
@@ -1063,7 +1112,13 @@ PeerHandshakeResult outbound_handshake(
     }
 
     std::unique_ptr<V2Transport> transport;
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE",
+        "version/verack completed; encrypted_upgrade=%d",
+        supports_v2_transport(local, *remote) ? 1 : 0);
+#endif
     if (supports_v2_transport(local, *remote)) {
+        out.phase = "encrypted-upgrade";
         transport = outbound_v2_upgrade(
             socket,
             params,
@@ -1077,6 +1132,12 @@ PeerHandshakeResult outbound_handshake(
         }
     }
 
+#ifdef __ANDROID__
+    __android_log_print(ANDROID_LOG_INFO, "QUINTUM-HANDSHAKE",
+        "handshake completed protocol=%u remote_height=%u encrypted=%d",
+        remote->protocol_version, remote->start_height, transport ? 1 : 0);
+#endif
+    out.phase = "completed";
     out.session.emplace(
         params,
         store_socket(socket),
@@ -1865,6 +1926,7 @@ PeerHandshakeResult connect_and_handshake(
     std::uint32_t timeout_ms)
 {
     PeerHandshakeResult out;
+    last_io_failure = {};
     PeerError dial_error{PeerError::none};
 
     NativeSocket connected =
@@ -1887,6 +1949,13 @@ PeerHandshakeResult connect_and_handshake(
     );
 
     if (!out.ok()) {
+        attach_io_failure(out);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_WARN, "QUINTUM-HANDSHAKE",
+            "handshake failed phase=%s peer_error=%d wire_error=%d errno=%d eof=%d partial_bytes=%zu",
+            out.phase.data(), static_cast<int>(out.error), static_cast<int>(out.wire_error),
+            out.socket_error, out.remote_closed ? 1 : 0, out.partial_io_bytes);
+#endif
         close_native(connected);
     }
 
@@ -1902,6 +1971,7 @@ PeerHandshakeResult connect_and_handshake(
     const Socks5Proxy& proxy)
 {
     PeerHandshakeResult out;
+    last_io_failure = {};
 
     if (!proxy.valid()) {
         out.error =
@@ -1943,6 +2013,12 @@ PeerHandshakeResult connect_and_handshake(
     );
 
     if (!out.ok()) {
+        attach_io_failure(out);
+#ifdef __ANDROID__
+        __android_log_print(ANDROID_LOG_WARN, "QUINTUM-HANDSHAKE",
+            "handshake failed peer_error=%d wire_error=%d",
+            static_cast<int>(out.error), static_cast<int>(out.wire_error));
+#endif
         close_native(connected);
     }
 
@@ -2003,3 +2079,4 @@ void ConnectionManager::disconnect_all() noexcept
 }
 
 } // namespace quintum::net
+

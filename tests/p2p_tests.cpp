@@ -551,8 +551,14 @@ void test_adversarial_wire_frame_corpus()
 
 } // namespace
 
+#include "interrupted_receive_test.inc"
+
 int main()
 {
+#ifndef _WIN32
+    test_interrupted_peer_receive();
+    test_interrupted_peer_receive(true);
+#endif
     test_wire_protocol();
     test_two_peer_handshake_and_ping();
     test_encrypted_peer_handshake_and_ping();

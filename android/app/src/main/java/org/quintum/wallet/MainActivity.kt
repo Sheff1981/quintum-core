@@ -57,6 +57,10 @@ private fun p2pDiagnosticMessage(code: Int): String {
         code == 0 -> "No connection attempt recorded"
         code == 10 -> "Selecting a peer / connecting"
         code == 4000 -> "P2P handshake and peer setup completed"
+        code == 4001 -> "Handshake completed; negotiating chainwork"
+        code == 4002 -> "Handshake completed; initial blockchain synchronization"
+        code == 4003 -> "Blockchain synchronization completed; exchanging peer addresses"
+        code == 4004 -> "Exchanging mempool after blockchain synchronization"
         code == 3001 || code == 3002 -> "Handshake succeeded, but sync / peer setup failed (code $code)"
         code in 2000..2399 -> {
             val discovery = (code - 2000) / 100
@@ -127,13 +131,24 @@ private fun QuintumHome() {
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Triple(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()) }
+                runCatching {
+                    val snapshot = Triple(
+                        Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()),
+                        NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()
+                    )
+                    snapshot to Triple(
+                        NativeCore.nativeConnectElapsedMs(),
+                        NativeCore.nativeLastConnectError(),
+                        NativeCore.nativeConnectAttempts()
+                    )
+                }
             }
-            result.onSuccess { (snapshotTriple, diagnostic, details) ->
+            result.onSuccess { (polled, connection) ->
+                    val (snapshotTriple, diagnostic, details) = polled
                     peerDetails = details
-                    connectElapsedMs = NativeCore.nativeConnectElapsedMs()
-                    lastConnectError = NativeCore.nativeLastConnectError()
-                    connectAttempts = NativeCore.nativeConnectAttempts()
+                    connectElapsedMs = connection.first
+                    lastConnectError = connection.second
+                    connectAttempts = connection.third
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
                     diagnosticUpdatedAt = System.currentTimeMillis()
