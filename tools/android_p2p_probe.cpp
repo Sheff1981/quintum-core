@@ -16,6 +16,16 @@ int main(int argc, char** argv)
         return 2;
     }
     const auto& params = consensus::randomx_testnet_params();
+    // P2P v2 requires a nonzero advertised listening port. Use a real
+    // ephemeral listener as the runtime does, rather than sending an invalid
+    // version that the remote parser rejects before replying.
+    PeerListener listener(params);
+    const auto listen_error = listener.listen("127.0.0.1", 0U);
+    if (listen_error != PeerError::none) {
+        std::cerr << "phase=local-listener peer_error="
+                  << static_cast<int>(listen_error) << std::endl;
+        return 2;
+    }
     std::random_device random;
     const auto nonce = (static_cast<std::uint64_t>(random()) << 32U) |
         static_cast<std::uint64_t>(random());
@@ -30,8 +40,12 @@ int main(int argc, char** argv)
         .timestamp = now,
         .nonce = nonce == 0U ? 1U : nonce,
         .start_height = 0U,
-        .listen_port = 0U,
+        .listen_port = listener.local_port(),
     };
+    if (!parse_version(serialize_version(local))) {
+        std::cerr << "Invalid local version; refusing a misleading live probe" << std::endl;
+        return 2;
+    }
     const auto started = std::chrono::steady_clock::now();
     auto result = connect_and_handshake(params, argv[1], params.p2p_port, local, 5'000U);
     std::cout << "endpoint=" << argv[1] << ':' << params.p2p_port
