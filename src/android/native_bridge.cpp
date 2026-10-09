@@ -20,6 +20,8 @@
 namespace {
 
 std::mutex g_mutex;
+// One lock for all wallet provisioning operations to prevent concurrent writes.
+std::mutex g_wallet_provision_mutex;
 std::unique_ptr<quintum::net::NetworkRuntime> g_runtime;
 
 // The diagnostic journal has a separate lifetime and lock. Reading it must
@@ -107,8 +109,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeCreateEncryptedWallet(
     if (passphrase.empty()) return nullptr;
 
     // Serialize provisioning against itself; do not share node wallet state.
-    static std::mutex wallet_mutex;
-    std::scoped_lock lock(wallet_mutex);
+    std::scoped_lock lock(g_wallet_provision_mutex);
     std::error_code ec;
     if (std::filesystem::exists(root / "wallet.dat", ec) || ec)
         return nullptr;
@@ -148,8 +149,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeRestoreEncryptedWallet(
     std::string passphrase{raw_password};
     env->ReleaseStringUTFChars(password, raw_password);
 
-    static std::mutex restore_mutex;
-    std::scoped_lock lock(restore_mutex);
+    std::scoped_lock lock(g_wallet_provision_mutex);
     std::error_code ec;
     if (std::filesystem::exists(root / "wallet.dat", ec) || ec ||
         passphrase.empty()) {
