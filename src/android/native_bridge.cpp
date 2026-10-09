@@ -125,6 +125,51 @@ Java_org_quintum_wallet_core_NativeCore_nativeCreateEncryptedWallet(
     return env->NewStringUTF(result.receive_address.c_str());
 }
 
+// Restore encrypted deterministic keys without starting a full node.
+// Never overwrite an existing wallet, and never log the recovery phrase.
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeRestoreEncryptedWallet(
+    JNIEnv* env, jobject, jstring directory, jstring mnemonic, jstring password)
+{
+    if (!directory || !mnemonic || !password) return nullptr;
+    const char* raw_path = env->GetStringUTFChars(directory, nullptr);
+    if (!raw_path) return nullptr;
+    const std::filesystem::path root{raw_path};
+    env->ReleaseStringUTFChars(directory, raw_path);
+    const char* raw_phrase = env->GetStringUTFChars(mnemonic, nullptr);
+    if (!raw_phrase) return nullptr;
+    std::string phrase{raw_phrase};
+    env->ReleaseStringUTFChars(mnemonic, raw_phrase);
+    const char* raw_password = env->GetStringUTFChars(password, nullptr);
+    if (!raw_password) {
+        std::fill(phrase.begin(), phrase.end(), '\0');
+        return nullptr;
+    }
+    std::string passphrase{raw_password};
+    env->ReleaseStringUTFChars(password, raw_password);
+
+    static std::mutex restore_mutex;
+    std::scoped_lock lock(restore_mutex);
+    std::error_code ec;
+    if (std::filesystem::exists(root / "wallet.dat", ec) || ec ||
+        passphrase.empty()) {
+        std::fill(phrase.begin(), phrase.end(), '\0');
+        std::fill(passphrase.begin(), passphrase.end(), '\0');
+        return nullptr;
+    }
+    const auto& params = quintum::consensus::chain_params(
+        quintum::consensus::Network::randomx_testnet);
+    quintum::wallet::Wallet wallet(params, root);
+    const auto result = wallet.recover_keys_from_mnemonic(phrase, passphrase);
+    std::fill(phrase.begin(), phrase.end(), '\0');
+    std::fill(passphrase.begin(), passphrase.end(), '\0');
+    if (result != quintum::wallet::WalletStoreError::none)
+        return nullptr;
+    const auto addresses = wallet.addresses();
+    if (addresses.empty()) return nullptr;
+    return env->NewStringUTF(addresses.front().c_str());
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativeStart(
     JNIEnv* env,
