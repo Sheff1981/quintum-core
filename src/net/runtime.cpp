@@ -614,6 +614,16 @@ bool NetworkRuntime::running() const noexcept
 
 NetworkRuntimeStatus NetworkRuntime::status() const
 {
+    return status_impl(true);
+}
+
+NetworkRuntimeStatus NetworkRuntime::status_nonblocking() const
+{
+    return status_impl(false);
+}
+
+NetworkRuntimeStatus NetworkRuntime::status_impl(bool wait_for_chain) const
+{
     NetworkRuntimeStatus out;
     out.running = running_.load();
     out.wallet_enabled = wallet_enabled_;
@@ -628,7 +638,15 @@ NetworkRuntimeStatus NetworkRuntime::status() const
     out.nat_external_port =
         nat_external_port_.load();
 
-    std::scoped_lock lock(state_mutex_);
+    // Initial sync holds this mutex across network reads and block validation.
+    // UI callers still receive current atomic network counters; optional chain
+    // values remain absent until a consistent chain snapshot is available.
+    std::unique_lock lock(state_mutex_, std::defer_lock);
+    if (wait_for_chain) {
+        lock.lock();
+    } else if (!lock.try_lock()) {
+        return out;
+    }
 
     out.height = node_.chain().height();
 

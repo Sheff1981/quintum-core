@@ -131,13 +131,24 @@ private fun QuintumHome() {
     LaunchedEffect(Unit) {
         while (true) {
             val result = withContext(Dispatchers.IO) {
-                runCatching { Triple(Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()), NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()) }
+                runCatching {
+                    val snapshot = Triple(
+                        Triple(NativeCore.nativeRunning(), controller.snapshot(), NativeCore.nativeKnownAddressCount()),
+                        NativeCore.nativeP2pDiagnostic(), NativeCore.nativePeerDetails()
+                    )
+                    snapshot to Triple(
+                        NativeCore.nativeConnectElapsedMs(),
+                        NativeCore.nativeLastConnectError(),
+                        NativeCore.nativeConnectAttempts()
+                    )
+                }
             }
-            result.onSuccess { (snapshotTriple, diagnostic, details) ->
+            result.onSuccess { (polled, connection) ->
+                    val (snapshotTriple, diagnostic, details) = polled
                     peerDetails = details
-                    connectElapsedMs = NativeCore.nativeConnectElapsedMs()
-                    lastConnectError = NativeCore.nativeLastConnectError()
-                    connectAttempts = NativeCore.nativeConnectAttempts()
+                    connectElapsedMs = connection.first
+                    lastConnectError = connection.second
+                    connectAttempts = connection.third
                     val (running, snapshot, known) = snapshotTriple
                     p2pDiagnostic = diagnostic
                     diagnosticUpdatedAt = System.currentTimeMillis()

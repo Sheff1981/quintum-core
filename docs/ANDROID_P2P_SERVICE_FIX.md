@@ -23,3 +23,20 @@ The interrupted-I/O test runs against a real socket pair with a non-restarting s
 Install the fix-branch APK as an update without uninstalling or clearing data. Record its source SHA, UTC time, device/Android version, VPN state and transport. Capture `QUINTUM-SOCKET`, `QUINTUM-HANDSHAKE`, `QUINTUM-SYNC`, `QUINTUM-P2P` and `QUINTUM-Node` logcat tags, then correlate with seed logs. Verify version/verack and encrypted upgrade, chainwork, peer count above zero, validated height convergence, screen-off operation, network transitions and restart reconnect. Confirm app data survives upgrade. Do not include keys, mnemonic, signing secrets or RPC cookies in diagnostic reports.
 
 Do not close the original Android P2P incident solely because CI passes.
+
+## Responsive Android status polling
+
+Initial sync holds the chain-state mutex across network reads and validation. JNI
+previously called blocking `status()` while holding the runtime lifetime mutex,
+preventing all diagnostic reads until sync finished. Android now uses
+`status_nonblocking()`: atomic network counters remain available, while optional
+height and difficulty are unavailable when a consistent chain snapshot cannot
+be obtained immediately. The ordinary blocking status API remains unchanged.
+All connection diagnostic JNI calls in the Compose polling loop run on the IO
+dispatcher. Peer count continues to mean fully prepared peers, so zero during
+initial sync does not imply a failed version/verack handshake.
+
+The regression test completes a real handshake with a higher peer, receives its
+getheaders request and deliberately withholds the response. It requires status
+polling to return within one second despite the five-second socket timeout,
+then verifies chain status becomes available again after the peer disconnects.

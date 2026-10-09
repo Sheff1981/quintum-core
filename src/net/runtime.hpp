@@ -267,7 +267,7 @@ public:
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] NetworkRuntimeStatus status() const;
     // UI polling must remain responsive while initial sync owns chain state.
-    [[nodiscard]] NetworkRuntimeStatus status_nonblocking() const { return status(); }
+    [[nodiscard]] NetworkRuntimeStatus status_nonblocking() const;
 
     [[nodiscard]] std::vector<
         wallet::WalletTransactionRecord>
@@ -416,6 +416,8 @@ public:
     ) const;
 
 private:
+    [[nodiscard]] NetworkRuntimeStatus status_impl(bool wait_for_chain) const;
+
     struct PendingAnnouncement {
         std::uint32_t type{0U};
         Hash256 hash{};

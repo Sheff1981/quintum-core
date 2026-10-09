@@ -200,7 +200,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeBlockHeight(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return -1;
-    const auto value = g_runtime->status().height;
+    const auto value = g_runtime->status_nonblocking().height;
     return value ? static_cast<jlong>(*value) : -1;
 }
 
@@ -209,7 +209,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeKnownAddressCount(JNIEnv*, jobject
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return 0;
-    return static_cast<jlong>(g_runtime->status().known_addresses);
+    return static_cast<jlong>(g_runtime->status_nonblocking().known_addresses);
 }
 
 extern "C" JNIEXPORT jlong JNICALL
@@ -217,7 +217,7 @@ Java_org_quintum_wallet_core_NativeCore_nativePeerCount(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return 0;
-    return static_cast<jlong>(g_runtime->status().peers);
+    return static_cast<jlong>(g_runtime->status_nonblocking().peers);
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
@@ -225,7 +225,7 @@ Java_org_quintum_wallet_core_NativeCore_nativeDifficulty(JNIEnv*, jobject)
 {
     std::scoped_lock lock(g_mutex);
     if (!g_runtime) return -1.0;
-    const auto value = g_runtime->status().difficulty;
+    const auto value = g_runtime->status_nonblocking().difficulty;
     return value ? static_cast<jdouble>(*value) : -1.0;
 }
 
