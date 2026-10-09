@@ -3,6 +3,9 @@ package org.quintum.wallet.mining
 import android.content.Context
 import android.os.Build
 import android.os.PowerManager
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +24,11 @@ class MiningController(
 
     suspend fun start(payoutAddress: String, threads: Int): Int =
         withContext(Dispatchers.IO) {
+            val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val batteryStatus = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val charging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING || batteryStatus == BatteryManager.BATTERY_STATUS_FULL
+            if (!charging) return@withContext 5
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && ThermalGuard.shouldStop(powerManager.currentThermalStatus)) return@withContext 6
             NativeCore.nativeStartMining(payoutAddress.trim(), threads)
         }
 
