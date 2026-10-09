@@ -540,6 +540,7 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     running_.store(true);
 
     try {
+        validation_worker_ = std::make_unique<ValidationWorker>();
         worker_ = std::thread(
             [this] {
                 run_loop();
@@ -549,6 +550,7 @@ NetworkRuntimeStartResult NetworkRuntime::start(
         running_.store(false);
         stop_requested_.store(true);
         listener_.close();
+        validation_worker_.reset();
         listen_port_.store(0U);
         out.error =
             NetworkRuntimeStartError::
@@ -580,7 +582,8 @@ void NetworkRuntime::stop() noexcept
 {
     if (!running_.load() &&
         !worker_.joinable() &&
-        !nat_worker_.joinable()) {
+        !nat_worker_.joinable() &&
+        !validation_worker_) {
         return;
     }
 
@@ -589,6 +592,13 @@ void NetworkRuntime::stop() noexcept
     if (worker_.joinable()) {
         worker_.join();
     }
+
+    // Cancellation is observed between hashes and socket operations. Join
+    // before destroying peer, node, diagnostics or configuration ownership.
+    if (validation_worker_) validation_worker_->stop();
+    validation_worker_.reset();
+    initialization_result_.reset();
+    initializing_peer_.reset();
 
     if (nat_worker_.joinable()) {
         nat_worker_.join();
@@ -624,7 +634,24 @@ void NetworkRuntime::stop() noexcept
     outbound_count_.store(0U);
     listen_port_.store(0U);
     running_.store(false);
+    observe(config_.diagnostics, [](auto& d) {
+        d.gauge("core_running", 0U); d.gauge("active_peers", 0U);
+        d.gauge("initializing_peers", 0U); d.peer_state("disconnected", "shutdown");
+    });
 }
+
+#ifdef __ANDROID__
+std::string NetworkRuntime::android_peer_details() const
+{
+    std::string details;
+    {
+        std::scoped_lock lock(android_peer_details_mutex_);
+        details = android_peer_details_;
+    }
+    if (config_.diagnostics) details += "\nPeer state: " + config_.diagnostics->peer_state_description();
+    return details;
+}
+#endif
 
 bool NetworkRuntime::running() const noexcept
 {
@@ -657,9 +684,9 @@ NetworkRuntimeStatus NetworkRuntime::status_impl(bool wait_for_chain) const
     out.nat_external_port =
         nat_external_port_.load();
 
-    // Initial sync holds this mutex across network reads and block validation.
-    // UI callers still receive current atomic network counters; optional chain
-    // values remain absent until a consistent chain snapshot is available.
+    // UI callers receive atomic network counters while a chain mutation or
+    // wallet update is being committed. Header hashing and socket waits run
+    // outside this mutex on the bounded initial synchronization worker.
     std::unique_lock lock(state_mutex_, std::defer_lock);
     if (wait_for_chain) {
         lock.lock();
@@ -1844,6 +1871,7 @@ void NetworkRuntime::run_loop() noexcept
                 android_p2p_diagnostic_.store(11, std::memory_order_relaxed);
             }
 #endif
+            finish_initial_peer(now);
             // Outbound discovery must not wait behind inbound handshake polling.
             maintain_outbound(now);
 #ifdef __ANDROID__
@@ -1878,7 +1906,7 @@ void NetworkRuntime::run_loop() noexcept
                 if (height) {
                     observe(config_.diagnostics, [&](auto& diagnostics) {
                         diagnostics.local_height(*height);
-                        if (!pending) {
+                        if (!pending && !initializing_peer_) {
                             diagnostics.synchronized();
                         }
                     });
@@ -1912,7 +1940,7 @@ void NetworkRuntime::run_loop() noexcept
 void NetworkRuntime::accept_inbound(
     std::uint64_t now)
 {
-    if (peers_.size() >=
+    if (initializing_peer_ || peers_.size() >=
         config_.max_connections) {
         return;
     }
@@ -1977,24 +2005,14 @@ void NetworkRuntime::accept_inbound(
     peer.reported_height =
         peer.session.remote_version().start_height;
 
-    if (!prepare_live_peer(
-            peer,
-            now,
-            false)) {
-        peer.session.close();
-        return;
-    }
+    (void)begin_initial_peer(std::move(peer), now, false);
 
-    peers_.push_back(
-        std::move(peer)
-    );
-    update_peer_counts();
 }
 
 void NetworkRuntime::maintain_outbound(
     std::uint64_t now)
 {
-    if (outbound_count_.load() >=
+    if (initializing_peer_ || outbound_count_.load() >=
         config_.target_outbound ||
         peers_.size() >=
             config_.max_connections ||
@@ -2074,62 +2092,12 @@ void NetworkRuntime::maintain_outbound(
         peer.reported_height =
             peer.session.remote_version().start_height;
 
-        if (!prepare_live_peer(
-                peer,
-                now,
-                true)) {
-#ifdef __ANDROID__
-            android_p2p_diagnostic_.store(3001);
-        android_last_connect_error_.store(3001);
-            log_outbound_failure("reconnect-post-handshake", it->address, -1);
-#endif
-            peer.session.close();
-            addrman_.mark_failure(
-                it->address,
-                now
-            );
-            (void)addrman_.save();
-
-            if (it->failures <
-                std::numeric_limits<
-                    std::uint32_t>::max()) {
-                ++it->failures;
-            }
-
-            it->next_attempt =
-                deadline_after(
-                    now,
-                    reconnect_backoff_delay(
-                        config_.reconnect_delay_seconds,
-                        it->failures
-                    )
-                );
-            return;
-        }
-
-#ifdef __ANDROID__
-        {
-            const auto& remote = peer.session.remote_version();
-            std::scoped_lock lock(android_peer_details_mutex_);
-            android_peer_details_ = "Endpoint: " +
-                (peer.address ? format_peer_host(*peer.address) + ":" +
-                    std::to_string(peer.address->port) : std::string("unknown")) +
-                "\nP2P protocol: " + std::to_string(remote.protocol_version) +
-                "\nServices: " + std::to_string(remote.services) +
-                "\nAdvertised height: " + std::to_string(remote.start_height) +
-                "\nListening port: " + std::to_string(remote.listen_port) +
-                "\nHandshake: completed";
-        }
-        android_p2p_diagnostic_.store(4000);
-#endif
-        peers_.push_back(
-            std::move(peer)
-        );
+        peer.reconnect_failures = it->failures;
+        const auto address = *peer.address;
         reconnect_candidates_.erase(it);
-        known_address_count_.store(
-            addrman_.size()
-        );
-        update_peer_counts();
+        if (!begin_initial_peer(std::move(peer), now, true)) {
+            schedule_reconnect(address, now);
+        }
         return;
     }
 
@@ -2211,65 +2179,92 @@ void NetworkRuntime::maintain_outbound(
     peer.reported_height =
         peer.session.remote_version().start_height;
 
-    if (!prepare_live_peer(
-            peer,
-            now,
-            true)) {
+    const auto address = peer.address;
+    if (!begin_initial_peer(std::move(peer), now, true) && address) {
+        schedule_reconnect(*address, now);
+    }
+
+}
+
+bool NetworkRuntime::begin_initial_peer(LivePeer&& peer, std::uint64_t now, bool outbound)
+{
+    if (initializing_peer_ || !validation_worker_ || stop_requested_.load()) return false;
+    if (peer.resync_requested) peer.pending_ping.reset();
+    if (peer.endpoint.empty()) peer.endpoint = peer.address
+        ? format_peer_host(*peer.address) + ":" + std::to_string(peer.address->port)
+        : peer.session.remote_endpoint();
+    initializing_peer_ = std::make_unique<LivePeer>(std::move(peer));
+    auto* job = initializing_peer_.get();
+    observe(config_.diagnostics, [&](auto& d) {
+        const auto& remote = job->session.remote_version();
+        d.peer(job->endpoint, remote.protocol_version, remote.start_height);
+        d.peer_state("initializing");
+        d.gauge("initializing_peers", 1U);
+        d.gauge("handshake_completed", 1U);
+    });
+    initialization_result_ = validation_worker_->submit([this, job, now, outbound](quintum::net::ValidationStopToken stop) {
+        return !stop.stop_requested() && prepare_live_peer(*job, now, outbound);
+    });
+    if (!initialization_result_) { initializing_peer_.reset();
+        observe(config_.diagnostics, [](auto& d) { d.gauge("initializing_peers", 0U); });
+        return false; }
+    update_peer_counts();
+    return true;
+}
+
+void NetworkRuntime::finish_initial_peer(std::uint64_t now)
+{
+    if (!initialization_result_ || initialization_result_->wait_for(std::chrono::seconds(0)) !=
+        std::future_status::ready) return;
+    bool success = false;
+    try { success = initialization_result_->get(); }
+    catch (const std::exception& error) {
+        observe(config_.diagnostics, [&](auto& d) { d.failure("sync", -1, error.what()); });
+    } catch (...) {
+        observe(config_.diagnostics, [](auto& d) { d.failure("sync", -1, "unknown setup worker exception"); });
+    }
+    initialization_result_.reset();
+    auto peer = std::move(initializing_peer_);
+    if (success && !stop_requested_.load()) {
+        (void)addrman_.add(peer->learned_addresses);
+        success = addrman_.save() == AddrStoreError::none;
+    }
+    observe(config_.diagnostics, [&](auto& d) {
+        d.gauge("initializing_peers", 0U);
+        if (success) d.peer_state("active");
+        else d.peer_state("disconnected", stop_requested_.load() ? "shutdown" : "initial setup failed");
+    });
+    if (success) {
+        peer->last_activity = now;
+        peer->resync_requested = false;
+        peers_.push_back(std::move(*peer));
+#ifdef __ANDROID__
+        android_p2p_diagnostic_.store(4000);
+#endif
+    } else {
+        peer->session.close();
+        if (peer->address) {
+            addrman_.mark_failure(*peer->address, now);
+            (void)addrman_.save();
+            schedule_reconnect(*peer->address, now);
+            if (peer->reconnect_failures) {
+                for (auto& candidate : reconnect_candidates_) {
+                    if (!same_endpoint(candidate.address, *peer->address)) continue;
+                    candidate.failures = *peer->reconnect_failures;
+                    if (candidate.failures < std::numeric_limits<std::uint32_t>::max())
+                        ++candidate.failures;
+                    candidate.next_attempt = deadline_after(now, reconnect_backoff_delay(
+                        config_.reconnect_delay_seconds, candidate.failures));
+                    break;
+                }
+            }
+        }
 #ifdef __ANDROID__
         android_p2p_diagnostic_.store(3002);
         android_last_connect_error_.store(3002);
-        if (connected.address) {
-            log_outbound_failure("discovery-post-handshake", *connected.address, -1);
-        }
 #endif
-        peer.session.close();
-
-        if (connected.address) {
-            addrman_.mark_failure(
-                *connected.address,
-                now
-            );
-            (void)addrman_.save();
-
-            schedule_reconnect(
-                *connected.address,
-                now
-            );
-        }
-
-        next_outbound_attempt_ =
-            now +
-            config_.outbound_retry_seconds;
-        return;
     }
-
-#ifdef __ANDROID__
-    if (connected.address) {
-        __android_log_print(ANDROID_LOG_INFO, "QUINTUM-P2P",
-            "outbound-ready peer=%s:%u",
-            format_peer_host(*connected.address).c_str(),
-            static_cast<unsigned>(connected.address->port));
-    }
-#endif
-#ifdef __ANDROID__
-    {
-        const auto& remote = peer.session.remote_version();
-        std::scoped_lock lock(android_peer_details_mutex_);
-        android_peer_details_ = "Endpoint: " +
-            (peer.address ? format_peer_host(*peer.address) + ":" +
-                std::to_string(peer.address->port) : std::string("unknown")) +
-            "\nP2P protocol: " + std::to_string(remote.protocol_version) +
-            "\nServices: " + std::to_string(remote.services) +
-            "\nAdvertised height: " + std::to_string(remote.start_height) +
-            "\nListening port: " + std::to_string(remote.listen_port) +
-            "\nHandshake: completed";
-    }
-    android_p2p_diagnostic_.store(4000);
-#endif
-    peers_.push_back(
-        std::move(peer)
-    );
-
+    known_address_count_.store(addrman_.size());
     update_peer_counts();
 }
 
@@ -2288,11 +2283,10 @@ bool NetworkRuntime::prepare_live_peer(
         const auto& remote = peer.session.remote_version();
         std::scoped_lock lock(android_peer_details_mutex_);
         android_peer_details_ = "Endpoint: " +
-            (peer.address ? format_peer_host(*peer.address) + ":" +
-                std::to_string(peer.address->port) : std::string("inbound")) +
+            peer.endpoint +
             "\nP2P protocol: " + std::to_string(remote.protocol_version) +
             "\nAdvertised height: " + std::to_string(remote.start_height) +
-            "\nHandshake: completed; peer setup pending";
+            "\nHandshake: completed";
     }
 #endif
     std::uint32_t local_height{0U};
@@ -2322,7 +2316,7 @@ bool NetworkRuntime::prepare_live_peer(
         outbound ? 1 : 0, peer.reported_height,
         static_cast<unsigned long long>(peer.session.remote_version().services));
 #endif
-    if ((peer.session.remote_version().services &
+    if (!peer.resync_requested && (peer.session.remote_version().services &
             kServiceChainWork) != 0U) {
         const auto local_payload =
             serialize_chain_work(local_work);
@@ -2380,7 +2374,7 @@ bool NetworkRuntime::prepare_live_peer(
     // Equal work is broken by TCP direction so both sides never issue
     // synchronous request/response flows at the same time.
     peer.diagnostic_remote_work = remote_work;
-    const bool active_setup =
+    const bool active_setup = peer.resync_requested ||
         sync_driver_should_run(
             local_work,
             remote_work,
@@ -2397,7 +2391,6 @@ bool NetworkRuntime::prepare_live_peer(
     std::optional<Hash256> synchronized_tip;
 
     {
-        std::scoped_lock lock(state_mutex_);
 
 #ifdef __ANDROID__
         android_p2p_diagnostic_.store(4002);
@@ -2406,7 +2399,11 @@ bool NetworkRuntime::prepare_live_peer(
             sync_from_peer(
                 peer.session,
                 node_,
-                now, config_.diagnostics
+                now, config_.diagnostics, SyncOptions{
+                    .state_mutex = &state_mutex_, .cancel = &stop_requested_,
+                    .io_timeout_ms = config_.io_timeout_ms,
+                    .ping_interval_seconds = config_.ping_interval_seconds,
+                    .ping_timeout_seconds = config_.ping_timeout_seconds}
             );
 
 #ifdef __ANDROID__
@@ -2422,6 +2419,7 @@ bool NetworkRuntime::prepare_live_peer(
             return false;
         }
 
+        std::scoped_lock lock(state_mutex_);
         if (synced.blocks_accepted > 0U ||
             synced.reorganized) {
             synchronized_tip =
@@ -2443,53 +2441,18 @@ bool NetworkRuntime::prepare_live_peer(
 #ifdef __ANDROID__
     android_p2p_diagnostic_.store(4003);
 #endif
-    const auto learned =
-        discovery_.learn_from_peer(
-            peer.session,
-            config_.allow_local_peers ||
-                params_.network ==
-                    consensus::Network::regtest
-        );
+    if (stop_requested_.load()) return false;
+    if (peer.resync_requested) { peer.last_activity = unix_time_now(); return true; }
+    if (peer.session.request_addresses(
+            config_.allow_local_peers || params_.network == consensus::Network::regtest,
+            peer.learned_addresses) != PeerError::none) return false;
 
-#ifdef __ANDROID__
-    __android_log_print(learned.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
-        "QUINTUM-SYNC", "address exchange success=%d error=%d peer_error=%d",
-        learned.ok() ? 1 : 0, static_cast<int>(learned.error),
-        static_cast<int>(learned.peer_error));
-#endif
-    if (!learned.ok()) {
-        return false;
-    }
-
-    known_address_count_.store(
-        addrman_.size()
-    );
-
+    if (stop_requested_.load()) return false;
+    const auto mempool_sync = sync_mempool_from_peer(peer.session, node_, &state_mutex_);
+    if (!mempool_sync.ok()) return false;
     {
         std::scoped_lock lock(state_mutex_);
-
-#ifdef __ANDROID__
-        android_p2p_diagnostic_.store(4004);
-#endif
-        const auto mempool_sync =
-            sync_mempool_from_peer(
-                peer.session,
-                node_
-            );
-
-#ifdef __ANDROID__
-        __android_log_print(mempool_sync.ok() ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
-            "QUINTUM-SYNC", "mempool exchange success=%d error=%d peer_error=%d",
-            mempool_sync.ok() ? 1 : 0, static_cast<int>(mempool_sync.error),
-            static_cast<int>(mempool_sync.peer_error));
-#endif
-        if (!mempool_sync.ok()) {
-            return false;
-        }
-
-        if (!sync_wallet_locked()) {
-            return false;
-        }
+        if (!sync_wallet_locked()) return false;
     }
 
     std::optional<Hash256> tip;
@@ -2506,8 +2469,21 @@ bool NetworkRuntime::prepare_live_peer(
         return false;
     }
 
-    peer.last_activity = now;
-    return true;
+    peer.last_activity = unix_time_now();
+    return !stop_requested_.load();
+}
+
+void NetworkRuntime::disconnect_peer(LivePeer& peer, std::string_view reason, std::string_view timeout)
+{
+    peer.disconnect_reason = reason;
+    peer.timeout_reason = timeout;
+    observe(config_.diagnostics, [&](auto& d) {
+        const auto& remote = peer.session.remote_version();
+        d.peer(peer.endpoint, remote.protocol_version, remote.start_height);
+        d.peer_state("disconnected", reason, timeout);
+        d.event("p2p", "info", "disconnected");
+    });
+    peer.session.close();
 }
 
 void NetworkRuntime::service_peers(
@@ -2515,6 +2491,16 @@ void NetworkRuntime::service_peers(
 {
     for (auto& peer : peers_) {
         if (!peer.session.valid()) {
+            continue;
+        }
+
+        if (peer.resync_requested && !initializing_peer_) {
+            const auto address = peer.address;
+            const bool outbound = address.has_value();
+            const bool queued = begin_initial_peer(std::move(peer), now, outbound);
+            peer.address.reset();
+            peer.endpoint.clear();
+            if (!queued && address) schedule_reconnect(*address, now);
             continue;
         }
 
@@ -2551,7 +2537,7 @@ void NetworkRuntime::service_peers(
         if (!drain_transaction_requests(
                 peer,
                 now)) {
-            peer.session.close();
+            disconnect_peer(peer, "message rejected by protocol or consensus");
             continue;
         }
 
@@ -2571,7 +2557,7 @@ void NetworkRuntime::service_peers(
                 );
 
             if (stalled_transaction_request) {
-                peer.session.close();
+                disconnect_peer(peer, "transaction request stalled", "transaction request timeout");
                 continue;
             }
         }
@@ -2592,7 +2578,7 @@ void NetworkRuntime::service_peers(
                 );
 
             if (stalled_block_request) {
-                peer.session.close();
+                disconnect_peer(peer, "block request stalled", "block request timeout");
                 continue;
             }
         }
@@ -2603,7 +2589,7 @@ void NetworkRuntime::service_peers(
                     peer.ping_sent_at,
                     config_.
                         ping_timeout_seconds)) {
-                peer.session.close();
+                disconnect_peer(peer, "peer did not answer ping", "ping timeout");
                 continue;
             }
         } else if (elapsed(
@@ -2625,7 +2611,7 @@ void NetworkRuntime::service_peers(
                     "ping",
                     payload) !=
                 PeerError::none) {
-                peer.session.close();
+                disconnect_peer(peer, "peer servicing failed");
                 continue;
             }
 
@@ -2644,11 +2630,16 @@ void NetworkRuntime::service_peers(
             );
 
         if (receive != PeerError::none) {
-            peer.session.close();
+            const auto io = peer.session.last_io_failure();
+            disconnect_peer(peer, "receive error=" + std::to_string(static_cast<int>(receive)) +
+                " socket_error=" + std::to_string(io.socket_error) + " eof=" +
+                std::to_string(io.remote_closed ? 1 : 0),
+                receive == PeerError::timeout ? "socket read timeout" : "");
             continue;
         }
 
         peer.last_activity = now;
+        observe(config_.diagnostics, [](auto& d) { d.network_progress(); });
 
         if (peer.message_window_started == 0U ||
             elapsed(
@@ -2668,7 +2659,7 @@ void NetworkRuntime::service_peers(
         if (config_.max_messages_per_second > 0U &&
             peer.messages_in_window >
                 config_.max_messages_per_second) {
-            peer.session.close();
+            disconnect_peer(peer, "peer servicing failed");
             continue;
         }
 
@@ -2683,7 +2674,7 @@ void NetworkRuntime::service_peers(
                 peer.stem_transactions_in_window >
                     config_.
                         max_stem_transactions_per_second) {
-                peer.session.close();
+                disconnect_peer(peer, "peer servicing failed");
                 continue;
             }
         }
@@ -2692,7 +2683,7 @@ void NetworkRuntime::service_peers(
                 peer,
                 message,
                 now)) {
-            peer.session.close();
+            disconnect_peer(peer, "peer servicing failed");
         }
     }
 }
@@ -2803,13 +2794,11 @@ bool NetworkRuntime::process_message(
     }
 
     if (message.command == "getheaders") {
-        std::scoped_lock lock(state_mutex_);
-
-        return serve_sync_message(
-                   peer.session,
-                   node_.chain(),
-                   message
-               ).ok();
+        const auto snapshot = [&] {
+            std::scoped_lock lock(state_mutex_);
+            return node_.chain().header_validation_snapshot();
+        }();
+        return serve_sync_message(peer.session, snapshot, message).ok();
     }
 
     if (message.command == "getdata" ||
@@ -2817,13 +2806,11 @@ bool NetworkRuntime::process_message(
         const auto hidden =
             hidden_transaction_ids();
 
-        std::scoped_lock lock(state_mutex_);
-
         return serve_relay_message(
                    peer.session,
                    node_,
                    message,
-                   hidden
+                   hidden, &state_mutex_
                ).ok();
     }
 
@@ -3706,40 +3693,7 @@ bool NetworkRuntime::process_received_block(
             submitted.connect.chain.error ==
                 ChainConnectError::
                     unknown_parent) {
-            const auto synced =
-                sync_from_peer(
-                    peer.session,
-                    node_,
-                    now, config_.diagnostics
-                );
-
-            if (!synced.ok()) {
-                return false;
-            }
-
-            if (!sync_wallet_locked()) {
-                return false;
-            }
-
-            const auto synchronized_tip =
-                node_.chain().tip_hash();
-
-            if (const auto synchronized_height =
-                    node_.chain().height()) {
-                peer.reported_height =
-                    std::max(
-                        peer.reported_height,
-                        *synchronized_height
-                    );
-            }
-
-            if (synchronized_tip) {
-                queue_announcement(
-                    kInventoryBlock,
-                    *synchronized_tip
-                );
-            }
-
+            peer.resync_requested = true;
             return true;
         }
 
@@ -4205,11 +4159,13 @@ void NetworkRuntime::prune_closed(
     std::uint64_t now)
 {
     for (auto& peer : peers_) {
-        if (peer.session.valid() ||
-            !peer.address) {
+        if (peer.session.valid()) {
             continue;
         }
 
+        if (!peer.endpoint.empty() && peer.disconnect_reason.empty())
+            disconnect_peer(peer, "peer closed during relay or announcement");
+        if (!peer.address) continue;
         addrman_.mark_failure(
             *peer.address,
             now
@@ -4315,6 +4271,7 @@ void NetworkRuntime::schedule_reconnect(
 void NetworkRuntime::update_peer_counts() noexcept
 {
     std::size_t outbound{0U};
+    std::size_t active{0U};
     std::uint32_t best_height{0U};
     bool have_height{false};
 
@@ -4323,6 +4280,7 @@ void NetworkRuntime::update_peer_counts() noexcept
             continue;
         }
 
+        ++active;
         if (peer.address) {
             ++outbound;
         }
@@ -4335,7 +4293,11 @@ void NetworkRuntime::update_peer_counts() noexcept
         have_height = true;
     }
 
-    peer_count_.store(peers_.size());
+    if (initializing_peer_) {
+        best_height = std::max(best_height, initializing_peer_->reported_height);
+        have_height = true;
+    }
+    peer_count_.store(active);
     outbound_count_.store(outbound);
     peer_best_height_.store(best_height);
     have_peer_height_.store(have_height);

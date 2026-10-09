@@ -6,6 +6,7 @@
 #include "net/dandelion.hpp"
 #include "net/nat_mapping.hpp"
 #include "net/peer.hpp"
+#include "net/validation_worker.hpp"
 #include "node/node.hpp"
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
@@ -459,12 +460,16 @@ private:
 
     struct LivePeer {
         PeerSession session{};
+        std::vector<PeerAddress> learned_addresses{};
+        bool resync_requested{false};
+        std::string endpoint{}, disconnect_reason{}, timeout_reason{};
         std::optional<PeerAddress> address{};
         std::uint64_t last_activity{0U};
         std::uint64_t ping_sent_at{0U};
         std::optional<std::uint64_t> pending_ping{};
         std::uint32_t reported_height{0U};
         std::optional<Hash256> diagnostic_remote_work{};
+        std::optional<std::uint32_t> reconnect_failures{};
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
@@ -489,6 +494,10 @@ private:
     void service_stem_embargo(std::uint64_t now);
     void flush_announcements();
     void prune_closed(std::uint64_t now);
+
+    [[nodiscard]] bool begin_initial_peer(LivePeer&& peer, std::uint64_t now, bool outbound);
+    void finish_initial_peer(std::uint64_t now);
+    void disconnect_peer(LivePeer& peer, std::string_view reason, std::string_view timeout = {});
 
     [[nodiscard]] bool prepare_live_peer(
         LivePeer& peer,
@@ -626,6 +635,11 @@ private:
     NatPortMapper nat_mapper_{};
 
     std::vector<LivePeer> peers_{};
+    // Event loop owns the slot; worker exclusively owns the pointed-to peer
+    // until future completion. A vector relocation cannot invalidate it.
+    std::unique_ptr<ValidationWorker> validation_worker_{};
+    std::unique_ptr<LivePeer> initializing_peer_{};
+    std::optional<std::future<bool>> initialization_result_{};
     std::vector<ReconnectCandidate>
         reconnect_candidates_{};
 
@@ -657,8 +671,7 @@ public:
           std::chrono::steady_clock::now().time_since_epoch()).count();
       return now > 0 && static_cast<std::uint64_t>(now) >= started
           ? static_cast<std::uint64_t>(now) - started : 0U; }
-    [[nodiscard]] std::string android_peer_details() const
-    { std::scoped_lock lock(android_peer_details_mutex_); return android_peer_details_; }
+    [[nodiscard]] std::string android_peer_details() const;
     [[nodiscard]] int android_p2p_diagnostic() const noexcept
     { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
 private:

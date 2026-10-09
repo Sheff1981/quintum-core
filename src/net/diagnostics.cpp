@@ -19,7 +19,10 @@ constexpr std::string_view metric_names[] = {
     "blocks_received", "blocks_accepted", "blocks_rejected", "block_verify_ms",
     "header_batches_received", "header_batches_accepted", "header_batches_rejected",
     "header_wait_ms", "block_wait_ms", "handshake", "core_running",
-    "active_peers", "known_peers", "headers_unvalidated", "randomx_active"
+    "active_peers", "known_peers", "headers_unvalidated", "randomx_active",
+    "headers_validating", "headers_validated", "headers_committed",
+    "header_batch_progress", "randomx_last_hash_us", "initializing_peers",
+    "handshake_completed", "randomx_result_reused"
 };
 
 std::string bounded(std::string_view input, size_t maximum = 256)
@@ -194,6 +197,24 @@ void Diagnostics::peer(std::string endpoint, uint32_t protocol, uint32_t height)
     } catch (...) {}
 }
 
+void Diagnostics::peer_state(std::string_view state, std::string_view reason,
+    std::string_view timeout)
+{
+    try {
+        std::lock_guard lock(state_mutex_);
+        peer_state_ = bounded(state, 32U);
+        if (state == "disconnected") {
+            if (disconnect_reason_.empty() || reason != "initial setup failed")
+                disconnect_reason_ = bounded(reason);
+            if (timeout_reason_.empty() || reason != "initial setup failed")
+                timeout_reason_ = bounded(timeout);
+        } else if (state == "initializing" || state == "active") {
+            disconnect_reason_.clear();
+            timeout_reason_.clear();
+        }
+    } catch (...) {}
+}
+
 void Diagnostics::attempt(std::string endpoint)
 {
     try {
@@ -204,6 +225,8 @@ void Diagnostics::attempt(std::string endpoint)
             retries_ = attempts_ - 1;
             connection_started_ = Clock::now();
             connection_seen_ = true;
+            peer_state_ = "handshaking";
+            values_["handshake_completed"] = 0U;
         }
         event("p2p", "info", "attempt");
     } catch (...) {}
@@ -229,6 +252,8 @@ void Diagnostics::network_progress()
         std::lock_guard<std::mutex> lock(state_mutex_);
         progress_ = Clock::now();
         progress_seen_ = true;
+        last_message_utc_ = utc();
+        last_activity_utc_ = last_message_utc_;
     } catch (...) {}
 }
 
@@ -309,6 +334,11 @@ void Diagnostics::append(std::string_view component, std::string_view severity,
                << ",\"severity\":" << quote(bounded(severity, 16))
                << ",\"event\":" << quote(bounded(name, 64))
                << ",\"stage\":" << quote(stage_)
+               << ",\"peer_state\":" << quote(peer_state_)
+               << ",\"disconnect_reason\":" << quote(disconnect_reason_)
+               << ",\"timeout_reason\":" << quote(timeout_reason_)
+               << ",\"last_network_message_utc\":" << quote(last_message_utc_)
+               << ",\"last_successful_peer_activity_utc\":" << quote(last_activity_utc_)
                << ",\"peer_endpoint\":" << quote(endpoint_)
                << ",\"protocol_version\":" << protocol_
                << ",\"remote_height\":" << remote_height_
@@ -340,6 +370,13 @@ void Diagnostics::append(std::string_view component, std::string_view severity,
     if (!output) throw std::runtime_error("diagnostic write failed");
 }
 
+std::string Diagnostics::peer_state_description() const
+{
+    std::lock_guard lock(state_mutex_);
+    return peer_state_ + (disconnect_reason_.empty() ? "" : "; " + disconnect_reason_) +
+        (timeout_reason_.empty() ? "" : "; timeout: " + timeout_reason_);
+}
+
 std::string Diagnostics::snapshot_json() const
 {
     try {
@@ -347,6 +384,11 @@ std::string Diagnostics::snapshot_json() const
         std::ostringstream output;
         output << "{\"stage\":" << quote(stage_)
                << ",\"stage_elapsed_ms\":" << millis(stage_started_)
+               << ",\"peer_state\":" << quote(peer_state_)
+               << ",\"disconnect_reason\":" << quote(disconnect_reason_)
+               << ",\"timeout_reason\":" << quote(timeout_reason_)
+               << ",\"last_network_message_utc\":" << quote(last_message_utc_)
+               << ",\"last_successful_peer_activity_utc\":" << quote(last_activity_utc_)
                << ",\"peer_endpoint\":" << quote(endpoint_)
                << ",\"protocol_version\":" << protocol_
                << ",\"remote_height\":" << remote_height_

@@ -25,6 +25,8 @@ private:
     RandomXVerificationScope* previous_;
 };
 
+void report_randomx_verification(std::string_view name, std::uint64_t value) noexcept;
+
 // Portable RandomX v2 light-mode context.
 //
 // The cache is initialized once per seed key and reused for all hashes.

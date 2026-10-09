@@ -1946,10 +1946,67 @@ void test_repeated_partition_reconnect_converges_to_heavier_chain()
     std::filesystem::remove_all(right_dir, ec);
 }
 
+void test_initial_sync_does_not_lock_status_and_can_cancel()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace std::chrono_literals;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("initial-cancellation");
+    PeerListener listener{params};
+    assert(listener.listen("127.0.0.1", 0U) == PeerError::none);
+    std::promise<void> requested, release;
+    auto release_future = release.get_future();
+    std::thread server([&] {
+        VersionMessage remote;
+        remote.protocol_version = params.p2p_protocol_version;
+        remote.services = kServiceNetwork;
+        remote.nonce = 0x726573706f6e64U;
+        remote.start_height = 1U;
+        remote.listen_port = listener.local_port();
+        auto accepted = listener.accept_and_handshake(remote, 5'000U);
+        assert(accepted.ok());
+        WireMessage request;
+        assert(accepted.session->receive_command(request) == PeerError::none);
+        assert(request.command == "getheaders");
+        requested.set_value();
+        release_future.wait();
+        accepted.session->close();
+    });
+    NetworkRuntime runtime{params, directory};
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.wallet_enabled = false;
+    config.enable_nat_mapping = false;
+    config.target_outbound = 1U;
+    config.bootstrap_peers = {PeerAddress{
+        .ipv4 = *parse_ipv4("127.0.0.1"), .port = listener.local_port(),
+        .services = kServiceNetwork}};
+    assert(runtime.start(config).ok());
+    assert(requested.get_future().wait_for(5s) == std::future_status::ready);
+    auto status = std::async(std::launch::async, [&] { return runtime.status(); });
+    // The server deliberately withholds its response. Status must not wait
+    // for that network operation or any initial header validation.
+    assert(status.wait_for(500ms) == std::future_status::ready);
+    assert(status.get().height == std::optional<std::uint32_t>{0U});
+    auto stopped = std::async(std::launch::async, [&] { runtime.stop(); });
+    assert(stopped.wait_for(2s) == std::future_status::ready);
+    stopped.get();
+    release.set_value();
+    server.join();
+    NodeRuntime restarted{params, directory};
+    assert(restarted.start().ok());
+    assert(restarted.chain().height() == std::optional<std::uint32_t>{0U});
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 } // namespace
 
 int main()
 {
+    test_initial_sync_does_not_lock_status_and_can_cancel();
     test_status_polling_does_not_wait_for_initial_sync();
     test_default_listener_port_fallback();
     test_walletless_seed_runtime_creates_no_wallet();

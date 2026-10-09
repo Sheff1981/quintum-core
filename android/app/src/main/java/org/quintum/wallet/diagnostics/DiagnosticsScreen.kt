@@ -23,11 +23,18 @@ fun DiagnosticsScreen(snapshot: DiagnosticsSnapshot, coreRunning: Boolean, activ
         Text("RandomX operation: " + when (snapshot.value("randomx_active")) { "1" -> "Initializing cache"; "2" -> "Verifying hash"; "0" -> "Idle"; else -> "Unavailable" })
         val fields = listOf(
             "Stage" to "stage", "Stage elapsed (ms)" to "stage_elapsed_ms", "Connection duration (ms)" to "connection_duration_ms", "Peer endpoint" to "peer_endpoint",
+            "Peer state" to "peer_state", "Handshake completed" to "handshake_completed",
+            "Initializing peers" to "initializing_peers", "Disconnect reason" to "disconnect_reason",
+            "Timeout reason" to "timeout_reason", "Last network message (UTC)" to "last_network_message_utc",
+            "Last peer activity (UTC)" to "last_successful_peer_activity_utc",
             "Protocol version" to "protocol_version", "Remote height" to "remote_height", "Local height" to "local_height",
             "Connection attempts" to "attempt_count", "Retries" to "retry_count", "Last error code" to "last_error_code",
             "Last error description" to "last_error_description", "Headers received" to "headers_received",
+            "Headers validating now" to "headers_validating", "Headers validated" to "headers_validated",
+            "Headers committed" to "headers_committed", "Current batch progress" to "header_batch_progress",
             "Headers verified" to "headers_verified", "Headers rejected" to "headers_rejected", "Headers not yet validated" to "headers_unvalidated", "Header batch size" to "header_batch_size",
             "Header verification (ms)" to "headers_verify_ms", "RandomX calls" to "randomx_calls",
+            "Last RandomX hash (µs)" to "randomx_last_hash_us", "Reused RandomX results" to "randomx_result_reused",
             "RandomX verification (ms)" to "randomx_verify_ms", "RandomX cache (ms)" to "randomx_cache_ms", "Current RandomX operation (ms)" to "randomx_operation_elapsed_ms",
             "Blocks requested" to "blocks_requested", "Blocks received" to "blocks_received", "Blocks accepted" to "blocks_accepted",
             "Blocks rejected" to "blocks_rejected", "Block verification (ms)" to "block_verify_ms",

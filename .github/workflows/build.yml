@@ -24,6 +24,9 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Record RandomX exact-input reuse measurement
+        run: ctest --test-dir build -C Release -R '^randomx$' --verbose
+
       - name: Smoke walletless Linux node
         if: runner.os == 'Linux'
         shell: bash

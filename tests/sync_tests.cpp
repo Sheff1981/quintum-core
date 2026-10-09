@@ -11,6 +11,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <future>
+#include <mutex>
+#include <atomic>
 #include <string>
 #include <thread>
 #ifndef _WIN32
@@ -1487,10 +1490,71 @@ void test_sync_transport_failure_evidence(unsigned int test_case)
 }
 #endif
 
+void test_header_validation_services_ping_outside_chain_lock()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("header-ping-progress");
+    const auto now = params.genesis.timestamp + 100'000U;
+    NodeRuntime source{params, directory / "source"};
+    NodeRuntime client{params, directory / "client"};
+    assert(source.start_at(now).ok());
+    assert(client.start_at(now).ok());
+    assert(source.mine_block_at(payout_script(11U), params.genesis.timestamp + 1U, 100U).ok());
+    const auto header = *source.chain().active_header(1U);
+    const auto body = *source.chain().block(*source.chain().tip_hash());
+    PeerListener listener{params};
+    assert(listener.listen("127.0.0.1", 0U) == PeerError::none);
+    std::promise<void> ping_sent;
+    auto ping_ready = ping_sent.get_future();
+    std::thread server([&] {
+        auto accepted = listener.accept_and_handshake(version(0x7171U, 1U), 5'000U);
+        assert(accepted.ok());
+        WireMessage message;
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "getheaders");
+        const std::array<BlockHeader, 1U> headers{header};
+        assert(accepted.session->send_command("headers", serialize_headers(headers)) == PeerError::none);
+        assert(accepted.session->send_command("ping", serialize_nonce(0x1234U)) == PeerError::none);
+        ping_sent.set_value();
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "pong");
+        assert(parse_nonce(message.payload) == std::optional<std::uint64_t>{0x1234U});
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "getdata");
+        assert(accepted.session->send_command("block", serialize_block_payload(body)) == PeerError::none);
+        accepted.session->close();
+    });
+    auto connected = connect_and_handshake(params, "127.0.0.1", listener.local_port(),
+        version(0x7172U, 0U), 5'000U);
+    assert(connected.ok());
+    std::mutex state;
+    std::atomic<bool> cancel{false};
+    auto diagnostics = std::make_shared<Diagnostics>(directory / "diagnostics");
+    const auto result = sync_from_peer(*connected.session, client, now, diagnostics,
+        SyncOptions{.state_mutex = &state, .cancel = &cancel,
+            .header_progress = [&](std::size_t, bool complete) {
+                if (!complete) ping_ready.wait();
+                assert(state.try_lock()); state.unlock();
+                return true;
+            }});
+    server.join();
+    assert(result.ok());
+    assert(result.blocks_accepted == 1U);
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {"\"headers_validated\":1", "\"headers_committed\":1",
+        "\"header_batch_progress\":1", "\"headers_validating\":0"})
+        assert(snapshot.find(field) != std::string::npos);
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 } // namespace
 
 int main()
 {
+    test_header_validation_services_ping_outside_chain_lock();
 #ifndef _WIN32
     test_sync_transport_failure_evidence(0U);
     test_sync_transport_failure_evidence(1U);

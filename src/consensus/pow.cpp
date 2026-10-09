@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -495,11 +497,29 @@ PowCheckError check_randomx_proof_of_work(
         return PowCheckError::target_above_pow_limit;
     }
 
-    const auto hash =
-        randomx_pow_hash(
-            header,
-            seed_key
-        );
+    using Key = std::pair<Hash256, Bytes>;
+    struct Results {
+        std::map<Key, Hash256> hashes;
+        std::deque<Key> order;
+    };
+    thread_local Results results;
+    constexpr std::size_t max_results = 2'048U;
+    const Key key{seed_key, serialize_block_header(header)};
+    std::optional<Hash256> hash;
+    if (const auto found = results.hashes.find(key); found != results.hashes.end()) {
+        hash = found->second;
+        crypto::report_randomx_verification("randomx_result_reused", 1U);
+    } else {
+        hash = randomx_pow_hash(header, seed_key);
+        if (hash) {
+            if (results.order.size() >= max_results) {
+                results.hashes.erase(results.order.front());
+                results.order.pop_front();
+            }
+            results.order.push_back(key);
+            results.hashes.emplace(key, *hash);
+        }
+    }
 
     if (!hash) {
         return PowCheckError::hashing_failed;

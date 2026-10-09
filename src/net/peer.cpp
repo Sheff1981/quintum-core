@@ -1455,6 +1455,22 @@ PeerSession::session_id() const noexcept
     return transport_->session_id();
 }
 
+std::string PeerSession::remote_endpoint() const
+{
+    if (!valid()) return {};
+    sockaddr_in address{};
+#ifdef _WIN32
+    int size = static_cast<int>(sizeof(address));
+#else
+    socklen_t size = static_cast<socklen_t>(sizeof(address));
+#endif
+    if (getpeername(native_socket(socket_), reinterpret_cast<sockaddr*>(&address), &size) != 0 ||
+        address.sin_family != AF_INET) return {};
+    std::array<char, INET_ADDRSTRLEN> text{};
+    if (!inet_ntop(AF_INET, &address.sin_addr, text.data(), text.size())) return {};
+    return std::string(text.data()) + ":" + std::to_string(ntohs(address.sin_port));
+}
+
 bool PeerSession::wait_readable(
     std::uint32_t timeout_ms) const noexcept
 {

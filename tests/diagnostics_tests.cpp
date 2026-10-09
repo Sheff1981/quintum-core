@@ -15,6 +15,14 @@ int main(){
  Diagnostics d(dir);
  assert(d.snapshot_json().find("\"local_height\":null")!=std::string::npos);
  assert(d.snapshot_json().find("\"network_progress_seen\":false")!=std::string::npos);
+ d.peer_state("initializing");
+ assert(d.snapshot_json().find("\"peer_state\":\"initializing\"") != std::string::npos);
+ d.peer_state("validating_headers");
+ assert(d.snapshot_json().find("\"peer_state\":\"validating_headers\"") != std::string::npos);
+ d.peer_state("disconnected", "missing pong", "ping timeout");
+ assert(d.snapshot_json().find("\"timeout_reason\":\"ping timeout\"") != std::string::npos);
+ d.peer_state("active");
+ assert(d.snapshot_json().find("\"disconnect_reason\":\"\"") != std::string::npos);
  d.stage("header_wait");
  const auto initial_log = d.export_log();
  for (int repeat = 0; repeat < 20; ++repeat) d.stage("header_wait");

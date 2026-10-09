@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <string>
 #include <vector>
 
 namespace quintum::net {
@@ -65,6 +66,7 @@ public:
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool inbound() const noexcept;
+    [[nodiscard]] std::string remote_endpoint() const;
     [[nodiscard]] PeerIoFailure last_io_failure() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
     [[nodiscard]] bool encrypted() const noexcept;
