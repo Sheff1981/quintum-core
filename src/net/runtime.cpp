@@ -2239,9 +2239,18 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
     initialization_result_.reset();
     auto peer = std::move(initializing_peer_);
     success = success && !stop_requested_.load();
-    if (success) {
+    // Peer discovery must survive a later sync/mempool failure. Learned
+    // addresses are independently validated by addrman; a failed initial
+    // block download must not discard other reachable network endpoints.
+    if (!peer->learned_addresses.empty()) {
         (void)addrman_.add(peer->learned_addresses);
-        success = addrman_.save() == AddrStoreError::none;
+    }
+    if (addrman_.save() != AddrStoreError::none) {
+        observe(config_.diagnostics, [](auto& d) {
+            d.failure("discovery", -1, "peer address database save failed");
+        });
+        // Keep a successfully synchronized peer connected even when the
+        // address cache cannot be persisted; retry on the next save.
     }
     observe(config_.diagnostics, [&](auto& d) {
         d.gauge("initializing_peers", 0U);
