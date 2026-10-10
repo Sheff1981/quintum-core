@@ -2045,6 +2045,9 @@ void NetworkRuntime::maintain_outbound(
                 config_.io_timeout_ms,
                 config_.proxies, config_.diagnostics
             );
+#ifdef __ANDROID__
+        android_connect_started_ms_.store(0U);
+#endif
 
         if (!connected.ok()) {
 #ifdef __ANDROID__
