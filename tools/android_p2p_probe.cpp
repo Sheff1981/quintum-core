@@ -5,6 +5,8 @@
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <set>
+#include <string>
 
 // Read-only live-seed diagnostic. No NodeRuntime, wallet, mining or data files.
 int main(int argc, char** argv)
@@ -88,6 +90,40 @@ int main(int argc, char** argv)
                          std::chrono::steady_clock::now() - started_discovery).count()
                   << std::endl;
         if (discovery_error != PeerError::none) return 1;
+        // Aggregate only: avoid publishing third-party peer IP addresses in CI logs.
+        std::set<std::string> unique_hosts;
+        std::set<std::string> unique_endpoints;
+        std::set<std::uint16_t> unique_ports;
+        std::size_t default_port = 0U;
+        std::size_t stale = 0U;
+        std::size_t future = 0U;
+        std::size_t ipv4 = 0U;
+        std::size_t ipv6 = 0U;
+        std::size_t other = 0U;
+        constexpr std::uint64_t kThirtyDays = 30U * 24U * 60U * 60U;
+        for (const auto& address : learned) {
+            const std::string host = std::to_string(static_cast<int>(address.network)) +
+                ":" + std::string(reinterpret_cast<const char*>(address.bytes.data()),
+                                  address.bytes.size());
+            unique_hosts.insert(host);
+            unique_endpoints.insert(host + ":" + std::to_string(address.port));
+            unique_ports.insert(address.port);
+            default_port += address.port == params.p2p_port ? 1U : 0U;
+            stale += address.last_seen < now && now - address.last_seen > kThirtyDays ? 1U : 0U;
+            future += address.last_seen > now + 24U * 60U * 60U ? 1U : 0U;
+            if (address.network == AddressNetwork::ipv4) ++ipv4;
+            else if (address.network == AddressNetwork::ipv6) ++ipv6;
+            else ++other;
+        }
+        std::cout << "phase=address-audit entries=" << learned.size()
+                  << " unique_hosts=" << unique_hosts.size()
+                  << " unique_endpoints=" << unique_endpoints.size()
+                  << " unique_ports=" << unique_ports.size()
+                  << " default_port=" << default_port
+                  << " stale_over_30d=" << stale
+                  << " future_over_1d=" << future
+                  << " ipv4=" << ipv4 << " ipv6=" << ipv6
+                  << " other=" << other << std::endl;
     }
     const GetHeadersRequest request{.locator = {params.genesis.hash}, .stop = {}};
     auto error = peer.send_command("getheaders", serialize_getheaders(request));
