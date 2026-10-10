@@ -44,11 +44,11 @@ import org.quintum.wallet.mining.DeviceMiningStatsCard
 import org.quintum.wallet.mining.MiningController
 import org.quintum.wallet.mining.MiningScreen
 
-private val Navy = Color(0xFF101C38)
-private val Blue = Color(0xFF2563EB)
-private val Canvas = Color(0xFFF4F7FC)
-private val Muted = Color(0xFF64748B)
-private val Green = Color(0xFF12805C)
+private val Navy = Color(0xFFEAF6F3)
+private val Blue = Color(0xFF20DDB0)
+private val Canvas = Color(0xFF0B1118)
+private val Muted = Color(0xFF9BAEB8)
+private val Green = Color(0xFF20DDB0)
 private fun p2pDiagnosticMessage(code: Int): String {
     val peerErrors = listOf(
         "none", "socket runtime failed", "DNS resolve failed", "socket creation failed",
@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme(
-                colorScheme = lightColorScheme(primary = Blue, background = Canvas, surface = Color.White)
+                colorScheme = darkColorScheme(primary = Blue, onPrimary = Canvas, background = Canvas, surface = Color(0xFF17212B), onSurface = Navy, secondary = Green)
             ) {
                 Surface(modifier = Modifier.fillMaxSize(), color = Canvas) { QuintumHome() }
             }
