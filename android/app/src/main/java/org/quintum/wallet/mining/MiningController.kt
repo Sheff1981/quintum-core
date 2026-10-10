@@ -31,6 +31,24 @@ class MiningController(
         tenths != null && tenths != Int.MIN_VALUE && tenths >= 450
     }.getOrDefault(false)
 
+    private fun cooldownBlocked(thermal: Int): Boolean {
+        val temp = runCatching {
+            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        }.getOrNull()
+        synchronized(MiningController::class.java) {
+            if (ThermalGuard.shouldStop(thermal) ||
+                (temp != null && temp != Int.MIN_VALUE && temp >= 450)) {
+                cooldownActive = true
+            } else if (cooldownActive && temp != null && temp != Int.MIN_VALUE &&
+                temp <= 400 && (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                    thermal <= PowerManager.THERMAL_STATUS_LIGHT)) {
+                cooldownActive = false
+            }
+            return cooldownActive
+        }
+    }
+
     private fun batteryTooLow(): Boolean = runCatching {
         val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
