@@ -74,6 +74,21 @@ int main(int argc, char** argv)
                   << " peer_error=" << static_cast<int>(error) << std::endl;
         if (!valid) return 1;
     }
+    // Probe peer discovery before header sync, matching Android initial setup.
+    // This also distinguishes an unresponsive address exchange from a
+    // slow or broken getheaders response on the live seed.
+    {
+        const auto started_discovery = std::chrono::steady_clock::now();
+        std::vector<PeerAddress> learned;
+        const auto discovery_error = peer.request_addresses(false, learned);
+        std::cout << "phase=discovery success=" << (discovery_error == PeerError::none)
+                  << " peer_error=" << static_cast<int>(discovery_error)
+                  << " count=" << learned.size()
+                  << " elapsed_ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::steady_clock::now() - started_discovery).count()
+                  << std::endl;
+        if (discovery_error != PeerError::none) return 1;
+    }
     const GetHeadersRequest request{.locator = {params.genesis.hash}, .stop = {}};
     auto error = peer.send_command("getheaders", serialize_getheaders(request));
     WireMessage response;
