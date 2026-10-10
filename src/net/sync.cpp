@@ -1241,17 +1241,35 @@ SyncResult sync_from_peer(
         std::optional<std::uint64_t> pending_ping;
         auto last_message = std::chrono::steady_clock::now();
         auto ping_sent = last_message;
+        std::size_t known_since_report = 0U;
+        std::size_t new_since_report = 0U;
         const auto service_validation = [&](std::size_t progress, bool completed) {
-            observe(diagnostics, [&](auto& journal) {
-                journal.gauge("headers_validating", completed ? 0U : 1U);
-                if (completed) {
-                    const auto& header = (*headers)[progress - 1U];
-                    const bool known = snapshot.has_block(block_hash(header));
-                    journal.counter(known ? "headers_known" : "headers_verified", 1U);
-                    if (!known) journal.counter("headers_validated", 1U);
-                    journal.gauge("header_batch_progress", progress);
+            // Aggregate diagnostics across verified headers. RandomX consensus
+            // validation and P2P servicing still run for every single header.
+            if (completed) {
+                const auto& header = (*headers)[progress - 1U];
+                if (snapshot.has_block(block_hash(header))) {
+                    ++known_since_report;
+                } else {
+                    ++new_since_report;
                 }
-            });
+            }
+            if (!completed || progress % 16U == 0U || progress == headers->size()) {
+                observe(diagnostics, [&](auto& journal) {
+                    journal.gauge("headers_validating", completed ? 0U : 1U);
+                    if (completed) {
+                        if (known_since_report != 0U)
+                            journal.counter("headers_known", known_since_report);
+                        if (new_since_report != 0U) {
+                            journal.counter("headers_verified", new_since_report);
+                            journal.counter("headers_validated", new_since_report);
+                        }
+                        journal.gauge("header_batch_progress", progress);
+                    }
+                });
+                known_since_report = 0U;
+                new_since_report = 0U;
+            }
             if (cancelled()) return false;
             // The sync worker is the exclusive socket owner. Never race its
             // encrypted receive/send state with the event loop.
