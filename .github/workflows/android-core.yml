@@ -1,0 +1,143 @@
+name: android-core
+
+on:
+  push:
+    paths:
+      - "android/**"
+      - "src/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/android-core.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/android-core.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  configure-arm64-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Android ARM64 core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake             -S .             -B build-android-arm64             -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Android             -DCMAKE_SYSTEM_VERSION=26             -DCMAKE_ANDROID_ARCH_ABI=arm64-v8a             -DCMAKE_ANDROID_NDK="$ANDROID_NDK_ROOT"             -DQUINTUM_BUILD_GUI=OFF
+
+      - name: Build Android ARM64 core
+        run: cmake --build build-android-arm64 --target quintum_android --parallel 2
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Configure Gradle to use host CMake 3.25+
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --version
+          cmake_root="$(dirname "$(dirname "$(readlink -f "$(command -v cmake)")")")"
+          printf 'cmake.dir=%s\n' "$cmake_root" > android/local.properties
+          test -x "$cmake_root/bin/cmake"
+
+      - name: Configure stable APK signing
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.QUM_ANDROID_DEBUG_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.QUM_ANDROID_DEBUG_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.QUM_ANDROID_DEBUG_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf %s "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/quintum-signing.jks"
+            chmod 600 "$RUNNER_TEMP/quintum-signing.jks"
+            echo "QUM_ANDROID_DEBUG_KEYSTORE=$RUNNER_TEMP/quintum-signing.jks" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_STORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "QUM_ANDROID_DEBUG_KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}" >> "$GITHUB_ENV"
+          else
+            echo "::error::Missing persistent Android signing key. Refusing to publish an incompatible APK."
+            exit 1
+          fi
+
+      - name: Run Android unit tests
+        working-directory: android
+        run: gradle testDebugUnitTest --no-daemon
+
+      - name: Build Android Testnet APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: Verify APK contains ARM64 native core
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          unzip -Z1 "$apk" | grep -Fx 'lib/arm64-v8a/libquintum_android.so'
+
+      - name: Verify APK signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="android/app/build/outputs/apk/debug/app-debug.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose --print-certs "$apk"
+          expected="$(keytool -exportcert -rfc -keystore "$QUM_ANDROID_DEBUG_KEYSTORE" -storepass "$QUM_ANDROID_DEBUG_STORE_PASSWORD" -alias "$QUM_ANDROID_DEBUG_KEY_ALIAS" | openssl x509 -inform PEM -outform DER | sha256sum | cut -d' ' -f1)"
+          actual="$("$apksigner" verify --print-certs "$apk" | grep -i -m1 'certificate SHA-256 digest:' | sed -E 's/.*digest:[[:space:]]*//' | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          test -n "$expected"
+          test -n "$actual"
+          if [[ "$expected" != "$actual" ]]; then
+            echo "::error::APK signed with unexpected certificate"
+            exit 1
+          fi
+          echo "Verified persistent APK certificate: $actual"
+
+      - name: Upload Android Testnet APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: quintum-android-testnet-arm64
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Publish direct-download Android Testnet prerelease
+        if: env.QUM_ANDROID_DEBUG_KEYSTORE != '' && github.event_name == 'push' && github.ref == 'refs/heads/android-foundation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every successful run retains its tested APK artifact. Publish a
+          # prerelease only for the current branch head, avoiding stale tags
+          # and permissions failures when a newer workflow commit exists.
+          target_sha="$GITHUB_SHA"
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/android-foundation" --jq '.object.sha')"
+          if [ "$current_sha" != "$target_sha" ]; then
+            echo '::notice::A newer Android commit exists; use this run APK artifact. Prerelease publication belongs to the current branch head.'
+            exit 0
+          fi
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          tag="android-testnet-${GITHUB_RUN_NUMBER}"
+          digest="$(sha256sum "$apk" | cut -d' ' -f1)"
+          printf "%s  %s\n" "$digest" "QUINTUM-Android-Testnet-arm64.apk" > SHA256SUMS.txt
+          gh release create "$tag" "$apk#QUINTUM-Android-Testnet-arm64.apk" "SHA256SUMS.txt" \
+            --target "$target_sha" \
+            --title "QUINTUM Android Testnet ${GITHUB_RUN_NUMBER}" \
+            --notes "Experimental QMU RandomX Testnet Android ARM64 build. Not mainnet. Device-level P2P and mining verification pending. APK size: $(stat -c%s "$apk") bytes. SHA-256: $digest. Verify against SHA256SUMS.txt." \
+            --prerelease
+

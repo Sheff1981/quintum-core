@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <string>
 #include <thread>
 
@@ -1415,6 +1416,62 @@ void test_reconnect_backoff_grows_and_caps()
 }
 
 
+
+void test_status_polling_does_not_wait_for_initial_sync()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto dir = unique_dir("status-during-stalled-sync");
+    NetworkRuntime runtime{params, dir};
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.allow_local_peers = true;
+    config.target_outbound = 0U;
+    config.wallet_enabled = false;
+    config.accept_poll_ms = 10U;
+    config.io_timeout_ms = 5'000U;
+    assert(runtime.start(config).ok());
+    const auto before = runtime.status();
+    assert(before.height.has_value());
+
+    VersionMessage remote;
+    remote.protocol_version = kProtocolVersion;
+    remote.services = kServiceNetwork;
+    remote.timestamp = params.genesis.timestamp + 81'000U;
+    remote.nonce = 0x535441545553ULL;
+    remote.start_height = *before.height + 1U;
+    remote.listen_port = 39444U;
+    auto connected = connect_and_handshake(
+        params, "127.0.0.1", before.listen_port, remote, 5'000U);
+    assert(connected.ok());
+
+    // Runtime drives sync from this higher peer on the bounded worker.
+    // Deliberately leave headers unanswered; chain snapshots stay available.
+    WireMessage request;
+    assert(connected.session->receive_command(request) == PeerError::none);
+    assert(request.command == "getheaders");
+    auto poll = std::async(std::launch::async, [&] {
+        return runtime.status_nonblocking();
+    });
+    assert(poll.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+    const auto during = poll.get();
+    assert(during.running);
+    assert(during.listen_port == before.listen_port);
+    assert(during.height == before.height);
+    assert(during.difficulty == before.difficulty);
+
+    connected.session->close();
+    // A transport failure must not damage the readable chain snapshot.
+    assert(wait_until(std::chrono::seconds(5), [&] {
+        return runtime.status_nonblocking().height == before.height;
+    }));
+    runtime.stop();
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
 void test_stalled_transaction_requests_are_bounded_and_expire()
 {
     using namespace quintum;
@@ -1889,10 +1946,68 @@ void test_repeated_partition_reconnect_converges_to_heavier_chain()
     std::filesystem::remove_all(right_dir, ec);
 }
 
+void test_initial_sync_does_not_lock_status_and_can_cancel()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace std::chrono_literals;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("initial-cancellation");
+    PeerListener listener{params};
+    assert(listener.listen("127.0.0.1", 0U) == PeerError::none);
+    std::promise<void> requested, release;
+    auto release_future = release.get_future();
+    std::thread server([&] {
+        VersionMessage remote;
+        remote.protocol_version = params.p2p_protocol_version;
+        remote.services = kServiceNetwork;
+        remote.nonce = 0x726573706f6e64U;
+        remote.start_height = 1U;
+        remote.listen_port = listener.local_port();
+        auto accepted = listener.accept_and_handshake(remote, 5'000U);
+        assert(accepted.ok());
+        WireMessage request;
+        assert(accepted.session->receive_command(request) == PeerError::none);
+        assert(request.command == "getheaders");
+        requested.set_value();
+        release_future.wait();
+        accepted.session->close();
+    });
+    NetworkRuntime runtime{params, directory};
+    NetworkRuntimeConfig config;
+    config.bind_address = "127.0.0.1";
+    config.listen_port = 0U;
+    config.wallet_enabled = false;
+    config.enable_nat_mapping = false;
+    config.target_outbound = 1U;
+    config.bootstrap_peers = {PeerAddress{
+        .ipv4 = *parse_ipv4("127.0.0.1"), .port = listener.local_port(),
+        .services = kServiceNetwork}};
+    assert(runtime.start(config).ok());
+    assert(requested.get_future().wait_for(5s) == std::future_status::ready);
+    auto status = std::async(std::launch::async, [&] { return runtime.status(); });
+    // The server deliberately withholds its response. Status must not wait
+    // for that network operation or any initial header validation.
+    assert(status.wait_for(500ms) == std::future_status::ready);
+    assert(status.get().height == std::optional<std::uint32_t>{0U});
+    auto stopped = std::async(std::launch::async, [&] { runtime.stop(); });
+    assert(stopped.wait_for(2s) == std::future_status::ready);
+    stopped.get();
+    release.set_value();
+    server.join();
+    NodeRuntime restarted{params, directory};
+    assert(restarted.start().ok());
+    assert(restarted.chain().height() == std::optional<std::uint32_t>{0U});
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 } // namespace
 
 int main()
 {
+    test_initial_sync_does_not_lock_status_and_can_cancel();
+    test_status_polling_does_not_wait_for_initial_sync();
     test_default_listener_port_fallback();
     test_walletless_seed_runtime_creates_no_wallet();
     test_peer_message_flood_is_disconnected();

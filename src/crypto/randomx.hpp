@@ -3,11 +3,29 @@
 #include "core/types.hpp"
 
 #include <cstddef>
+#include <string_view>
 #include <memory>
 #include <optional>
 #include <span>
 
 namespace quintum::crypto {
+
+// Timing is scoped to the calling sync verification thread, never mining workers.
+class RandomXVerificationScope {
+public:
+    using Observer = void (*)(void*, std::string_view, std::uint64_t);
+    RandomXVerificationScope(Observer observer, void* context) noexcept;
+    ~RandomXVerificationScope();
+    RandomXVerificationScope(const RandomXVerificationScope&) = delete;
+    RandomXVerificationScope& operator=(const RandomXVerificationScope&) = delete;
+private:
+    friend void report_randomx_verification(std::string_view, std::uint64_t) noexcept;
+    Observer observer_;
+    void* context_;
+    RandomXVerificationScope* previous_;
+};
+
+void report_randomx_verification(std::string_view name, std::uint64_t value) noexcept;
 
 // Portable RandomX v2 light-mode context.
 //
@@ -90,3 +108,4 @@ private:
 };
 
 } // namespace quintum::crypto
+

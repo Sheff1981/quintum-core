@@ -292,7 +292,8 @@ NodeRuntime::mine_mempool_block_parallel_at(
     std::uint64_t max_attempts,
     std::size_t worker_count,
     bool full_memory,
-    std::uint64_t start_nonce)
+    std::uint64_t start_nonce,
+    const std::atomic<bool>* cancel)
 {
     if (!started_) {
         NodeMineResult out;
@@ -373,7 +374,8 @@ NodeRuntime::mine_mempool_block_parallel_at(
             transactions.data(),
             best
         ),
-        start_nonce
+        start_nonce,
+        cancel
     );
 }
 
@@ -507,7 +509,8 @@ NodeMineResult NodeRuntime::mine_block_parallel_at(
     std::size_t worker_count,
     bool full_memory,
     std::span<const Transaction> transactions,
-    std::uint64_t start_nonce)
+    std::uint64_t start_nonce,
+    const std::atomic<bool>* cancel)
 {
     if (params_.pow.pow_algorithm !=
             consensus::PowAlgorithm::randomx_v2 ||
@@ -573,7 +576,8 @@ NodeMineResult NodeRuntime::mine_block_parallel_at(
                 *randomx_seed,
                 max_attempts,
                 worker_count,
-                full_memory
+                full_memory,
+                cancel
             );
 
     if (!out.mining.found()) {

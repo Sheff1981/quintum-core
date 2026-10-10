@@ -1,3 +1,6 @@
+#include "net/diagnostics.hpp"
+#include "crypto/randomx.hpp"
+#include <chrono>
 #include "net/sync.hpp"
 
 #include "consensus/pow.hpp"
@@ -9,9 +12,25 @@
 #include <array>
 #include <limits>
 #include <string_view>
+#include <string>
 #include <utility>
 
 namespace quintum::net {
+
+template<class F>
+void observe(
+    const std::shared_ptr<Diagnostics>& diagnostics,
+    F&& callback) noexcept
+{
+    if (diagnostics) {
+        try {
+            callback(*diagnostics);
+        } catch (...) {
+            // Diagnostics must never change networking or validation results.
+        }
+    }
+}
+
 namespace {
 
 constexpr std::size_t kHeaderSize = 88U;
@@ -21,11 +40,22 @@ PeerError receive_sync_response(
     PeerSession& peer,
     std::string_view expected_command,
     bool allow_notfound,
-    WireMessage& message)
+    WireMessage& message,
+    const SyncOptions& options = {})
 {
+    const auto deadline = std::chrono::steady_clock::now() +
+        std::chrono::milliseconds(options.io_timeout_ms);
     for (std::size_t skipped = 0U;
          skipped <= kMaxInterleavedSyncMessages;
          ++skipped) {
+        if (options.cancel) {
+            while (!peer.wait_readable(100U)) {
+                if (options.cancel->load()) return PeerError::cancelled;
+                if (std::chrono::steady_clock::now() >= deadline)
+                    return PeerError::timeout;
+            }
+            if (options.cancel->load()) return PeerError::cancelled;
+        }
         WireMessage candidate;
         const auto error =
             peer.receive_command(candidate);
@@ -933,35 +963,114 @@ SyncServiceResult serve_sync_once(
 SyncResult sync_from_peer(
     PeerSession& peer,
     NodeRuntime& node,
-    std::uint64_t adjusted_time)
+    std::uint64_t adjusted_time,
+    std::shared_ptr<Diagnostics> diagnostics,
+    SyncOptions options)
 {
     SyncResult out;
+    const auto node_lock = [&] {
+        return options.state_mutex ? std::unique_lock<std::mutex>(*options.state_mutex)
+                                   : std::unique_lock<std::mutex>{};
+    };
+    const auto cancelled = [&] { return options.cancel && options.cancel->load(); };
 
+    crypto::RandomXVerificationScope randomx_scope(
+        [](void* context, std::string_view name, std::uint64_t microseconds) {
+            const auto& journal =
+                *static_cast<const std::shared_ptr<Diagnostics>*>(context);
+            observe(journal, [&](auto& diagnostics_state) {
+                if (name == "randomx_result_reused") {
+                    diagnostics_state.counter(name, 1U);
+                    return;
+                }
+                if (name == "randomx_cache_started") {
+                    diagnostics_state.gauge("randomx_active", 1U);
+                    diagnostics_state.event("randomx", "info", "cache_initializing");
+                    return;
+                }
+                if (name == "randomx_hash_started") {
+                    diagnostics_state.gauge("randomx_active", 2U);
+                    return;
+                }
+                if (name == "randomx_operation_complete") {
+                    diagnostics_state.gauge("randomx_active", 0U);
+                    return;
+                }
+                if (name == "randomx_verify_ms") {
+                    diagnostics_state.counter("randomx_calls", 1U);
+                    diagnostics_state.gauge("randomx_last_hash_us", microseconds);
+                }
+                diagnostics_state.duration(name, microseconds);
+            });
+        },
+        &diagnostics
+    );
+
+    struct Finish {
+        std::shared_ptr<Diagnostics> diagnostics;
+        SyncResult& result;
+        PeerSession& peer;
+
+        ~Finish()
+        {
+            observe(diagnostics, [&](auto& journal) {
+                if (!result.ok()) {
+                    const auto last_io = peer.last_io_failure();
+                    const auto io = result.peer_error != PeerError::none &&
+                            last_io.error == result.peer_error
+                        ? last_io : PeerIoFailure{};
+                    const std::string description =
+                        "sync_error=" + std::to_string(static_cast<int>(result.error)) +
+                        " peer_error=" + std::to_string(static_cast<int>(result.peer_error)) +
+                        " chain_error=" + std::to_string(static_cast<int>(result.chain_error)) +
+                        " submit_error=" + std::to_string(static_cast<int>(result.submit_error)) +
+                        " storage_error=" + std::to_string(static_cast<int>(result.storage_error)) +
+                        " socket_error=" + std::to_string(io.socket_error) +
+                        " eof=" + std::to_string(io.remote_closed ? 1 : 0) +
+                        " partial_bytes=" + std::to_string(io.partial_io_bytes) +
+                        " wire_error=" + std::to_string(static_cast<int>(io.wire_error));
+                    journal.failure("sync", static_cast<int>(result.error), description);
+                    journal.peer_state("disconnected", description,
+                        result.peer_error == PeerError::timeout ? "sync socket or ping timeout" : "");
+                }
+            });
+        }
+    } finish{diagnostics, out, peer};
+
+    auto initial_lock = node_lock();
     if (!node.started()) {
         out.error = SyncError::not_started;
         return out;
     }
 
     node.clear_block_body_recovery();
+    if (initial_lock.owns_lock()) initial_lock.unlock();
 
     struct RecoveryCacheGuard {
         NodeRuntime& node;
+        std::mutex* mutex;
 
         ~RecoveryCacheGuard()
         {
+            auto lock = mutex ? std::unique_lock<std::mutex>(*mutex)
+                              : std::unique_lock<std::mutex>{};
             node.clear_block_body_recovery();
         }
     };
 
     [[maybe_unused]] RecoveryCacheGuard recovery_guard{
-        node
+        node, options.state_mutex
     };
 
     std::optional<Hash256> continuation;
 
     for (;;) {
-        auto locator =
-            build_block_locator(node.chain());
+        if (cancelled()) { out.error = SyncError::cancelled; return out; }
+        const auto snapshot = [&] {
+            auto lock = node_lock();
+            return node.chain().header_validation_snapshot();
+        }();
+        auto locator = build_block_locator(snapshot);
 
         if (locator.empty()) {
             out.error = SyncError::malformed_message;
@@ -995,6 +1104,9 @@ SyncResult sync_from_peer(
             .stop = {},
         };
 
+        observe(diagnostics, [](auto& d) {
+            d.stage("headers_sync", "sync");
+        });
         const auto request_payload =
             serialize_getheaders(request);
 
@@ -1005,21 +1117,29 @@ SyncResult sync_from_peer(
             );
 
         if (out.peer_error != PeerError::none) {
-            out.error = SyncError::transport_failed;
+            out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
             return out;
         }
 
+        observe(diagnostics, [](auto& d) {
+            d.stage("header_wait", "sync");
+        });
+        const auto header_wait_started = std::chrono::steady_clock::now();
         WireMessage response;
         out.peer_error =
             receive_sync_response(
                 peer,
                 "headers",
                 false,
-                response
+                response, options
             );
 
+        observe(diagnostics, [&](auto& d) {
+            d.duration("header_wait_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-header_wait_started).count());
+            if (out.peer_error == PeerError::none) d.network_progress();
+        });
         if (out.peer_error != PeerError::none) {
-            out.error = SyncError::transport_failed;
+            out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
             return out;
         }
 
@@ -1028,17 +1148,74 @@ SyncResult sync_from_peer(
             return out;
         }
 
-        const auto headers =
+        observe(diagnostics, [](auto& journal) {
+            journal.counter("header_batches_received", 1U);
+        });
+        auto headers =
             parse_headers(response.payload);
 
         if (!headers) {
+            observe(diagnostics, [](auto& journal) {
+                journal.counter("header_batches_rejected", 1U);
+                journal.gauge("header_batch_size", 0U);
+            });
             out.error = SyncError::malformed_message;
             return out;
         }
 
+        // Android CPU RandomX validation can take over a second per header.
+        // Validate and download a bounded prefix, then resume using the
+        // committed chain tip as the next getheaders locator. The remaining
+        // response is deliberately discarded, never treated as validated.
+        // This does not alter wire limits or consensus rules on either peer.
+#if defined(__ANDROID__)
+        constexpr std::size_t kAndroidHeadersPerSyncRound = 24U;
+        if (headers->size() > kAndroidHeadersPerSyncRound) {
+            headers->resize(kAndroidHeadersPerSyncRound);
+        }
+#endif
+
         out.headers_received += headers->size();
+        observe(diagnostics, [&](auto& d) {
+            d.counter("headers_received", headers->size());
+            d.gauge("header_batch_size",headers->size());
+            d.stage("header_validation", "sync");
+            d.peer_state("validating_headers");
+            d.gauge("header_batch_progress", 0U);
+        });
+        bool header_batch_validated = false;
+        std::size_t validated_prefix = 0U;
+        struct HeaderBatch {
+            std::shared_ptr<Diagnostics> diagnostics;
+            std::size_t count;
+            bool& validated;
+            std::size_t& prefix;
+            SyncResult& result;
+
+            ~HeaderBatch()
+            {
+                observe(diagnostics, [](auto& journal) {
+                    journal.gauge("headers_validating", 0U);
+                    journal.peer_state("initializing");
+                });
+                if (!validated && result.error != SyncError::cancelled &&
+                    result.error != SyncError::transport_failed) {
+                    observe(diagnostics, [&](auto& journal) {
+                        // One header caused rejection. The suffix was not
+                        // validated; the whole batch remains unaccepted.
+                        journal.counter("headers_rejected", count > 0U ? 1U : 0U);
+                        journal.counter("headers_unvalidated", count > prefix ? count - prefix - 1U : 0U);
+                        journal.counter("header_batches_rejected", 1U);
+                    });
+                }
+            }
+        } header_batch{diagnostics, headers->size(), header_batch_validated, validated_prefix, out};
 
         if (headers->empty()) {
+            header_batch_validated = true;
+            observe(diagnostics, [](auto& d) {
+                d.counter("header_batches_accepted",1);
+            });
             return out;
         }
 
@@ -1053,7 +1230,7 @@ SyncResult sync_from_peer(
             ) != request.locator.end();
 
         if (!parent_was_requested ||
-            !node.chain().has_block(previous) ||
+            !snapshot.has_block(previous) ||
             (continuation &&
              previous != *continuation)) {
             out.error = SyncError::invalid_header_chain;
@@ -1072,14 +1249,95 @@ SyncResult sync_from_peer(
         // Reject consensus-invalid header chains before requesting any block
         // body. Chainstate owns the rules so headers-first and full block
         // acceptance cannot diverge on difficulty, MTP or RandomX seeds.
-        const auto validated =
-            node.chain().validate_headers(
-                *headers,
-                adjusted_time
-            );
+        const auto header_validation_started = std::chrono::steady_clock::now();
+        std::optional<std::uint64_t> pending_ping;
+        auto last_message = std::chrono::steady_clock::now();
+        auto ping_sent = last_message;
+        std::size_t known_since_report = 0U;
+        std::size_t new_since_report = 0U;
+        const auto service_validation = [&](std::size_t progress, bool completed) {
+            // Aggregate diagnostics across verified headers. RandomX consensus
+            // validation and P2P servicing still run for every single header.
+            if (completed) {
+                const auto& header = (*headers)[progress - 1U];
+                if (snapshot.has_block(block_hash(header))) {
+                    ++known_since_report;
+                } else {
+                    ++new_since_report;
+                }
+            }
+            if (!completed || progress % 16U == 0U || progress == headers->size()) {
+                observe(diagnostics, [&](auto& journal) {
+                    journal.gauge("headers_validating", completed ? 0U : 1U);
+                    if (completed) {
+                        if (known_since_report != 0U)
+                            journal.counter("headers_known", known_since_report);
+                        if (new_since_report != 0U) {
+                            journal.counter("headers_verified", new_since_report);
+                            journal.counter("headers_validated", new_since_report);
+                        }
+                        journal.gauge("header_batch_progress", progress);
+                    }
+                });
+                known_since_report = 0U;
+                new_since_report = 0U;
+            }
+            if (cancelled()) return false;
+            // The sync worker is the exclusive socket owner. Never race its
+            // encrypted receive/send state with the event loop.
+            for (std::size_t serviced = 0U;
+                 serviced < kMaxInterleavedSyncMessages && peer.wait_readable(0U);
+                 ++serviced) {
+                WireMessage message;
+                out.peer_error = peer.receive_command(message);
+                if (out.peer_error != PeerError::none) return false;
+                last_message = std::chrono::steady_clock::now();
+                observe(diagnostics, [](auto& journal) { journal.network_progress(); });
+                if (message.command == "ping") {
+                    const auto nonce = parse_nonce(message.payload);
+                    if (!nonce) { out.peer_error = PeerError::malformed_ping; return false; }
+                    out.peer_error = peer.send_command("pong", serialize_nonce(*nonce));
+                    if (out.peer_error != PeerError::none) return false;
+                } else if (message.command == "pong") {
+                    const auto nonce = parse_nonce(message.payload);
+                    if (!nonce || (pending_ping && *nonce != *pending_ping)) {
+                        out.peer_error = PeerError::malformed_ping; return false;
+                    }
+                    pending_ping.reset();
+                } else if (message.command == "inv") {
+                    if (!parse_inventory(message.payload)) {
+                        out.peer_error = PeerError::unexpected_message; return false;
+                    }
+                } else {
+                    out.peer_error = PeerError::unexpected_message; return false;
+                }
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (pending_ping && now - ping_sent >= std::chrono::seconds(options.ping_timeout_seconds)) {
+                out.peer_error = PeerError::timeout; return false;
+            }
+            if (!pending_ping && options.ping_interval_seconds > 0U &&
+                now - last_message >= std::chrono::seconds(options.ping_interval_seconds)) {
+                pending_ping = static_cast<std::uint64_t>(now.time_since_epoch().count());
+                out.peer_error = peer.send_command("ping", serialize_nonce(*pending_ping));
+                if (out.peer_error != PeerError::none) return false;
+                ping_sent = now;
+            }
+            return !options.header_progress || options.header_progress(progress, completed);
+        };
+        const auto validated = snapshot.validate_headers(*headers, adjusted_time, service_validation);
 
+        observe(diagnostics, [&](auto& d) {
+            d.duration("headers_verify_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-header_validation_started).count());
+        });
         if (!validated.ok()) {
+            validated_prefix = validated.header_index;
             out.chain_error = validated.error;
+            if (validated.error == ChainConnectError::validation_cancelled) {
+                out.error = (cancelled() || out.peer_error == PeerError::none)
+                    ? SyncError::cancelled : SyncError::transport_failed;
+                return out;
+            }
             out.error =
                 validated.error ==
                         ChainConnectError::
@@ -1091,9 +1349,16 @@ SyncResult sync_from_peer(
             return out;
         }
 
+        header_batch_validated = true;
+        observe(diagnostics, [&](auto& d) {
+            d.counter("header_batches_accepted",1);
+            d.peer_state("initializing");
+        });
         std::vector<BlockHeader> missing_headers;
         missing_headers.reserve(headers->size());
 
+        {
+        auto lock = node_lock();
         for (const auto& header : *headers) {
             const Hash256 expected_hash =
                 block_hash(header);
@@ -1108,9 +1373,12 @@ SyncResult sync_from_peer(
             missing_headers.push_back(header);
         }
 
+        }
+
         for (std::size_t offset = 0U;
              offset < missing_headers.size();
              offset += kMaxBlockDownloadItems) {
+            if (cancelled()) { out.error = SyncError::cancelled; return out; }
             const std::size_t batch_size =
                 std::min<std::size_t>(
                     kMaxBlockDownloadItems,
@@ -1135,6 +1403,9 @@ SyncResult sync_from_peer(
                 );
             }
 
+            observe(diagnostics, [](auto& d) {
+                d.stage("blocks_sync", "sync");
+            });
             const auto inventory =
                 serialize_inventory(request_items);
 
@@ -1145,34 +1416,45 @@ SyncResult sync_from_peer(
                 );
 
             if (out.peer_error != PeerError::none) {
-                out.error = SyncError::transport_failed;
+                out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
                 return out;
             }
 
             out.blocks_requested += batch_size;
+            observe(diagnostics, [&](auto& d) {
+                d.counter("blocks_requested",batch_size);
+            });
             ++out.block_request_batches;
 
             for (std::size_t i = 0U;
                  i < batch_size;
                  ++i) {
+                if (cancelled()) { out.error = SyncError::cancelled; return out; }
                 const auto& header =
                     missing_headers[offset + i];
                 const Hash256 expected_hash =
                     block_hash(header);
 
+                observe(diagnostics, [](auto& d) {
+                    d.stage("block_wait", "sync");
+                });
+                const auto block_wait_started = std::chrono::steady_clock::now();
                 WireMessage block_message;
                 out.peer_error =
                     receive_sync_response(
                         peer,
                         "block",
                         true,
-                        block_message
+                        block_message, options
                     );
 
+                observe(diagnostics, [&](auto& d) {
+                    d.duration("block_wait_ms", std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-block_wait_started).count());
+                    if (out.peer_error == PeerError::none) d.network_progress();
+                });
                 if (out.peer_error !=
                     PeerError::none) {
-                    out.error =
-                        SyncError::transport_failed;
+                    out.error = cancelled() ? SyncError::cancelled : SyncError::transport_failed;
                     return out;
                 }
 
@@ -1206,10 +1488,33 @@ SyncResult sync_from_peer(
                     return out;
                 }
 
+                observe(diagnostics, [](auto& d) {
+                    d.counter("blocks_received",1);
+                    d.stage("block_validation", "sync");
+                });
+                bool block_accepted = false;
+                const auto block_validation_started = std::chrono::steady_clock::now();
+                struct BlockValidation {
+                    std::shared_ptr<Diagnostics> diagnostics;
+                    bool& accepted;
+                    std::chrono::steady_clock::time_point started;
+
+                    ~BlockValidation()
+                    {
+                        observe(diagnostics, [&](auto& journal) {
+                            journal.duration("block_verify_ms",
+                                std::chrono::duration_cast<std::chrono::microseconds>(
+                                    std::chrono::steady_clock::now() - started).count());
+                            if (!accepted) {
+                                journal.counter("blocks_rejected", 1U);
+                            }
+                        });
+                    }
+                } block_validation{diagnostics, block_accepted, block_validation_started};
                 const auto block =
                     parse_block_payload(
                         block_message.payload,
-                        node.chain().params().limits
+                        snapshot.params().limits
                     );
 
                 if (!block) {
@@ -1229,19 +1534,17 @@ SyncResult sync_from_peer(
                     return out;
                 }
 
-                const bool metadata_known =
-                    node.chain().has_block(
-                        expected_hash);
-
-                const auto submitted =
-                    metadata_known
-                        ? node.restore_block_body(
-                              *block
-                          )
-                        : node.submit_block_at(
-                              *block,
-                              adjusted_time
-                          );
+                bool metadata_known = false;
+                std::optional<std::uint32_t> accepted_height;
+                const auto submitted = [&] {
+                    auto lock = node_lock();
+                    metadata_known = node.chain().has_block(expected_hash);
+                    const auto result = metadata_known
+                        ? node.restore_block_body(*block)
+                        : node.submit_block_at(*block, adjusted_time);
+                    if (result.ok()) accepted_height = node.chain().height();
+                    return result;
+                }();
 
                 out.submit_error =
                     submitted.error;
@@ -1263,6 +1566,12 @@ SyncResult sync_from_peer(
                     return out;
                 }
 
+                block_accepted = true;
+                observe(diagnostics, [&](auto& d) {
+                    d.counter("blocks_accepted",1);
+                    d.counter("headers_committed", metadata_known ? 0U : 1U);
+                    if (accepted_height) d.local_height(*accepted_height);
+                });
                 if (metadata_known) {
                     ++out.block_bodies_restored;
                 } else {
@@ -1286,3 +1595,4 @@ SyncResult sync_from_peer(
 }
 
 } // namespace quintum::net
+

@@ -823,9 +823,28 @@ HeaderValidationResult Chainstate::validate_header_candidate(
     return out;
 }
 
+Chainstate Chainstate::header_validation_snapshot() const
+{
+    Chainstate snapshot{params_};
+    snapshot.chain_.reserve(chain_.size());
+    for (const auto& entry : chain_) {
+        snapshot.chain_.push_back(ChainEntry{
+            .hash = entry.hash, .header = entry.header,
+            .height = entry.height, .chain_work = entry.chain_work});
+    }
+    for (const auto& [hash, entry] : block_index_) {
+        snapshot.block_index_.emplace(hash, BlockIndexEntry{
+            .header = entry.header, .hash = entry.hash, .parent = entry.parent,
+            .height = entry.height, .chain_work = entry.chain_work,
+            .failed = entry.failed});
+    }
+    return snapshot;
+}
+
 HeaderValidationResult Chainstate::validate_headers(
     std::span<const BlockHeader> headers,
-    std::uint64_t adjusted_time) const
+    std::uint64_t adjusted_time,
+    const std::function<bool(std::size_t, bool)>& progress) const
 {
     HeaderValidationResult out;
     out.chain_work = cumulative_work();
@@ -836,6 +855,10 @@ HeaderValidationResult Chainstate::validate_headers(
          index < headers.size();
          ++index) {
         out.header_index = index;
+        if (progress && !progress(index, false)) {
+            out.error = ChainConnectError::validation_cancelled;
+            return out;
+        }
 
         const auto& header = headers[index];
         const Hash256 hash =
@@ -867,6 +890,11 @@ HeaderValidationResult Chainstate::validate_headers(
 
             out.chain_work =
                 known->chain_work;
+            if (progress && !progress(index + 1U, true)) {
+                out.header_index = index + 1U;
+                out.error = ChainConnectError::validation_cancelled;
+                return out;
+            }
             continue;
         }
 
@@ -936,6 +964,11 @@ HeaderValidationResult Chainstate::validate_headers(
         );
 
         out.chain_work = chain_work;
+        if (progress && !progress(index + 1U, true)) {
+            out.header_index = index + 1U;
+            out.error = ChainConnectError::validation_cancelled;
+            return out;
+        }
     }
 
     out.header_index = headers.size();

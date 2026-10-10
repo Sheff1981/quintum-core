@@ -13,7 +13,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #else
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
 #include <sys/random.h>
 #include <unistd.h>
 #endif
@@ -62,7 +62,7 @@ bool secure_random_bytes(
     }
 
     return true;
-#elif defined(__linux__)
+#elif defined(__linux__) && !defined(__ANDROID__)
     std::size_t offset{0U};
 
     while (offset < output.size()) {

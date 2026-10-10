@@ -7,6 +7,7 @@
 #include "primitives/block.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -60,6 +61,7 @@ enum class ChainConnectError {
     invalid_coinbase_reward,
     reorg_undo_failed,
     block_body_unavailable,
+    validation_cancelled,
 };
 
 struct ChainConnectResult {
@@ -145,8 +147,12 @@ public:
     // mutating chainstate or requiring block bodies.
     [[nodiscard]] HeaderValidationResult validate_headers(
         std::span<const BlockHeader> headers,
-        std::uint64_t adjusted_time
+        std::uint64_t adjusted_time,
+        const std::function<bool(std::size_t, bool)>& progress = {}
     ) const;
+
+    // Copies only validated header metadata, never UTXOs, bodies or undo.
+    [[nodiscard]] Chainstate header_validation_snapshot() const;
 
     // Restores the body of an already-known block whose metadata survived
     // pruning. This does not change the active chain by itself.

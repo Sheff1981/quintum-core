@@ -19,6 +19,19 @@ option(
     OFF
 )
 
+option(
+    QUINTUM_ENABLE_NAT_MAPPING
+    "Build UPnP/NAT-PMP automatic inbound port mapping"
+    ON
+)
+
+if(ANDROID)
+    # Android applications are normally behind carrier/Wi-Fi NAT and the
+    # desktop router-mapping dependencies are not part of the mobile core.
+    # Outbound P2P remains fully enabled.
+    set(QUINTUM_ENABLE_NAT_MAPPING OFF CACHE BOOL "" FORCE)
+endif()
+
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(SECP256K1_INSTALL OFF CACHE BOOL "" FORCE)
 set(SECP256K1_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
@@ -72,80 +85,96 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(monocypher_source)
 
-# Network reachability dependencies. Pin exact upstream commits so router
-# discovery/mapping behavior cannot change between builds.
-FetchContent_Declare(
-    miniupnpc_source
-    GIT_REPOSITORY https://github.com/miniupnp/miniupnp.git
-    GIT_TAG 8f13b7a5843f5270db684099c0a083f98869636a
-    GIT_SHALLOW FALSE
-)
-FetchContent_GetProperties(miniupnpc_source)
-if(NOT miniupnpc_source_POPULATED)
-    FetchContent_Populate(miniupnpc_source)
-    set(UPNPC_BUILD_STATIC ON CACHE BOOL "" FORCE)
-    set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-    set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
-    set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
-    add_subdirectory(
-        ${miniupnpc_source_SOURCE_DIR}/miniupnpc
-        ${miniupnpc_source_BINARY_DIR}
-        EXCLUDE_FROM_ALL
+# Network reachability dependencies. Desktop/server builds pin exact
+# upstream commits. Android uses a no-op mapper because mobile clients are
+# outbound peers and Android does not expose the desktop router APIs.
+if(QUINTUM_ENABLE_NAT_MAPPING)
+    # discovery/mapping behavior cannot change between builds.
+    FetchContent_Declare(
+        miniupnpc_source
+        GIT_REPOSITORY https://github.com/miniupnp/miniupnp.git
+        GIT_TAG 8f13b7a5843f5270db684099c0a083f98869636a
+        GIT_SHALLOW FALSE
     )
-endif()
-
-FetchContent_Declare(
-    libnatpmp_source
-    GIT_REPOSITORY https://github.com/miniupnp/libnatpmp.git
-    GIT_TAG 134fc89e2781e154e40042641f4d8bcbe42579f1
-    GIT_SHALLOW FALSE
-)
-FetchContent_GetProperties(libnatpmp_source)
-if(NOT libnatpmp_source_POPULATED)
-    FetchContent_Populate(libnatpmp_source)
-endif()
-
-set(QUINTUM_NATPMP_SOURCES
-    ${libnatpmp_source_SOURCE_DIR}/natpmp.c
-    ${libnatpmp_source_SOURCE_DIR}/getgateway.c
-)
-if(WIN32)
-    list(APPEND QUINTUM_NATPMP_SOURCES
-        ${libnatpmp_source_SOURCE_DIR}/wingettimeofday.c
+    FetchContent_GetProperties(miniupnpc_source)
+    if(NOT miniupnpc_source_POPULATED)
+        FetchContent_Populate(miniupnpc_source)
+        set(UPNPC_BUILD_STATIC ON CACHE BOOL "" FORCE)
+        set(UPNPC_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+        set(UPNPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(UPNPC_BUILD_SAMPLE OFF CACHE BOOL "" FORCE)
+        set(UPNPC_NO_INSTALL ON CACHE BOOL "" FORCE)
+        add_subdirectory(
+            ${miniupnpc_source_SOURCE_DIR}/miniupnpc
+            ${miniupnpc_source_BINARY_DIR}
+            EXCLUDE_FROM_ALL
+        )
+    endif()
+    
+    FetchContent_Declare(
+        libnatpmp_source
+        GIT_REPOSITORY https://github.com/miniupnp/libnatpmp.git
+        GIT_TAG 134fc89e2781e154e40042641f4d8bcbe42579f1
+        GIT_SHALLOW FALSE
     )
-endif()
-set(
-    QUINTUM_NATPMP_INCLUDE_DIR
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/libnatpmp"
-)
-file(MAKE_DIRECTORY "${QUINTUM_NATPMP_INCLUDE_DIR}")
-configure_file(
-    "${libnatpmp_source_SOURCE_DIR}/natpmp.h"
-    "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp.h"
-    COPYONLY
-)
-configure_file(
-    "${libnatpmp_source_SOURCE_DIR}/natpmp_declspec.h"
-    "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp_declspec.h"
-    COPYONLY
-)
-
-add_library(quintum_natpmp STATIC ${QUINTUM_NATPMP_SOURCES})
-target_include_directories(
-    quintum_natpmp
-    PUBLIC "${QUINTUM_NATPMP_INCLUDE_DIR}"
-)
-target_compile_definitions(
-    quintum_natpmp
-    PUBLIC NATPMP_STATICLIB
-    PRIVATE ENABLE_STRNATPMPERR
-)
-if(WIN32)
-    target_link_libraries(
+    FetchContent_GetProperties(libnatpmp_source)
+    if(NOT libnatpmp_source_POPULATED)
+        FetchContent_Populate(libnatpmp_source)
+    endif()
+    
+    set(QUINTUM_NATPMP_SOURCES
+        ${libnatpmp_source_SOURCE_DIR}/natpmp.c
+        ${libnatpmp_source_SOURCE_DIR}/getgateway.c
+    )
+    if(WIN32)
+        list(APPEND QUINTUM_NATPMP_SOURCES
+            ${libnatpmp_source_SOURCE_DIR}/wingettimeofday.c
+        )
+    endif()
+    set(
+        QUINTUM_NATPMP_INCLUDE_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/libnatpmp"
+    )
+    file(MAKE_DIRECTORY "${QUINTUM_NATPMP_INCLUDE_DIR}")
+    configure_file(
+        "${libnatpmp_source_SOURCE_DIR}/natpmp.h"
+        "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp.h"
+        COPYONLY
+    )
+    configure_file(
+        "${libnatpmp_source_SOURCE_DIR}/natpmp_declspec.h"
+        "${QUINTUM_NATPMP_INCLUDE_DIR}/natpmp_declspec.h"
+        COPYONLY
+    )
+    
+    add_library(quintum_natpmp STATIC ${QUINTUM_NATPMP_SOURCES})
+    target_include_directories(
         quintum_natpmp
-        PUBLIC ws2_32 iphlpapi
+        PUBLIC "${QUINTUM_NATPMP_INCLUDE_DIR}"
     )
+    target_compile_definitions(
+        quintum_natpmp
+        PUBLIC NATPMP_STATICLIB
+        PRIVATE ENABLE_STRNATPMPERR
+    )
+    if(WIN32)
+        target_link_libraries(
+            quintum_natpmp
+            PUBLIC ws2_32 iphlpapi
+        )
+    endif()
+
+    add_library(quintum_nat_mapping STATIC src/net/nat_mapping.cpp)
+    target_include_directories(quintum_nat_mapping PUBLIC src)
+    target_link_libraries(
+        quintum_nat_mapping
+        PUBLIC libminiupnpc-static quintum_natpmp
+    )
+else()
+    add_library(quintum_nat_mapping STATIC
+        src/net/nat_mapping_stub.cpp
+    )
+    target_include_directories(quintum_nat_mapping PUBLIC src)
 endif()
 
 # Consensus-critical RandomX dependency. Pin the exact upstream v2.0.1
@@ -246,11 +275,11 @@ add_library(quintum_core STATIC
     src/net/protocol.cpp
     src/net/v2_transport.cpp
     src/net/socks5.cpp
-    src/net/nat_mapping.cpp
     src/net/dandelion.cpp
     src/net/peer.cpp
     src/net/address.cpp
     src/net/discovery.cpp
+    src/net/diagnostics.cpp
     src/net/sync.cpp
     src/net/compact_block.cpp
     src/net/relay.cpp
@@ -280,9 +309,8 @@ target_link_libraries(
         secp256k1
         monocypher
         randomx
-        libminiupnpc-static
-        quintum_natpmp
         Threads::Threads
+        quintum_nat_mapping
 )
 if(WIN32)
     target_link_libraries(quintum_core PUBLIC ws2_32 bcrypt advapi32)
@@ -294,6 +322,23 @@ add_executable(quintumd
 )
 target_link_libraries(quintumd PRIVATE quintum_core)
 quintum_strict_warnings(quintumd)
+
+if(ANDROID)
+    # Static dependencies linked into the JNI shared library must be PIC on ARM64.
+    set_target_properties(quintum_core monocypher randomx PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    add_library(quintum_android SHARED
+        src/android/native_bridge.cpp
+    )
+    target_link_libraries(
+        quintum_android
+        PRIVATE quintum_core log
+    )
+    target_include_directories(
+        quintum_android
+        PRIVATE src
+    )
+    quintum_strict_warnings(quintum_android)
+endif()
 
 
 if(QUINTUM_BUILD_GUI)
@@ -756,3 +801,27 @@ add_test(
     NAME stage28_release_hardening
     COMMAND quintum_stage28_release_hardening_tests
 )
+
+# Read-only seed connectivity diagnostic; never creates node/wallet state.
+if(NOT ANDROID)
+    add_executable(quintum_android_p2p_probe tools/android_p2p_probe.cpp)
+    target_link_libraries(quintum_android_p2p_probe PRIVATE quintum_core)
+    quintum_strict_warnings(quintum_android_p2p_probe)
+    add_executable(quintum_android_sync_probe tools/android_sync_probe.cpp)
+    target_link_libraries(quintum_android_sync_probe PRIVATE quintum_core)
+    quintum_strict_warnings(quintum_android_sync_probe)
+endif()
+
+
+# Local metadata persistence is independent of wallet/chain storage.
+add_executable(quintum_diagnostics_tests tests/diagnostics_tests.cpp)
+target_link_libraries(quintum_diagnostics_tests PRIVATE quintum_core)
+quintum_strict_warnings(quintum_diagnostics_tests)
+quintum_test_assertions(quintum_diagnostics_tests)
+add_test(NAME diagnostics COMMAND quintum_diagnostics_tests)
+
+add_executable(quintum_validation_worker_tests tests/validation_worker_tests.cpp)
+target_link_libraries(quintum_validation_worker_tests PRIVATE quintum_core Threads::Threads)
+quintum_strict_warnings(quintum_validation_worker_tests)
+quintum_test_assertions(quintum_validation_worker_tests)
+add_test(NAME validation_worker COMMAND quintum_validation_worker_tests)

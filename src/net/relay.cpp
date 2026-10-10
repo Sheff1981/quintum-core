@@ -279,7 +279,8 @@ RelayResult request_object(
     PeerSession& peer,
     NodeRuntime& node,
     std::uint64_t adjusted_time,
-    const InventoryItem& item)
+    const InventoryItem& item,
+    std::mutex* state_mutex = nullptr)
 {
     RelayResult out;
 
@@ -315,6 +316,8 @@ RelayResult request_object(
         return out;
     }
 
+    auto lock = state_mutex ? std::unique_lock<std::mutex>(*state_mutex)
+                            : std::unique_lock<std::mutex>{};
     if (item.type == kInventoryTransaction) {
         if (response.command != "tx") {
             out.error = RelayError::malformed_message;
@@ -600,9 +603,18 @@ RelayResult serve_relay_message(
     PeerSession& peer,
     const NodeRuntime& node,
     const WireMessage& message,
-    std::span<const Hash256> hidden_transactions)
+    std::span<const Hash256> hidden_transactions,
+    std::mutex* state_mutex)
 {
     RelayResult out;
+    auto lock = state_mutex ? std::unique_lock<std::mutex>(*state_mutex)
+                            : std::unique_lock<std::mutex>{};
+    const auto send = [&](std::string_view command, const Bytes& payload) {
+        if (lock.owns_lock()) lock.unlock();
+        const auto result = peer.send_command(command, payload);
+        if (state_mutex) lock.lock();
+        return result;
+    };
 
     if (message.command == "mempool") {
         if (!message.payload.empty()) {
@@ -657,7 +669,7 @@ RelayResult serve_relay_message(
             serialize_inventory(items);
 
         out.peer_error =
-            peer.send_command(
+            send(
                 "inv",
                 payload
             );
@@ -731,7 +743,7 @@ RelayResult serve_relay_message(
                 );
 
             out.peer_error =
-                peer.send_command(
+                send(
                     "tx",
                     payload
                 );
@@ -767,7 +779,7 @@ RelayResult serve_relay_message(
                 }
 
                 out.peer_error =
-                    peer.send_command(
+                    send(
                         "cmpctblock",
                         payload
                     );
@@ -776,7 +788,7 @@ RelayResult serve_relay_message(
                     serialize_block_payload(*block);
 
                 out.peer_error =
-                    peer.send_command(
+                    send(
                         "block",
                         payload
                     );
@@ -797,7 +809,7 @@ RelayResult serve_relay_message(
             serialize_inventory(missing);
 
         out.peer_error =
-            peer.send_command(
+            send(
                 "notfound",
                 payload
             );
@@ -931,15 +943,19 @@ RelayResult receive_relay_once(
 
 RelayResult sync_mempool_from_peer(
     PeerSession& peer,
-    NodeRuntime& node)
+    NodeRuntime& node,
+    std::mutex* state_mutex)
 {
     RelayResult out;
 
+    auto initial_lock = state_mutex ? std::unique_lock<std::mutex>(*state_mutex)
+                                   : std::unique_lock<std::mutex>{};
     if (!node.started()) {
         out.error = RelayError::not_started;
         return out;
     }
 
+    if (initial_lock.owns_lock()) initial_lock.unlock();
     out.peer_error =
         request_mempool_inventory(peer);
 
@@ -976,7 +992,12 @@ RelayResult sync_mempool_from_peer(
             continue;
         }
 
-        if (node.mempool().contains(item.hash)) {
+        const bool known = [&] {
+            auto lock = state_mutex ? std::unique_lock<std::mutex>(*state_mutex)
+                                    : std::unique_lock<std::mutex>{};
+            return node.mempool().contains(item.hash);
+        }();
+        if (known) {
             continue;
         }
 
@@ -985,7 +1006,7 @@ RelayResult sync_mempool_from_peer(
                 peer,
                 node,
                 0U,
-                item
+                item, state_mutex
             );
 
         if (!received.ok()) {

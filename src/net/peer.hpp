@@ -6,16 +6,19 @@
 #include "net/v2_transport.hpp"
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <string>
 #include <vector>
 
 namespace quintum::net {
 
 struct PeerHandshakeResult;
+class Diagnostics;
 
 enum class PeerError {
     none,
@@ -38,6 +41,18 @@ enum class PeerError {
     encryption_failed,
     proxy_negotiation_failed,
     proxy_rejected,
+    cancelled,
+};
+
+// Evidence from this session's most recent send/receive operation. Counts
+// describe bytes transferred in the failing read/write segment. Successful
+// operations reset every field, preventing stale errno or EOF attribution.
+struct PeerIoFailure {
+    PeerError error{PeerError::none};
+    WireError wire_error{WireError::none};
+    int socket_error{0};
+    bool remote_closed{false};
+    std::size_t partial_io_bytes{0U};
 };
 
 class PeerSession {
@@ -53,6 +68,8 @@ public:
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] bool inbound() const noexcept;
+    [[nodiscard]] std::string remote_endpoint() const;
+    [[nodiscard]] PeerIoFailure last_io_failure() const noexcept;
     [[nodiscard]] const VersionMessage& remote_version() const noexcept;
     [[nodiscard]] bool encrypted() const noexcept;
     [[nodiscard]] std::optional<Hash256> session_id() const noexcept;
@@ -83,6 +100,10 @@ public:
         std::vector<PeerAddress>* learned = nullptr
     );
 
+    // Exclusive-owner operation. The token must outlive this session's IO.
+    // Polls cancellation inside framed reads/writes without closing from a
+    // second thread or changing existing idle socket timeout semantics.
+    void set_cancellation(const std::atomic<bool>* cancel, std::uint32_t io_timeout_ms) noexcept;
     void close() noexcept;
 
     // Internal adoption constructor used by the handshake layer.
@@ -97,13 +118,7 @@ public:
 private:
     friend class PeerListener;
     friend struct PeerHandshakeResult;
-    friend PeerHandshakeResult connect_and_handshake(
-        const consensus::ChainParams&,
-        std::string_view,
-        std::uint16_t,
-        const VersionMessage&,
-        std::uint32_t
-    );
+
 
     static constexpr std::uintptr_t kInvalidSocket =
         std::numeric_limits<std::uintptr_t>::max();
@@ -113,11 +128,19 @@ private:
     bool inbound_{false};
     VersionMessage remote_{};
     std::unique_ptr<V2Transport> transport_{};
+    PeerIoFailure io_failure_{};
+    const std::atomic<bool>* cancel_{nullptr};
+    std::uint32_t io_timeout_ms_{5'000U};
 };
 
 struct PeerHandshakeResult {
     PeerError error{PeerError::none};
     WireError wire_error{WireError::none};
+    // Last handshake phase; static labels only, no payload or credential data.
+    std::string_view phase{"tcp-connect"};
+    int socket_error{0};
+    bool remote_closed{false};
+    std::size_t partial_io_bytes{0U};
     std::optional<PeerSession> session{};
     std::optional<std::uint32_t> observed_ipv4{};
 
@@ -157,7 +180,8 @@ public:
     [[nodiscard]] PeerHandshakeResult accept_and_handshake(
         const VersionMessage& local,
         std::uint32_t accept_timeout_ms,
-        std::uint32_t io_timeout_ms
+        std::uint32_t io_timeout_ms,
+        std::shared_ptr<Diagnostics> diagnostics = {}
     );
 
     void close() noexcept;
@@ -176,7 +200,8 @@ private:
     std::string_view host,
     std::uint16_t port,
     const VersionMessage& local,
-    std::uint32_t timeout_ms
+    std::uint32_t timeout_ms,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 [[nodiscard]] PeerHandshakeResult connect_and_handshake(
@@ -185,7 +210,8 @@ private:
     std::uint16_t port,
     const VersionMessage& local,
     std::uint32_t timeout_ms,
-    const Socks5Proxy& proxy
+    const Socks5Proxy& proxy,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 class ConnectionManager {
@@ -205,3 +231,4 @@ private:
 };
 
 } // namespace quintum::net
+

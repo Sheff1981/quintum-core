@@ -1,10 +1,20 @@
 #include "consensus/chainparams.hpp"
 #include "net/peer.hpp"
+#include "net/diagnostics.hpp"
 #include "net/protocol.hpp"
 
 #include <array>
+#include <atomic>
+#include <future>
+#ifndef _WIN32
+#include <sys/ioctl.h>
+#endif
 #include <cassert>
 #include <cstdint>
+#include <cerrno>
+#include <chrono>
+#include <filesystem>
+#include <string>
 #include <span>
 #include <thread>
 #include <utility>
@@ -162,6 +172,11 @@ void test_two_peer_handshake_and_ping()
     const auto& params =
         quintum::consensus::regtest_params();
 
+    const auto diagnostic_dir = std::filesystem::temp_directory_path() /
+        ("quintum-p2p-diagnostic-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto diagnostics = std::make_shared<Diagnostics>(diagnostic_dir);
+
     PeerListener listener{params};
     assert(listener.listen(
                "127.0.0.1",
@@ -218,10 +233,22 @@ void test_two_peer_handshake_and_ping()
             "127.0.0.1",
             listener.local_port(),
             version(0xbbb2U, 5U),
-            5'000U
+            5'000U,
+            diagnostics
         );
 
     assert(connected.ok());
+    const auto events = diagnostics->export_log();
+    for (const auto phase : {
+             "peer_selected", "tcp_connecting", "tcp_connected",
+             "version_sent", "version_received", "protocol_validation",
+             "verack_sent", "verack_received", "handshake_complete"}) {
+        assert(events.find(phase) != std::string::npos);
+    }
+    const auto snapshot = diagnostics->snapshot_json();
+    assert(snapshot.find("\"remote_height\":7") != std::string::npos);
+    assert(snapshot.find("127.0.0.1:") != std::string::npos);
+
     assert(!connected.session->inbound());
     assert(connected.session->remote_version()
                .start_height == 7U);
@@ -246,6 +273,9 @@ void test_two_peer_handshake_and_ping()
     assert(server_saw_height == 5U);
     assert(server_saw_inbound);
     assert(server_after_prune == 0U);
+    std::error_code ec;
+    std::filesystem::remove_all(diagnostic_dir, ec);
+
 }
 
 void test_encrypted_peer_handshake_and_ping()
@@ -255,6 +285,10 @@ void test_encrypted_peer_handshake_and_ping()
     const auto& params =
         quintum::consensus::regtest_params();
 
+    const auto diagnostic_dir = std::filesystem::temp_directory_path() /
+        ("quintum-p2p-encrypted-diagnostic-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto diagnostics = std::make_shared<Diagnostics>(diagnostic_dir);
     PeerListener listener{params};
     assert(listener.listen(
                "127.0.0.1",
@@ -299,11 +333,15 @@ void test_encrypted_peer_handshake_and_ping()
                 0xc002U,
                 12U
             ),
-            5'000U
+            5'000U,
+            diagnostics
         );
 
     assert(connected.ok());
     assert(connected.session->encrypted());
+    const auto events = diagnostics->export_log();
+    assert(events.find("encrypted_transport") != std::string::npos);
+    assert(events.find("handshake_complete") != std::string::npos);
     const auto client_session_id =
         connected.session->session_id();
     assert(client_session_id.has_value());
@@ -319,6 +357,9 @@ void test_encrypted_peer_handshake_and_ping()
     assert(server_session_id.has_value());
     assert(*server_session_id ==
            *client_session_id);
+    std::error_code ec;
+    std::filesystem::remove_all(diagnostic_dir, ec);
+
 }
 
 void test_wrong_network_rejected()
@@ -551,8 +592,124 @@ void test_adversarial_wire_frame_corpus()
 
 } // namespace
 
+#include "interrupted_receive_test.inc"
+
+#ifndef _WIN32
+namespace {
+void test_partial_wire_read_is_cancellable()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    using namespace std::chrono_literals;
+    const auto& params = consensus::regtest_params();
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    std::atomic<bool> cancel{false};
+    PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]), false, version(0x7342U, 0U));
+    receiver.set_cancellation(&cancel, 5'000U);
+    WireMessage message;
+    auto pending = std::async(std::launch::async, [&] { return receiver.receive_command(message); });
+    const std::array<Byte, 3U> prefix{0U, 0U, 0U};
+    assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+    int remaining = 3;
+    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    do {
+        assert(ioctl(sockets[0], FIONREAD, &remaining) == 0);
+        std::this_thread::yield();
+    } while (remaining != 0 && std::chrono::steady_clock::now() < deadline);
+    assert(remaining == 0);
+    // Ensure the reader consumed a prefix and is waiting inside the frame,
+    // rather than merely testing cancellation before receive_command().
+    cancel.store(true);
+    const bool ready = pending.wait_for(500ms) == std::future_status::ready;
+    if (!ready) assert(shutdown(sockets[1], SHUT_RDWR) == 0);
+    const auto result = pending.get();
+    assert(ready);
+    assert(result == PeerError::cancelled);
+    const auto io = receiver.last_io_failure();
+    assert(io.error == PeerError::cancelled);
+    assert(io.partial_io_bytes == 3U);
+    assert(io.socket_error == 0 && !io.remote_closed);
+    receiver.close();
+    assert(close(sockets[1]) == 0);
+}
+
+void test_peer_io_failure_evidence()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+
+    for (const bool partial : {false, true}) {
+        int sockets[2]{};
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+        PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]),
+            false, version(0x1001U, 0U));
+        if (partial) {
+            const std::array<Byte, 3U> prefix{0U, 1U, 2U};
+            assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+        }
+        assert(::close(sockets[1]) == 0);
+        errno = EINVAL; // EOF must not inherit an unrelated errno value.
+        WireMessage message;
+        assert(receiver.receive_command(message) == PeerError::receive_failed);
+        const auto evidence = receiver.last_io_failure();
+        assert(evidence.error == PeerError::receive_failed);
+        assert(evidence.wire_error == WireError::none);
+        assert(evidence.socket_error == 0);
+        assert(evidence.remote_closed);
+        assert(evidence.partial_io_bytes == (partial ? 3U : 0U));
+        PeerSession moved = std::move(receiver);
+        assert(moved.last_io_failure().partial_io_bytes == evidence.partial_io_bytes);
+        assert(moved.last_io_failure().remote_closed);
+
+        // Another session's successful IO cannot erase retained failure evidence.
+        int other[2]{};
+        assert(socketpair(AF_UNIX, SOCK_STREAM, 0, other) == 0);
+        PeerSession sender(params, static_cast<std::uintptr_t>(other[0]),
+            false, version(0x1002U, 0U));
+        PeerSession recipient(params, static_cast<std::uintptr_t>(other[1]),
+            true, version(0x1003U, 0U));
+        assert(sender.send_command("ping", serialize_nonce(17U)) == PeerError::none);
+        assert(recipient.receive_command(message) == PeerError::none);
+        assert(moved.last_io_failure().remote_closed);
+        assert(moved.last_io_failure().partial_io_bytes == evidence.partial_io_bytes);
+    }
+
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    timeval timeout{0, 50'000};
+    assert(setsockopt(sockets[0], SOL_SOCKET, SO_RCVTIMEO,
+        &timeout, sizeof(timeout)) == 0);
+    PeerSession receiver(params, static_cast<std::uintptr_t>(sockets[0]),
+        false, version(0x2001U, 0U));
+    PeerSession sender(params, static_cast<std::uintptr_t>(sockets[1]),
+        true, version(0x2002U, 0U));
+    WireMessage message;
+    assert(receiver.receive_command(message) == PeerError::receive_failed);
+    const auto timed_out = receiver.last_io_failure();
+    assert(timed_out.socket_error == EAGAIN || timed_out.socket_error == EWOULDBLOCK);
+    assert(!timed_out.remote_closed);
+    assert(timed_out.partial_io_bytes == 0U);
+    assert(sender.send_command("ping", serialize_nonce(18U)) == PeerError::none);
+    assert(receiver.receive_command(message) == PeerError::none);
+    const auto recovered = receiver.last_io_failure();
+    assert(recovered.error == PeerError::none);
+    assert(recovered.socket_error == 0);
+    assert(!recovered.remote_closed);
+    assert(recovered.partial_io_bytes == 0U);
+}
+} // namespace
+#endif
+
 int main()
 {
+#ifndef _WIN32
+    test_partial_wire_read_is_cancellable();
+    test_peer_io_failure_evidence();
+    test_interrupted_peer_receive();
+    test_interrupted_peer_receive(true);
+#endif
     test_wire_protocol();
     test_two_peer_handshake_and_ping();
     test_encrypted_peer_handshake_and_ping();
@@ -562,3 +719,4 @@ int main()
     test_adversarial_wire_frame_corpus();
     return 0;
 }
+

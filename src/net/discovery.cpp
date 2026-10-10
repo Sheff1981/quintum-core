@@ -1,3 +1,4 @@
+#include "net/diagnostics.hpp"
 #include "net/discovery.hpp"
 
 #include <algorithm>
@@ -18,6 +19,21 @@
 #endif
 
 namespace quintum::net {
+
+template<class F>
+void observe(
+    const std::shared_ptr<Diagnostics>& diagnostics,
+    F&& callback) noexcept
+{
+    if (diagnostics) {
+        try {
+            callback(*diagnostics);
+        } catch (...) {
+            // Diagnostics must never change networking or validation results.
+        }
+    }
+}
+
 namespace {
 
 bool dns_runtime_ready() noexcept
@@ -112,7 +128,8 @@ PeerHandshakeResult connect_peer_address(
     const PeerAddress& address,
     const VersionMessage& local_version,
     std::uint32_t timeout_ms,
-    const ProxyRoutes& routes)
+    const ProxyRoutes& routes,
+    std::shared_ptr<Diagnostics> diagnostics)
 {
     const std::string host =
         format_peer_host(address);
@@ -132,7 +149,7 @@ PeerHandshakeResult connect_peer_address(
             address.port,
             local_version,
             timeout_ms,
-            *routes.tor
+            *routes.tor, diagnostics
         );
     }
 
@@ -151,7 +168,7 @@ PeerHandshakeResult connect_peer_address(
             address.port,
             local_version,
             timeout_ms,
-            *routes.i2p
+            *routes.i2p, diagnostics
         );
     }
 
@@ -160,7 +177,7 @@ PeerHandshakeResult connect_peer_address(
         host,
         address.port,
         local_version,
-        timeout_ms
+        timeout_ms, diagnostics
     );
 }
 
@@ -277,7 +294,12 @@ std::size_t PeerDiscovery::bootstrap_dns_seeds(
                 .last_seen = now,
             };
 
-            if (addrman_.add(address)) {
+            const bool inserted = addrman_.add(address);
+            // DNS seeds must receive the same startup retry opportunity
+            // as fixed seeds, even when their addresses already exist
+            // in peers.dat with an expired or long backoff schedule.
+            addrman_.make_retry_eligible(address, now);
+            if (inserted) {
                 ++added;
             }
         }
@@ -324,7 +346,8 @@ PeerDiscovery::connect_any(
     std::uint32_t timeout_ms,
     std::size_t max_candidates,
     std::span<const PeerAddress> excluded,
-    ProxyRoutes routes)
+    ProxyRoutes routes,
+    std::shared_ptr<Diagnostics> diagnostics)
 {
     DiscoveryConnectResult last;
 
@@ -342,7 +365,7 @@ PeerDiscovery::connect_any(
             now,
             timeout_ms,
             excluded,
-            routes
+            routes, diagnostics
         );
 
         if (current.ok()) {
@@ -369,7 +392,8 @@ PeerDiscovery::connect_one(
     std::uint64_t now,
     std::uint32_t timeout_ms,
     std::span<const PeerAddress> excluded,
-    ProxyRoutes routes)
+    ProxyRoutes routes,
+    std::shared_ptr<Diagnostics> diagnostics)
 {
     DiscoveryConnectResult out;
 
@@ -395,7 +419,7 @@ PeerDiscovery::connect_one(
             *selected,
             local_version,
             timeout_ms,
-            routes
+            routes, diagnostics
         );
 
     if (!connected.ok()) {
@@ -425,3 +449,4 @@ PeerDiscovery::connect_one(
 }
 
 } // namespace quintum::net
+
