@@ -93,11 +93,11 @@ private fun p2pDiagnosticMessage(code: Int): String {
 
 
 private enum class Page(val title: String, val subtitle: String, val symbol: String) {
-    Network("Сеть", "Подключения и синхронизация", "◎"),
-    Wallet("Кошелёк", "Адреса и переводы", "◈"),
-    Mining("Майнинг", "RandomX · процессор", "✦"),
-    Device("Устройство", "Нагрев и батарея", "▣"),
-    Diagnostics("Диагностика", "Ошибки и синхронизация", "≡")
+    Network("Network", "Peers & synchronization", "◎"),
+    Wallet("Wallet", "Addresses & payments", "◈"),
+    Mining("Mining", "RandomX · CPU mining", "✦"),
+    Device("Device", "Battery & thermal safety", "▣"),
+    Diagnostics("Diagnostics", "Local events & sync progress", "≡")
 }
 
 class MainActivity : ComponentActivity() {
@@ -242,7 +242,7 @@ private fun QuintumHome() {
                 }
             },
             navigationIcon = {
-                if (page != null) TextButton(onClick = { page = null }) { Text("‹ Назад") }
+                if (page != null) TextButton(onClick = { page = null }) { Text("‹ Back") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas)
         )
@@ -257,13 +257,13 @@ private fun QuintumHome() {
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("QUINTUM  /  RANDOMX TESTNET", style = MaterialTheme.typography.labelMedium, color = Green)
                         Text(
-                            if (nodeRunning) "Нода запущена" else if (startRequested) "Подключение…" else "Нода остановлена",
+                            if (nodeRunning) "Node running" else if (startRequested) "Connecting…" else "Node stopped",
                             style = MaterialTheme.typography.headlineSmall,
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (nodeRunning) "QUINTUM Core работает на устройстве" else if (startRequested) "Запуск блокчейна и поиск узлов" else "Запустите ноду для подключения к сети",
+                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Initializing blockchain and discovering peers" else "Start the node to connect to the network",
                             color = Muted,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -280,7 +280,7 @@ private fun QuintumHome() {
                                     nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
                                     startRequested = false
                                 }
-                            }, enabled = !startRequested) { Text(if (startRequested) "Запуск…" else "Запустить ноду") }
+                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
                         }
                         if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
                         HorizontalDivider(color = PanelBorder)
