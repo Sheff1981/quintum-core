@@ -268,6 +268,9 @@ Java_org_quintum_wallet_core_NativeCore_nativeDifficulty(JNIEnv*, jobject)
 extern "C" JNIEXPORT jdouble JNICALL
 Java_org_quintum_wallet_core_NativeCore_nativeMiningHashRate(JNIEnv*, jobject)
 {
+    // Do not report a stale lifetime-average hash rate after the worker stops.
+    // The mining UI uses this value to indicate active CPU work.
+    if (!g_mining_running.load(std::memory_order_relaxed)) return 0.0;
     const auto started = g_mining_started_ms.load(std::memory_order_relaxed);
     if (started == 0U) return 0.0;
     const auto elapsed = steady_millis() - started;
