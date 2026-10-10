@@ -60,8 +60,8 @@ class MiningController(
     }.getOrDefault(false)
 
     private fun unsafeToMine(): Boolean =
-        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ThermalGuard.shouldStop(powerManager.currentThermalStatus)) || batteryTooHot() || batteryTooLow()
+        cooldownBlocked(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+            powerManager.currentThermalStatus else -1) || batteryTooLow()
 
     suspend fun start(payoutAddress: String, threads: Int): Int =
         withContext(Dispatchers.IO) {
@@ -86,7 +86,8 @@ class MiningController(
 
         val miningRunning = NativeCore.nativeMiningRunning()
         if (!miningRunning) thermalStopRequested = false
-        if (miningRunning && (ThermalGuard.shouldStop(thermal) || batteryTooHot || batteryTooLow()) && !thermalStopRequested) {
+        val cooling = cooldownBlocked(thermal)
+        if (miningRunning && (cooling || batteryTooLow()) && !thermalStopRequested) {
             thermalStopRequested = true
             // JNI stop joins the mining thread; never block the Compose/UI thread.
             thermalStopScope.launch { NativeCore.nativeStopMining() }
@@ -108,7 +109,7 @@ class MiningController(
             running = NativeCore.nativeMiningRunning(),
             stats = stats,
             thermalStatus = ThermalGuard.label(thermal),
-            stoppedForThermalSafety = ThermalGuard.shouldStop(thermal) || batteryTooHot,
+            stoppedForThermalSafety = cooling,
         )
     }
 }
