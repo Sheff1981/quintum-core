@@ -1968,6 +1968,17 @@ void test_initial_sync_does_not_lock_status_and_can_cancel()
         assert(accepted.ok());
         WireMessage request;
         assert(accepted.session->receive_command(request) == PeerError::none);
+        // Discovery now precedes header synchronization. Answer the address
+        // request so this test can exercise cancellation during getheaders.
+        if (request.command == "getaddr" || request.command == "getaddrv2") {
+            WireMessage response;
+            response.command = request.command == "getaddrv2" ? "addrv2" : "addr";
+            response.payload = request.command == "getaddrv2"
+                ? serialize_addresses_v2(std::span<const PeerAddress>{})
+                : serialize_addresses(std::span<const PeerAddress>{});
+            assert(accepted.session->send_command(response) == PeerError::none);
+            assert(accepted.session->receive_command(request) == PeerError::none);
+        }
         assert(request.command == "getheaders");
         requested.set_value();
         release_future.wait();
