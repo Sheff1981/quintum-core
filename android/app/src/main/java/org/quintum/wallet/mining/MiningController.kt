@@ -28,9 +28,19 @@ class MiningController(
         tenths != null && tenths != Int.MIN_VALUE && tenths >= 450
     }.getOrDefault(false)
 
+    private fun batteryTooLow(): Boolean = runCatching {
+        val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+        !charging && level >= 0 && scale > 0 && level.toLong() * 100 < scale.toLong() * 15
+    }.getOrDefault(false)
+
     private fun unsafeToMine(): Boolean =
         (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ThermalGuard.shouldStop(powerManager.currentThermalStatus)) || batteryTooHot()
+            ThermalGuard.shouldStop(powerManager.currentThermalStatus)) || batteryTooHot() || batteryTooLow()
 
     suspend fun start(payoutAddress: String, threads: Int): Int =
         withContext(Dispatchers.IO) {
@@ -55,7 +65,7 @@ class MiningController(
 
         val miningRunning = NativeCore.nativeMiningRunning()
         if (!miningRunning) thermalStopRequested = false
-        if (miningRunning && (ThermalGuard.shouldStop(thermal) || batteryTooHot) && !thermalStopRequested) {
+        if (miningRunning && (ThermalGuard.shouldStop(thermal) || batteryTooHot || batteryTooLow()) && !thermalStopRequested) {
             thermalStopRequested = true
             // JNI stop joins the mining thread; never block the Compose/UI thread.
             thermalStopScope.launch { NativeCore.nativeStopMining() }
