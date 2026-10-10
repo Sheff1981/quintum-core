@@ -37,6 +37,18 @@ android {
     }
 
     signingConfigs {
+        create("quintumRelease") {
+            val keyPath = System.getenv("QUM_ANDROID_RELEASE_KEYSTORE")
+            if (!keyPath.isNullOrBlank()) {
+                storeFile = file(keyPath)
+                storePassword = System.getenv("QUM_ANDROID_RELEASE_STORE_PASSWORD")
+                    ?: error("Missing release store password")
+                keyAlias = System.getenv("QUM_ANDROID_RELEASE_KEY_ALIAS")
+                    ?: error("Missing release key alias")
+                keyPassword = System.getenv("QUM_ANDROID_RELEASE_KEY_PASSWORD")
+                    ?: error("Missing release key password")
+            }
+        }
         create("quintumTestnet") {
             val keyPath = System.getenv("QUM_ANDROID_DEBUG_KEYSTORE")
             if (!keyPath.isNullOrBlank()) {
@@ -51,6 +63,12 @@ android {
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("quintumTestnet")
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            if (!System.getenv("QUM_ANDROID_RELEASE_KEYSTORE").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("quintumRelease")
+            }
         }
     }
 
