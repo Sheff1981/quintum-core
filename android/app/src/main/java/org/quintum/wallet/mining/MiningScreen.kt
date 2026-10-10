@@ -60,6 +60,7 @@ fun MiningScreen() {
                         2 -> "QUINTUM node is not running."
                         3 -> "Mining is already running."
                         4 -> "Invalid RandomX Testnet QMU address."
+                        5 -> "Mining blocked: device temperature is too high. Let it cool before retrying."
                         else -> "Unable to start mining."
                     }
                 }
