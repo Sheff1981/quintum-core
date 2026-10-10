@@ -2020,11 +2020,14 @@ void NetworkRuntime::maintain_outbound(
         return;
     }
 
+    // Prefer previously successful peers without letting repeatedly failing
+    // endpoints monopolize the outbound dial budget. After three failures,
+    // normal addrman discovery gets a chance to select another peer.
     for (auto it =
              reconnect_candidates_.begin();
          it != reconnect_candidates_.end();
          ++it) {
-        if (it->next_attempt > now) {
+        if (it->next_attempt > now || it->failures >= 3U) {
             continue;
         }
 
