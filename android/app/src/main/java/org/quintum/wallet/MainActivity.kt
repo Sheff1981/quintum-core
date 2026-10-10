@@ -49,6 +49,8 @@ private val Blue = Color(0xFF20DDB0)
 private val Canvas = Color(0xFF0B1118)
 private val Muted = Color(0xFF9BAEB8)
 private val Green = Color(0xFF20DDB0)
+private val Panel = Color(0xFF17232D)
+private val PanelBorder = Color(0xFF2A4146)
 private fun p2pDiagnosticMessage(code: Int): String {
     val peerErrors = listOf(
         "none", "socket runtime failed", "DNS resolve failed", "socket creation failed",
@@ -91,11 +93,11 @@ private fun p2pDiagnosticMessage(code: Int): String {
 
 
 private enum class Page(val title: String, val subtitle: String, val symbol: String) {
-    Network("Network", "Peers & synchronization", "◎"),
-    Wallet("Wallet", "Addresses & payments", "◈"),
-    Mining("Mining", "RandomX · CPU mining", "✦"),
-    Device("Device", "Battery & thermal safety", "▣"),
-    Diagnostics("Diagnostics", "Local events & sync progress", "≡")
+    Network("Сеть", "Подключения и синхронизация", "◎"),
+    Wallet("Кошелёк", "Адреса и переводы", "◈"),
+    Mining("Майнинг", "RandomX · процессор", "✦"),
+    Device("Устройство", "Нагрев и батарея", "▣"),
+    Diagnostics("Диагностика", "Ошибки и синхронизация", "≡")
 }
 
 class MainActivity : ComponentActivity() {
@@ -240,7 +242,7 @@ private fun QuintumHome() {
                 }
             },
             navigationIcon = {
-                if (page != null) TextButton(onClick = { page = null }) { Text("‹ Back") }
+                if (page != null) TextButton(onClick = { page = null }) { Text("‹ Назад") }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas)
         )
@@ -250,19 +252,19 @@ private fun QuintumHome() {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(22.dp),
-                    colors = CardDefaults.cardColors(containerColor = Navy)
+                    colors = CardDefaults.cardColors(containerColor = Panel)
                 ) {
                     Column(modifier = Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("NETWORK STATUS", style = MaterialTheme.typography.labelMedium, color = Color(0xFFAFC4F4))
+                        Text("QUINTUM  /  RANDOMX TESTNET", style = MaterialTheme.typography.labelMedium, color = Green)
                         Text(
-                            if (nodeRunning) "Node running" else if (startRequested) "Connecting…" else "Node stopped",
+                            if (nodeRunning) "Нода запущена" else if (startRequested) "Подключение…" else "Нода остановлена",
                             style = MaterialTheme.typography.headlineSmall,
                             color = Color.White,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (nodeRunning) "QUINTUM Core is active" else if (startRequested) "Initializing local blockchain (network connection follows)" else "Start the node when ready",
-                            color = Color(0xFFD3E0FA),
+                            if (nodeRunning) "QUINTUM Core работает на устройстве" else if (startRequested) "Запуск блокчейна и поиск узлов" else "Запустите ноду для подключения к сети",
+                            color = Muted,
                             style = MaterialTheme.typography.bodySmall
                         )
                         if (!nodeRunning) {
@@ -278,10 +280,10 @@ private fun QuintumHome() {
                                     nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
                                     startRequested = false
                                 }
-                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
+                            }, enabled = !startRequested) { Text(if (startRequested) "Запуск…" else "Запустить ноду") }
                         }
                         if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
-                        HorizontalDivider(color = Color(0xFF34466B))
+                        HorizontalDivider(color = PanelBorder)
                         Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                             StatusMetric("PEERS", "${stats.stats?.peers ?: 0}")
                             StatusMetric("HEIGHT", "${(diagnosticsSnapshot.values["local_height"]?.toLongOrNull() ?: stats.stats?.blockHeight) ?: "—"}")
@@ -290,7 +292,7 @@ private fun QuintumHome() {
                     }
                 }
                 Spacer(Modifier.height(24.dp))
-                Text("Your workspace", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
+                Text("QUINTUM", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 LazyVerticalGrid(
                     modifier = Modifier.fillMaxWidth().height((((Page.entries.size + 1) / 2) * 170 + 20).dp),
@@ -305,8 +307,8 @@ private fun QuintumHome() {
                             onClick = { page = item },
                             modifier = Modifier.fillMaxWidth().height(158.dp),
                             shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+                            colors = CardDefaults.elevatedCardColors(containerColor = Panel),
+                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 0.dp)
                         ) {
                             Column(modifier = Modifier.fillMaxSize().padding(17.dp), verticalArrangement = Arrangement.SpaceBetween) {
                                 Text(item.symbol, style = MaterialTheme.typography.headlineMedium, color = Blue)
