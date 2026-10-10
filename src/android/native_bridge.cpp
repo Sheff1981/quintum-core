@@ -113,7 +113,15 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
 
     const auto result = runtime->start(std::move(config));
     if (!result.ok()) {
-        if (journal) journal->failure("core", static_cast<int>(result.error), "native startup failed");
+        // Preserve the individual startup failure layers for field diagnosis.
+        // A generic Android error code alone cannot distinguish P2P listener
+        // failure from a corrupt address store or failed chain initialization.
+        if (journal) {
+            journal->failure("core", static_cast<int>(result.error), "native startup failed");
+            journal->failure("core_node", static_cast<int>(result.node.error), "node startup result");
+            journal->failure("core_address_store", static_cast<int>(result.address_store), "peer database startup result");
+            journal->failure("core_listener", static_cast<int>(result.peer_error), "P2P listener startup result");
+        }
         runtime->stop();
         return 3;
     }
