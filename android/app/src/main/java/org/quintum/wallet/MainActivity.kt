@@ -291,6 +291,35 @@ private fun QuintumHome() {
                         }
                     }
                 }
+                Spacer(Modifier.height(16.dp))
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Panel)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("BLOCKCHAIN SYNC", color = Green, style = MaterialTheme.typography.labelMedium)
+                        Text(diagnosticsSnapshot.stage, color = Navy, style = MaterialTheme.typography.titleMedium)
+                        val progress = diagnosticsSnapshot.values["header_batch_progress"]?.toLongOrNull() ?: 0L
+                        val batch = diagnosticsSnapshot.values["header_batch_size"]?.toLongOrNull() ?: 0L
+                        if (batch > 0L) {
+                            LinearProgressIndicator(
+                                progress = { (progress.toFloat() / batch.toFloat()).coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Green,
+                                trackColor = PanelBorder
+                            )
+                            Text("$progress / $batch headers in current batch", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        } else {
+                            Text("Waiting for header synchronization", color = Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("Verified peers: ${stats.stats?.peers ?: 0} · Known addresses: $knownAddresses",
+                            color = Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 Spacer(Modifier.height(24.dp))
                 Text("QUINTUM", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
@@ -460,7 +489,7 @@ private fun QuintumHome() {
 @Composable
 private fun StatusMetric(label: String, value: String) {
     Column {
-        Text(label, color = Color(0xFFAFC4F4), style = MaterialTheme.typography.labelSmall)
+        Text(label, color = Muted, style = MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(4.dp))
         Text(value, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
     }
@@ -471,7 +500,7 @@ private fun DetailCard(label: String, value: String) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color.White)
+        colors = CardDefaults.elevatedCardColors(containerColor = Panel)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(label, color = Muted, style = MaterialTheme.typography.labelLarge)
