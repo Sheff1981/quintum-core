@@ -1242,16 +1242,15 @@ SyncResult sync_from_peer(
         auto last_message = std::chrono::steady_clock::now();
         auto ping_sent = last_message;
         const auto service_validation = [&](std::size_t progress, bool completed) {
-            observe(diagnostics, [&](auto& journal) {
-                journal.gauge("headers_validating", completed ? 0U : 1U);
-                if (completed) {
-                    const auto& header = (*headers)[progress - 1U];
-                    const bool known = snapshot.has_block(block_hash(header));
-                    journal.counter(known ? "headers_known" : "headers_verified", 1U);
-                    if (!known) journal.counter("headers_validated", 1U);
-                    journal.gauge("header_batch_progress", progress);
-                }
-            });
+            // Keep consensus validation and cancellation per header, but avoid
+            // synchronous diagnostic writes for every RandomX hash on Android.
+            // The final header always publishes its progress.
+            if (!completed || progress % 16U == 0U || progress == headers->size()) {
+                observe(diagnostics, [&](auto& journal) {
+                    journal.gauge("headers_validating", completed ? 0U : 1U);
+                    if (completed) journal.gauge("header_batch_progress", progress);
+                });
+            }
             if (cancelled()) return false;
             // The sync worker is the exclusive socket owner. Never race its
             // encrypted receive/send state with the event loop.
