@@ -22,9 +22,20 @@ class MiningController(
     private val powerManager =
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
+    private fun batteryTooHot(): Boolean = runCatching {
+        val tenths = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        tenths != null && tenths != Int.MIN_VALUE && tenths >= 450
+    }.getOrDefault(false)
+
+    private fun unsafeToMine(): Boolean =
+        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ThermalGuard.shouldStop(powerManager.currentThermalStatus)) || batteryTooHot()
+
     suspend fun start(payoutAddress: String, threads: Int): Int =
         withContext(Dispatchers.IO) {
-            NativeCore.nativeStartMining(payoutAddress.trim(), threads)
+            // Prevent starting a hot device, not only stopping it on the next UI poll.
+            if (unsafeToMine()) 5 else NativeCore.nativeStartMining(payoutAddress.trim(), threads)
         }
 
     suspend fun stop() = withContext(Dispatchers.IO) {
@@ -40,12 +51,7 @@ class MiningController(
 
         // Battery temperature is reported in tenths of a degree Celsius.
         // Some devices omit it; never treat an unavailable reading as safe/unsafe.
-        val batteryTemperatureTenths = runCatching {
-            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
-        }.getOrNull()
-        val batteryTooHot = batteryTemperatureTenths != null &&
-            batteryTemperatureTenths != Int.MIN_VALUE && batteryTemperatureTenths >= 450
+        val batteryTooHot = batteryTooHot()
 
         val miningRunning = NativeCore.nativeMiningRunning()
         if (!miningRunning) thermalStopRequested = false
