@@ -1451,6 +1451,15 @@ void test_status_polling_does_not_wait_for_initial_sync()
     // Deliberately leave headers unanswered; chain snapshots stay available.
     WireMessage request;
     assert(connected.session->receive_command(request) == PeerError::none);
+    if (request.command == "getaddr" || request.command == "getaddrv2") {
+        const bool v2 = request.command == "getaddrv2";
+        const auto payload = v2
+            ? serialize_addresses_v2(std::span<const PeerAddress>{})
+            : serialize_addresses(std::span<const PeerAddress>{});
+        assert(connected.session->send_command(v2 ? "addrv2" : "addr", payload)
+               == PeerError::none);
+        assert(connected.session->receive_command(request) == PeerError::none);
+    }
     assert(request.command == "getheaders");
     auto poll = std::async(std::launch::async, [&] {
         return runtime.status_nonblocking();
