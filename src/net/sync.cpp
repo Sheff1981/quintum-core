@@ -1151,7 +1151,7 @@ SyncResult sync_from_peer(
         observe(diagnostics, [](auto& journal) {
             journal.counter("header_batches_received", 1U);
         });
-        const auto headers =
+        auto headers =
             parse_headers(response.payload);
 
         if (!headers) {
@@ -1162,6 +1162,18 @@ SyncResult sync_from_peer(
             out.error = SyncError::malformed_message;
             return out;
         }
+
+        // Android CPU RandomX validation can take over a second per header.
+        // Validate and download a bounded prefix, then resume using the
+        // committed chain tip as the next getheaders locator. The remaining
+        // response is deliberately discarded, never treated as validated.
+        // This does not alter wire limits or consensus rules on either peer.
+#if defined(__ANDROID__)
+        constexpr std::size_t kAndroidHeadersPerSyncRound = 24U;
+        if (headers->size() > kAndroidHeadersPerSyncRound) {
+            headers->resize(kAndroidHeadersPerSyncRound);
+        }
+#endif
 
         out.headers_received += headers->size();
         observe(diagnostics, [&](auto& d) {
