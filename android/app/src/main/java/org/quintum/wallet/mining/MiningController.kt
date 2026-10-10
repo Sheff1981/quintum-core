@@ -19,6 +19,9 @@ class MiningController(
     private val statsReader = DeviceMiningStatsReader(context)
     private val thermalStopScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var thermalStopRequested = false
+    private companion object {
+        @Volatile var cooldownActive = false
+    }
     private val powerManager =
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
 
