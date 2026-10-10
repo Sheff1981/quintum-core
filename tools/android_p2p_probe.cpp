@@ -98,13 +98,12 @@ int main(int argc, char** argv)
         std::size_t stale = 0U;
         std::size_t future = 0U;
         std::size_t ipv4 = 0U;
-        std::size_t ipv6 = 0U;
+        std::size_t tor_v3 = 0U;
         std::size_t other = 0U;
         constexpr std::uint64_t kThirtyDays = 30U * 24U * 60U * 60U;
         for (const auto& address : learned) {
             const std::string host = std::to_string(static_cast<int>(address.network)) +
-                ":" + std::string(reinterpret_cast<const char*>(address.bytes.data()),
-                                  address.bytes.size());
+                ":" + format_peer_host(address);
             unique_hosts.insert(host);
             unique_endpoints.insert(host + ":" + std::to_string(address.port));
             unique_ports.insert(address.port);
@@ -112,7 +111,7 @@ int main(int argc, char** argv)
             stale += address.last_seen < now && now - address.last_seen > kThirtyDays ? 1U : 0U;
             future += address.last_seen > now + 24U * 60U * 60U ? 1U : 0U;
             if (address.network == AddressNetwork::ipv4) ++ipv4;
-            else if (address.network == AddressNetwork::ipv6) ++ipv6;
+            else if (address.network == AddressNetwork::tor_v3) ++tor_v3;
             else ++other;
         }
         std::cout << "phase=address-audit entries=" << learned.size()
@@ -122,7 +121,7 @@ int main(int argc, char** argv)
                   << " default_port=" << default_port
                   << " stale_over_30d=" << stale
                   << " future_over_1d=" << future
-                  << " ipv4=" << ipv4 << " ipv6=" << ipv6
+                  << " ipv4=" << ipv4 << " tor_v3=" << tor_v3
                   << " other=" << other << std::endl;
     }
     const GetHeadersRequest request{.locator = {params.genesis.hash}, .stop = {}};
