@@ -78,7 +78,7 @@ struct NetworkRuntimeConfig {
     std::uint32_t io_timeout_ms{5'000U};
     std::uint64_t outbound_retry_seconds{1U};
     std::uint64_t reconnect_delay_seconds{5U};
-    std::uint64_t ping_interval_seconds{120U};
+    std::uint64_t ping_interval_seconds{10U};
     std::uint64_t ping_timeout_seconds{30U};
     std::uint64_t block_request_timeout_seconds{30U};
     std::size_t max_block_requests_in_flight{16U};

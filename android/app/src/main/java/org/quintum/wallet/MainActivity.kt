@@ -19,9 +19,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -278,7 +275,7 @@ private fun QuintumHome() {
                                     nodeError = "Android cannot start node service: ${e.javaClass.simpleName}"
                                     startRequested = false
                                 }
-                            }, enabled = !startRequested) { Text(if (startRequested) "Starting…" else "Start node") }
+                            }, enabled = !startRequested) { Text(if (startRequested) "Starting full node…" else "Start Full Node (advanced)") }
                         }
                         if (nodeError.isNotBlank()) Text(nodeError, color = Color(0xFFFFC9C9))
                         HorizontalDivider(color = Color(0xFF34466B))
@@ -292,34 +289,41 @@ private fun QuintumHome() {
                 Spacer(Modifier.height(24.dp))
                 Text("Your workspace", style = MaterialTheme.typography.titleLarge, color = Navy, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
-                LazyVerticalGrid(
-                    modifier = Modifier.fillMaxWidth().height((((Page.entries.size + 1) / 2) * 170 + 20).dp),
-                    userScrollEnabled = false,
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 20.dp)
-                ) {
-                    items(Page.entries) { item ->
-                        ElevatedCard(
-                            onClick = { page = item },
-                            modifier = Modifier.fillMaxWidth().height(158.dp),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxSize().padding(17.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                                Text(item.symbol, style = MaterialTheme.typography.headlineMedium, color = Blue)
-                                Column {
-                                    Text(item.title, style = MaterialTheme.typography.titleMedium, color = Navy, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = Muted)
+                // A single verticalScroll owner: do not nest a LazyVerticalGrid
+                // inside this scrollable Column (Compose rejects infinite
+                // vertical constraints on some Android 12 layouts).
+                Page.entries.toList().chunked(2).forEach { pair ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        pair.forEach { item ->
+                            ElevatedCard(
+                                onClick = { page = item },
+                                modifier = Modifier.weight(1f).height(158.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.elevatedCardColors(containerColor = Color.White),
+                                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(17.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(item.symbol, style = MaterialTheme.typography.headlineMedium, color = Blue)
+                                    Column {
+                                        Text(item.title, style = MaterialTheme.typography.titleMedium, color = Navy, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(item.subtitle, style = MaterialTheme.typography.bodySmall, color = Muted)
+                                    }
                                 }
                             }
                         }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
+                    Spacer(Modifier.height(12.dp))
                 }
-            } else when (page) {
+            } else {
+                when (page) {
                 Page.Network -> {
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
@@ -443,13 +447,29 @@ private fun QuintumHome() {
                     }
                 )
                 Page.Wallet -> {
-                    DetailCard("Wallet", "Not yet enabled in Android Testnet")
+                    DetailCard("QUINTUM Wallet", "Testnet · Wallet setup")
                     Spacer(Modifier.height(12.dp))
-                    Text("Receiving, sending and balance will appear here after secure QUINTUM wallet integration. No simulated funds.", color = Muted)
+                    Text("New to QUINTUM? Choose how to set up your wallet.", color = Muted)
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                        Text("Create new wallet — coming soon")
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                        Text("Restore wallet — coming soon")
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Wallet creation and recovery are disabled until native key generation, encrypted storage, verified backup and restore, and light-wallet synchronization pass security tests. No keys or addresses are simulated.",
+                        color = Muted
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("Existing node data is preserved. Never enter a recovery phrase into an unverified test build.", color = Muted)
                 }
                 Page.Mining -> MiningScreen()
                 Page.Device -> stats.stats?.let { DeviceMiningStatsCard(it) }
                 null -> Unit
+                }
             }
         }
     }

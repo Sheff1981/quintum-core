@@ -1550,6 +1550,55 @@ void test_bip32_quintum_derivation_vector()
 }
 
 
+void test_offline_mnemonic_restore_without_chain()
+{
+    using namespace quintum;
+    using namespace quintum::wallet;
+
+    const auto& params = consensus::chain_params(
+        consensus::Network::randomx_testnet);
+    const auto source_dir = unique_dir("offline-source");
+    const auto restored_dir = unique_dir("offline-restored");
+    std::string original_address;
+    std::string mnemonic;
+
+    {
+        Wallet original{params, source_dir};
+        const auto created = original.start("source-secret");
+        assert(created.ok() && created.created);
+        original_address = created.receive_address;
+        const auto words = original.recovery_mnemonic();
+        assert(words.has_value());
+        mnemonic = *words;
+    }
+
+    {
+        Wallet restored{params, restored_dir};
+        assert(restored.recover_keys_from_mnemonic(
+            "not a valid recovery phrase", "restored-secret") ==
+            WalletStoreError::corrupt);
+        assert(!std::filesystem::exists(restored_dir / "wallet.dat"));
+        assert(restored.recover_keys_from_mnemonic(
+            mnemonic, "restored-secret") == WalletStoreError::none);
+        assert(restored.started() && restored.encrypted());
+        assert(!restored.addresses().empty());
+        assert(restored.addresses().front() == original_address);
+        assert(restored.recover_keys_from_mnemonic(
+            mnemonic, "another-secret") == WalletStoreError::target_exists);
+    }
+
+    {
+        Wallet reopened{params, restored_dir};
+        const auto result = reopened.start("restored-secret");
+        assert(result.ok() && !result.created);
+        assert(result.receive_address == original_address);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(source_dir, ec);
+    std::filesystem::remove_all(restored_dir, ec);
+}
+
 } // namespace
 
 int main()
@@ -1565,5 +1614,6 @@ int main()
     test_legacy_wallet_encryption_migration();
     test_network_runtime_encrypted_wallet_lifecycle();
     test_bip32_quintum_derivation_vector();
+    test_offline_mnemonic_restore_without_chain();
     return 0;
 }
