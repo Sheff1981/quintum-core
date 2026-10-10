@@ -1,6 +1,9 @@
 package org.quintum.wallet.mining
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
@@ -35,9 +38,18 @@ class MiningController(
             -1
         }
 
+        // Battery temperature is reported in tenths of a degree Celsius.
+        // Some devices omit it; never treat an unavailable reading as safe/unsafe.
+        val batteryTemperatureTenths = runCatching {
+            context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                ?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        }.getOrNull()
+        val batteryTooHot = batteryTemperatureTenths != null &&
+            batteryTemperatureTenths != Int.MIN_VALUE && batteryTemperatureTenths >= 450
+
         val miningRunning = NativeCore.nativeMiningRunning()
         if (!miningRunning) thermalStopRequested = false
-        if (miningRunning && ThermalGuard.shouldStop(thermal) && !thermalStopRequested) {
+        if (miningRunning && (ThermalGuard.shouldStop(thermal) || batteryTooHot) && !thermalStopRequested) {
             thermalStopRequested = true
             // JNI stop joins the mining thread; never block the Compose/UI thread.
             thermalStopScope.launch { NativeCore.nativeStopMining() }
@@ -59,7 +71,7 @@ class MiningController(
             running = NativeCore.nativeMiningRunning(),
             stats = stats,
             thermalStatus = ThermalGuard.label(thermal),
-            stoppedForThermalSafety = ThermalGuard.shouldStop(thermal),
+            stoppedForThermalSafety = ThermalGuard.shouldStop(thermal) || batteryTooHot,
         )
     }
 }
