@@ -1976,7 +1976,7 @@ void test_initial_sync_does_not_lock_status_and_can_cancel()
             response.payload = request.command == "getaddrv2"
                 ? serialize_addresses_v2(std::span<const PeerAddress>{})
                 : serialize_addresses(std::span<const PeerAddress>{});
-            assert(accepted.session->send_command(response) == PeerError::none);
+            assert(accepted.session->send_command(response.command, response.payload) == PeerError::none);
             assert(accepted.session->receive_command(request) == PeerError::none);
         }
         assert(request.command == "getheaders");
