@@ -2028,6 +2028,15 @@ void NetworkRuntime::maintain_outbound(
             continue;
         }
 
+#ifdef __ANDROID__
+        // Reconnects are real outbound attempts too: expose them in Android
+        // diagnostics instead of leaving the counter frozen after disconnect.
+        android_connect_attempts_.fetch_add(1U, std::memory_order_relaxed);
+        android_p2p_diagnostic_.store(11);
+        android_connect_started_ms_.store(static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()));
+#endif
         auto connected =
             connect_peer_address(
                 params_,
