@@ -86,7 +86,12 @@ RandomXLightHasher::RandomXLightHasher(
     // Android may forbid executable JIT mappings (W^X/SELinux).
     // Interpreter mode computes the same consensus hashes without JIT.
 #if defined(__ANDROID__)
-    const auto flags = static_cast<randomx_flags>(RANDOMX_FLAG_V2);
+    // Android does not permit the desktop JIT executable-memory strategy.
+    // Enable only the runtime-detected hardware AES capability on ARM64.
+    // Both interpreter paths must produce identical RandomX v2 hashes.
+    const auto flags = static_cast<randomx_flags>(
+        (randomx_get_flags() & RANDOMX_FLAG_HARD_AES) | RANDOMX_FLAG_V2
+    );
 #else
     const auto flags = static_cast<randomx_flags>(
         randomx_get_flags() | RANDOMX_FLAG_V2
@@ -205,7 +210,10 @@ RandomXMiningContext::RandomXMiningContext(
 
         // Android uses portable interpreter mode; no executable JIT pages.
 #if defined(__ANDROID__)
-        auto flags = static_cast<randomx_flags>(RANDOMX_FLAG_V2);
+        // Keep JIT disabled; select AES only if detected by RandomX.
+        auto flags = static_cast<randomx_flags>(
+            (randomx_get_flags() & RANDOMX_FLAG_HARD_AES) | RANDOMX_FLAG_V2
+        );
 #else
         auto flags = static_cast<randomx_flags>(
             randomx_get_flags() | RANDOMX_FLAG_V2
