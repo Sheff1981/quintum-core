@@ -1984,8 +1984,11 @@ void NetworkRuntime::accept_inbound(
 
             if (addrman_.save() !=
                 AddrStoreError::none) {
-                accepted.session->close();
-                return;
+                observe(config_.diagnostics, [](auto& d) {
+                    d.failure("discovery", -1, "inbound peer address database save failed");
+                });
+                // A peer database write failure must not reject an otherwise
+                // valid inbound connection. Retry persistence later.
             }
 
             known_address_count_.store(
@@ -2239,9 +2242,18 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
     initialization_result_.reset();
     auto peer = std::move(initializing_peer_);
     success = success && !stop_requested_.load();
-    if (success) {
+    // Peer discovery must survive a later sync/mempool failure. Learned
+    // addresses are independently validated by addrman; a failed initial
+    // block download must not discard other reachable network endpoints.
+    if (!peer->learned_addresses.empty()) {
         (void)addrman_.add(peer->learned_addresses);
-        success = addrman_.save() == AddrStoreError::none;
+    }
+    if (addrman_.save() != AddrStoreError::none) {
+        observe(config_.diagnostics, [](auto& d) {
+            d.failure("discovery", -1, "peer address database save failed");
+        });
+        // Keep a successfully synchronized peer connected even when the
+        // address cache cannot be persisted; retry on the next save.
     }
     observe(config_.diagnostics, [&](auto& d) {
         d.gauge("initializing_peers", 0U);
@@ -2404,6 +2416,17 @@ bool NetworkRuntime::prepare_live_peer(
         return true;
     }
 
+    // Discover alternate peers before expensive headers-first RandomX
+    // validation. A slow phone can lose the bootstrap TCP session during
+    // initial sync; addresses must already be learned for fallback dialing.
+    // Resync reuses an established session and must not repeat getaddr.
+    if (!peer.resync_requested) {
+        if (stop_requested_.load()) return false;
+        if (peer.session.request_addresses(
+                config_.allow_local_peers || params_.network == consensus::Network::regtest,
+                peer.learned_addresses) != PeerError::none) return false;
+    }
+
     std::optional<Hash256> synchronized_tip;
 
     {
@@ -2459,9 +2482,6 @@ bool NetworkRuntime::prepare_live_peer(
 #endif
     if (stop_requested_.load()) return false;
     if (peer.resync_requested) { peer.last_activity = unix_time_now(); return true; }
-    if (peer.session.request_addresses(
-            config_.allow_local_peers || params_.network == consensus::Network::regtest,
-            peer.learned_addresses) != PeerError::none) return false;
 
     if (stop_requested_.load()) return false;
     const auto mempool_sync = sync_mempool_from_peer(peer.session, node_, &state_mutex_);
