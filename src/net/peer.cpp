@@ -1283,7 +1283,9 @@ PeerHandshakeResult inbound_handshake(
                         " wire_error=" + std::to_string(static_cast<int>(result.wire_error)) +
                         " socket_error=" + std::to_string(result.socket_error) +
                         " eof=" + std::to_string(result.remote_closed ? 1 : 0) +
-                        " partial_bytes=" + std::to_string(result.partial_io_bytes);
+                        " partial_bytes=" + std::to_string(result.partial_io_bytes) +
+                        " io_timeout=" + std::to_string(thread_io_failure.timed_out ? 1 : 0) +
+                        " io_cancelled=" + std::to_string(thread_io_failure.cancelled ? 1 : 0);
                     journal.failure("p2p", static_cast<int>(result.error), description);
                 }
             });
@@ -2146,7 +2148,9 @@ PeerHandshakeResult connect_and_handshake(
                         " wire_error=" + std::to_string(static_cast<int>(result.wire_error)) +
                         " socket_error=" + std::to_string(result.socket_error) +
                         " eof=" + std::to_string(result.remote_closed ? 1 : 0) +
-                        " partial_bytes=" + std::to_string(result.partial_io_bytes);
+                        " partial_bytes=" + std::to_string(result.partial_io_bytes) +
+                        " io_timeout=" + std::to_string(thread_io_failure.timed_out ? 1 : 0) +
+                        " io_cancelled=" + std::to_string(thread_io_failure.cancelled ? 1 : 0);
                     journal.failure("p2p", static_cast<int>(result.error), description);
                 }
             });
@@ -2226,7 +2230,9 @@ PeerHandshakeResult connect_and_handshake(
                         " wire_error=" + std::to_string(static_cast<int>(result.wire_error)) +
                         " socket_error=" + std::to_string(result.socket_error) +
                         " eof=" + std::to_string(result.remote_closed ? 1 : 0) +
-                        " partial_bytes=" + std::to_string(result.partial_io_bytes);
+                        " partial_bytes=" + std::to_string(result.partial_io_bytes) +
+                        " io_timeout=" + std::to_string(thread_io_failure.timed_out ? 1 : 0) +
+                        " io_cancelled=" + std::to_string(thread_io_failure.cancelled ? 1 : 0);
                     journal.failure("p2p", static_cast<int>(result.error), description);
                 }
             });
