@@ -2253,7 +2253,9 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
         peer->resync_requested = false;
         peers_.push_back(std::move(*peer));
 #ifdef __ANDROID__
+        // A completed peer setup supersedes stale transport/handshake errors.
         android_p2p_diagnostic_.store(4000);
+        android_last_connect_error_.store(0);
 #endif
     } else {
         peer->session.close();
