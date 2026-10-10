@@ -1984,8 +1984,11 @@ void NetworkRuntime::accept_inbound(
 
             if (addrman_.save() !=
                 AddrStoreError::none) {
-                accepted.session->close();
-                return;
+                observe(config_.diagnostics, [](auto& d) {
+                    d.failure("discovery", -1, "inbound peer address database save failed");
+                });
+                // A peer database write failure must not reject an otherwise
+                // valid inbound connection. Retry persistence later.
             }
 
             known_address_count_.store(
