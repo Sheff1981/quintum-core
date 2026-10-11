@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "consensus/pow.hpp"
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
@@ -389,7 +390,12 @@ void test_genesis_to_tip_sync_and_restart()
              "\"blocks_requested\":5", "\"blocks_received\":5",
              "\"blocks_accepted\":5", "\"blocks_rejected\":0",
              "\"local_height\":5", "\"header_batches_accepted\":1"}) {
-        assert(snapshot.find(field) != std::string::npos);
+        if (snapshot.find(field) == std::string::npos) {
+            std::fprintf(stderr, "Missing sync diagnostics field: %s\nSnapshot: %s\n",
+                field, snapshot.c_str());
+            std::fflush(stderr);
+            assert(false && "missing sync diagnostics field");
+        }
     }
     const auto events = diagnostics->export_log();
     for (const auto phase : {
