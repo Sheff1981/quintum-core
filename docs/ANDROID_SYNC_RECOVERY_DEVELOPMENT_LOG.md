@@ -209,3 +209,11 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - Commit b558462 changes the reset to occur only when completed=true at a reporting boundary. This affects diagnostics only, not PoW validation.
 - Earlier commit c54c95a removes the permanent >=3 reconnect exclusion, retaining existing exponential backoff capped at 300 seconds.
 - CI for b558462 must pass before declaring the fix verified. Neither change has been field-tested on Huawei/Xiaomi in a newly built APK.
+
+## 2026-10-11: Avoid outbound peer discovery starvation
+
+- In NetworkRuntime::maintain_outbound, a failed preferred reconnect previously returned from the entire outbound cycle after updating backoff.
+- Commit 1f91cad now breaks from the preferred reconnect loop on failure, allowing the existing addrman discovery path to run in the same cycle.
+- Existing per-endpoint backoff remains in effect; the 300-second cap and network/consensus constants are unchanged.
+- Motivation: intermittent direct mobile connectivity on Xiaomi and Huawei, especially when VPN is disabled.
+- Verification pending: Android ARM64 CI, Linux/Windows builds, tests, and on-device no-VPN peer recovery. This is not proof that the VPS is reachable through every mobile carrier.
