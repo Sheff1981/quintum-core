@@ -427,6 +427,24 @@ void test_address_codec()
         true
     ));
 
+    // CGNAT and benchmarking ranges are not publicly dialable.
+    for (const auto* ip : {
+             "100.64.0.1", "100.127.255.254",
+             "198.18.0.1", "198.19.255.254"}) {
+        PeerAddress candidate = public_peer;
+        candidate.ipv4 = *parse_ipv4(ip);
+        assert(!valid_peer_address(candidate, false));
+        assert(valid_peer_address(candidate, true));
+    }
+
+    for (const auto* ip : {
+             "100.63.255.254", "100.128.0.1",
+             "198.17.255.254", "198.20.0.1"}) {
+        PeerAddress candidate = public_peer;
+        candidate.ipv4 = *parse_ipv4(ip);
+        assert(valid_peer_address(candidate, false));
+    }
+
     const std::array<PeerAddress, 2> addresses{
         public_peer,
         public_peer
