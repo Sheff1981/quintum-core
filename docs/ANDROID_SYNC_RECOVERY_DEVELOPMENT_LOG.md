@@ -176,3 +176,13 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - 18 additional connection attempts over 397 seconds; current connection_duration_ms=4578. Because the VPN condition changed, these snapshots cannot establish VPN-OFF recovery or persistent stability.
 - Last error still reports version-receive socket_error=11 (EAGAIN) despite active peers, suggesting historical error state remains visible; do not attribute current session failure to it.
 - No code fix or APK validation is implied by this observational report. Do not cite this sample as evidence that Android connects without VPN.
+
+## 2026-10-11 07:35:04 UTC: Xiaomi VPN OFF, no active peers
+
+- Device Xiaomi, VPN explicitly OFF; build c4e5a7237c6b22ea37eb3db2a40b2c31c081f69d.
+- active_peers=0; known_peers=249; local_height=remote_height=4286; blocks_accepted=3254; blocks_rejected=0.
+- attempt_count=2448 (up 21 from 07:27:16 VPN ON snapshot); retry_count=2447.
+- Last reported failure: tcp-connect peer_error=7 wire_error=0 socket_error=0 eof=0 partial_bytes=0 io_timeout=0 io_cancelled=0.
+- stage=handshake_complete, peer_state=disconnected, disconnect_reason=initial setup failed, last_network_message_utc=07:34:38, last_sync_utc=07:29:35.
+- Interpretation: direct connectivity is unreliable or unavailable after VPN OFF, with TCP connect failures among attempts. The last error may be historical; handshake telemetry means some connections progressed further. Do not conclude definitive ISP filtering without direct route tests.
+- Compare to VPN ON 07:27:16 snapshot (active_peers=2). Do not change consensus, RandomX, genesis, or wallet state to address this.
