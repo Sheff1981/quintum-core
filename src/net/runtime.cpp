@@ -4364,6 +4364,12 @@ void NetworkRuntime::update_peer_counts() noexcept
         d.gauge("core_running",running_.load()?1:0);
         d.gauge("active_peers",peer_count_.load());
         d.gauge("known_peers",known_address_count_.load());
+        // Historical successful connections, not live/reachable node count.
+        const auto& entries = addrman_.entries();
+        const auto previously_connected = std::count_if(
+            entries.begin(), entries.end(),
+            [](const AddrInfo& entry) { return entry.last_success != 0U; });
+        d.gauge("previously_connected_peer_addresses", previously_connected);
     });
 }
 
