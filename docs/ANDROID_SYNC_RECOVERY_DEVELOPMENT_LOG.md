@@ -145,3 +145,16 @@ Code commit b586d5b58f8fbace0e55970ea3da086ea0acb589 passed Linux and Windows 39
 A shutdown review identified that cancellation only before receive_command was insufficient after a partial wire frame entered receive_exact. Session IO now observes an owner-installed runtime cancellation token inside bounded readiness polls and each partial read/write loop. Existing idle timeouts still reset only on actual byte progress; they are not increased. Cancellation is a distinct internal PeerError, never a fabricated peer timeout/EOF/errno. POSIX readiness uses poll to avoid FD_SETSIZE memory hazards in an Android process with many descriptors; Windows keeps select. Ownership stays exclusive: no foreign-thread socket close, detached thread or partial-message acceptance. A regression consumes a real three-byte prefix, cancels the blocked frame and requires completion with exact partial-byte evidence. Shutdown also avoids publishing a just-completed setup or scoring locally cancelled peers as failures. Full CI will rerun for these IO changes.
 
 The local environment additionally rejects AF_UNIX send with EPERM, so the framed-socket regression cannot execute locally; it must be assessed in CI. Local strict syntax validation continues to pass. Physical ARM64 benchmarks and foreground/screen-lock/OEM/network-interruption/chain-and-wallet restart acceptance are still outstanding. Full-runtime TSan was not run; the worker-only TSan result is not represented as full-runtime coverage.
+
+## 2026-10-11: Android VPN-dependent peer loss (investigation open)
+
+- User reports that Huawei and Xiaomi peers appear with VPN and disappear without VPN. Laptop reportedly works in both conditions. This does not prove ISP blocking.
+- VPS packet capture: three client-side FIN packets at 08:11:30, 08:12:35 and 08:13:40 from 89.125.21.139 to port 39444, roughly 65 seconds apart. VPN/NAT intermediary remains a possible closer.
+- Huawei cc49c517, VPN off, 06:17 UTC: remote height 4286, local height 0, headers received 48, verified 0; sync_error=2 peer_error=10 chain_error=19 socket_error=103. Handshake completed; initial setup failed.
+- Huawei same revision, VPN on, 06:19 UTC: received 72, verified 0, validation active at capture time. Last-error fields can be stale; not evidence of a completed sync.
+- Older c4e5a723 Android revision previously synchronized to 4286, accepted 3254 blocks without rejection, but had reconnect churn. Do not attribute that success to cc49c517.
+- Candidate code path: src/net/sync.cpp services ping/pong and other P2P messages during CPU-intensive header validation; network failure can cancel validation. Root cause not yet confirmed.
+- Base android-foundation cf531302 CI: Ubuntu build and sanitizer jobs fail at tests/sync_tests.cpp:392 on expected diagnostics field; Android Core and JVM diagnostics jobs passed.
+- Draft PR #49: ef30ba8 adds missing-field/snapshot output on test failure. Earlier cd73ab0 introduced invalid PeerIoFailure member references and broke ARM64 compilation; bdde7b0 removed them.
+- No validated VPN-independent fix, APK or two-node regression test yet. Do not merge until tests and real-device reconnection and IBD pass.
+- RandomX version and consensus unchanged. User permits debugging RandomX implementation where necessary, but consensus-changing work requires explicit separate review.
