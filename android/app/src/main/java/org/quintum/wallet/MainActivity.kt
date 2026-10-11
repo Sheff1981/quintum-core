@@ -133,6 +133,8 @@ private fun QuintumHome() {
     val torMarker = remember(context) { context.filesDir.resolve("core/enable-tor-socks5") }
     var torOptIn by remember { mutableStateOf(torMarker.isFile) }
     var torSettingError by remember { mutableStateOf("") }
+    var torProxyStatus by remember { mutableStateOf("Not checked") }
+    val torScope = rememberCoroutineScope()
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
@@ -383,6 +385,25 @@ private fun QuintumHome() {
                             "Direct IPv4 remains enabled.",
                         style = MaterialTheme.typography.bodySmall, color = Muted
                     )
+                    Text("Local SOCKS5: $torProxyStatus", style = MaterialTheme.typography.bodySmall, color = Muted)
+                    TextButton(onClick = {
+                        torProxyStatus = "Checking…"
+                        torScope.launch {
+                            val reachable = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    Socket().use { socket ->
+                                        socket.connect(InetSocketAddress("127.0.0.1", 9050), 1500)
+                                    }
+                                    true
+                                }.getOrDefault(false)
+                            }
+                            torProxyStatus = if (reachable) {
+                                "TCP port reachable (SOCKS5 handshake not yet verified)"
+                            } else {
+                                "Not available; start a local Tor SOCKS5 service"
+                            }
+                        }
+                    }) { Text("Check local Tor proxy") }
                     if (torSettingError.isNotBlank()) {
                         Text(torSettingError, color = MaterialTheme.colorScheme.error)
                     }
