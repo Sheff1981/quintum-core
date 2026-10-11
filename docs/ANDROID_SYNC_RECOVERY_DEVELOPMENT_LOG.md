@@ -168,11 +168,11 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - Important distinction: this revision has already synchronized successfully; persistent connectivity and correct reconnection are separate acceptance criteria. This report does not demonstrate a RandomX consensus failure.
 - Next checks: identify exact failure in prepare_live_peer, classify EAGAIN/retry behavior and socket ownership, reproduce VPN transition without losing synchronized chain data.
 
-## 2026-10-11 07:27:16 UTC: Xiaomi reconnects without VPN (confirmed)
+## 2026-10-11 07:27:16 UTC: Xiaomi connected WITH VPN (user correction)
 
-- Build c4e5a7237c6b22ea37eb3db2a40b2c31c081f69d; user confirms Xiaomi without VPN.
+- Build c4e5a7237c6b22ea37eb3db2a40b2c31c081f69d; user explicitly corrected the network condition: VPN was ON for this 07:27:16 snapshot. Earlier interpretation as VPN OFF was wrong.
 - Active peers=2, peer_state=active, stage=fully_synchronized; local_height=remote_height=4286; blocks_rejected=0.
 - Previous snapshot at 07:20:39 UTC: active peers=0, attempts=2409, known peers=245. New snapshot: attempts=2427, known peers=247.
-- 18 additional connection attempts over 397 seconds; current connection_duration_ms=4578. Thus automatic recovery is observed, but persistent stability is NOT established.
+- 18 additional connection attempts over 397 seconds; current connection_duration_ms=4578. Because the VPN condition changed, these snapshots cannot establish VPN-OFF recovery or persistent stability.
 - Last error still reports version-receive socket_error=11 (EAGAIN) despite active peers, suggesting historical error state remains visible; do not attribute current session failure to it.
-- No code fix or APK validation is implied by this observational report.
+- No code fix or APK validation is implied by this observational report. Do not cite this sample as evidence that Android connects without VPN.
