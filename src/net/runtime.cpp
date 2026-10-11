@@ -2084,11 +2084,10 @@ void NetworkRuntime::maintain_outbound(
                 addrman_.size()
             );
 
-            next_outbound_attempt_ =
-                now +
-                config_.
-                    outbound_retry_seconds;
-            return;
+            // A failed preferred reconnect must not consume the whole
+            // outbound cycle. Fall through to addrman discovery so another
+            // reachable peer can be tried even when this endpoint is down.
+            break;
         }
 
         addrman_.mark_success(
