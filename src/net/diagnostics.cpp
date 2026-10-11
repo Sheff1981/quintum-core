@@ -19,7 +19,7 @@ constexpr std::string_view metric_names[] = {
     "blocks_received", "blocks_accepted", "blocks_rejected", "block_verify_ms",
     "header_batches_received", "header_batches_accepted", "header_batches_rejected",
     "header_wait_ms", "block_wait_ms", "handshake", "core_running",
-    "active_peers", "known_peers", "headers_unvalidated", "randomx_active",
+    "active_peers", "known_peers", "previously_connected_peer_addresses", "headers_unvalidated", "randomx_active",
     "headers_validating", "headers_validated", "headers_committed",
     "header_batch_progress", "randomx_last_hash_us", "initializing_peers",
     "handshake_completed", "randomx_result_reused"
