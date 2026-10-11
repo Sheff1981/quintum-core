@@ -130,6 +130,9 @@ class MainActivity : ComponentActivity() {
 private fun QuintumHome() {
     var page by remember { mutableStateOf<Page?>(null) }
     val context = LocalContext.current
+    val torMarker = remember(context) { context.filesDir.resolve("core/enable-tor-socks5") }
+    var torOptIn by remember { mutableStateOf(torMarker.isFile) }
+    var torSettingError by remember { mutableStateOf("") }
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
@@ -352,6 +355,38 @@ private fun QuintumHome() {
                 }
             } else when (page) {
                 Page.Network -> {
+                    Text("Optional Tor P2P", style = MaterialTheme.typography.titleMedium)
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use local Tor SOCKS5", modifier = Modifier.weight(1f))
+                        Switch(checked = torOptIn, onCheckedChange = { enabled ->
+                            try {
+                                if (enabled) {
+                                    torMarker.parentFile?.mkdirs()
+                                    check(torMarker.createNewFile() || torMarker.isFile) {
+                                        "Could not create Tor opt-in marker"
+                                    }
+                                } else {
+                                    check(!torMarker.exists() || torMarker.delete()) {
+                                        "Could not remove Tor opt-in marker"
+                                    }
+                                }
+                                torOptIn = enabled
+                                torSettingError = ""
+                            } catch (e: Exception) {
+                                torSettingError = e.message ?: "Unable to update Tor setting"
+                            }
+                        })
+                    }
+                    Text(
+                        "Requires a separate Tor client providing SOCKS5 on 127.0.0.1:9050. " +
+                            "Changes take effect after restarting the QUINTUM node. " +
+                            "Direct IPv4 remains enabled.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted
+                    )
+                    if (torSettingError.isNotBlank()) {
+                        Text(torSettingError, color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(12.dp))
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     if (crashReport != null) {
