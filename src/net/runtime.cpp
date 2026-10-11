@@ -2020,14 +2020,15 @@ void NetworkRuntime::maintain_outbound(
         return;
     }
 
-    // Prefer previously successful peers without letting repeatedly failing
-    // endpoints monopolize the outbound dial budget. After three failures,
-    // normal addrman discovery gets a chance to select another peer.
+    // Retry previously successful endpoints after their backoff expires.
+    // Do not permanently exclude a candidate after three failures: a mobile
+    // route or VPN change can make that same endpoint reachable again.
+    // The per-candidate exponential backoff limits repeated dial attempts.
     for (auto it =
              reconnect_candidates_.begin();
          it != reconnect_candidates_.end();
          ++it) {
-        if (it->next_attempt > now || it->failures >= 3U) {
+        if (it->next_attempt > now) {
             continue;
         }
 
