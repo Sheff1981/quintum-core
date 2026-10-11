@@ -1787,13 +1787,20 @@ VersionMessage NetworkRuntime::local_version(
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
+        // Android's listener is not externally mapped (CGNAT/NAT and
+        // ephemeral fallback). Do not gossip an unreachable inbound port.
+        // Outbound connections and normal protocol negotiation are unaffected.
         .listen_port =
+#ifdef __ANDROID__
+            std::uint16_t{0U},
+#else
             static_cast<std::uint16_t>(
                 params_.p2p_protocol_version >=
                         kPeerAddressProtocolVersion
                     ? listen_port_.load()
                     : std::uint16_t{0U}
             ),
+#endif
     };
 }
 
