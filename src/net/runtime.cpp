@@ -2447,6 +2447,10 @@ bool NetworkRuntime::prepare_live_peer(
             synced.blocks_requested, synced.blocks_accepted);
 #endif
         if (!synced.ok()) {
+            observe(config_.diagnostics, [&](auto& d) {
+                d.failure("initial_sync", static_cast<int>(synced.error),
+                          "initial peer sync failed");
+            });
             return false;
         }
 
@@ -2474,13 +2478,26 @@ bool NetworkRuntime::prepare_live_peer(
 #endif
     if (stop_requested_.load()) return false;
     if (peer.resync_requested) { peer.last_activity = unix_time_now(); return true; }
-    if (peer.session.request_addresses(
-            config_.allow_local_peers || params_.network == consensus::Network::regtest,
-            peer.learned_addresses) != PeerError::none) return false;
+    const auto address_error = peer.session.request_addresses(
+        config_.allow_local_peers || params_.network == consensus::Network::regtest,
+        peer.learned_addresses);
+    if (address_error != PeerError::none) {
+        observe(config_.diagnostics, [&](auto& d) {
+            d.failure("initial_addresses", static_cast<int>(address_error),
+                      "peer address exchange failed");
+        });
+        return false;
+    }
 
     if (stop_requested_.load()) return false;
     const auto mempool_sync = sync_mempool_from_peer(peer.session, node_, &state_mutex_);
-    if (!mempool_sync.ok()) return false;
+    if (!mempool_sync.ok()) {
+        observe(config_.diagnostics, [&](auto& d) {
+            d.failure("initial_mempool", static_cast<int>(mempool_sync.error),
+                      "peer mempool synchronization failed");
+        });
+        return false;
+    }
     {
         std::scoped_lock lock(state_mutex_);
         if (!sync_wallet_locked()) return false;
@@ -2493,11 +2510,15 @@ bool NetworkRuntime::prepare_live_peer(
         tip = node_.chain().tip_hash();
     }
 
-    if (tip &&
-        announce_block(
-            peer.session,
-            *tip) != PeerError::none) {
-        return false;
+    if (tip) {
+        const auto announce_error = announce_block(peer.session, *tip);
+        if (announce_error != PeerError::none) {
+            observe(config_.diagnostics, [&](auto& d) {
+                d.failure("initial_announce", static_cast<int>(announce_error),
+                          "peer tip announcement failed");
+            });
+            return false;
+        }
     }
 
     peer.last_activity = unix_time_now();
