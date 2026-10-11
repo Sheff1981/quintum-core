@@ -1028,8 +1028,6 @@ SyncResult sync_from_peer(
                         " socket_error=" + std::to_string(io.socket_error) +
                         " eof=" + std::to_string(io.remote_closed ? 1 : 0) +
                         " partial_bytes=" + std::to_string(io.partial_io_bytes) +
-                        " io_timeout=" + std::to_string(io.timed_out ? 1 : 0) +
-                        " io_cancelled=" + std::to_string(io.cancelled ? 1 : 0) +
                         " wire_error=" + std::to_string(static_cast<int>(io.wire_error));
                     journal.failure("sync", static_cast<int>(result.error), description);
                     journal.peer_state("disconnected", description,
