@@ -158,3 +158,12 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - Draft PR #49: ef30ba8 adds missing-field/snapshot output on test failure. Earlier cd73ab0 introduced invalid PeerIoFailure member references and broke ARM64 compilation; bdde7b0 removed them.
 - No validated VPN-independent fix, APK or two-node regression test yet. Do not merge until tests and real-device reconnection and IBD pass.
 - RandomX version and consensus unchanged. User permits debugging RandomX implementation where necessary, but consensus-changing work requires explicit separate review.
+
+## 2026-10-11 07:20:39 UTC: Android c4e5a723 fully synced but disconnected
+
+- Core running; local_height=remote_height=4286; last_sync_utc=07:18:57 UTC; blocks_accepted=3254, blocks_rejected=0, headers_rejected=0.
+- Active peers=0, known peers=245, attempt_count=2409, retry_count=2408; peer_state=disconnected; disconnect_reason=initial setup failed.
+- Last error text: version-receive peer_error=10 wire_error=0 socket_error=11 eof=0 partial_bytes=0 io_timeout=0 io_cancelled=0. This error may be stale; do not assume it caused the most recent disconnect.
+- Last network message 07:20:26 UTC; connection_duration_ms=12740; last network progress 12576 ms ago. No current core/service error reported.
+- Important distinction: this revision has already synchronized successfully; persistent connectivity and correct reconnection are separate acceptance criteria. This report does not demonstrate a RandomX consensus failure.
+- Next checks: identify exact failure in prepare_live_peer, classify EAGAIN/retry behavior and socket ownership, reproduce VPN transition without losing synchronized chain data.
