@@ -389,19 +389,49 @@ private fun QuintumHome() {
                     TextButton(onClick = {
                         torProxyStatus = "Checking…"
                         torScope.launch {
-                            val reachable = withContext(Dispatchers.IO) {
+                            val result = withContext(Dispatchers.IO) {
                                 runCatching {
                                     Socket().use { socket ->
                                         socket.connect(InetSocketAddress("127.0.0.1", 9050), 1500)
+                                        socket.soTimeout = 20000
+                                        val input = socket.getInputStream()
+                                        val output = socket.getOutputStream()
+                                        // SOCKS5 no-auth method negotiation.
+                                        output.write(byteArrayOf(0x05, 0x01, 0x00))
+                                        output.flush()
+                                        check(input.read() == 0x05 && input.read() == 0x00) {
+                                            "Local port is not a no-auth SOCKS5 proxy"
+                                        }
+                                        val host = "kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion"
+                                        val hostname = host.toByteArray(Charsets.US_ASCII)
+                                        val port = 39444
+                                        output.write(byteArrayOf(0x05, 0x01, 0x00, 0x03, hostname.size.toByte()))
+                                        output.write(hostname)
+                                        output.write(byteArrayOf((port shr 8).toByte(), port.toByte()))
+                                        output.flush()
+                                        val version = input.read()
+                                        val reply = input.read()
+                                        val reserved = input.read()
+                                        val addressType = input.read()
+                                        check(version == 5 && reply == 0 && reserved == 0) {
+                                            "SOCKS5 onion connection rejected (code $reply)"
+                                        }
+                                        val addressLength = when (addressType) {
+                                            1 -> 4
+                                            4 -> 16
+                                            3 -> input.read().also { check(it in 1..255) }
+                                            else -> error("Invalid SOCKS5 reply address type")
+                                        }
+                                        repeat(addressLength + 2) {
+                                            check(input.read() >= 0) { "Truncated SOCKS5 reply" }
+                                        }
+                                        "Tor onion TCP connection established (QUINTUM handshake not tested)"
                                     }
-                                    true
-                                }.getOrDefault(false)
+                                }.getOrElse { error ->
+                                    "Tor check failed: ${error.message ?: error.javaClass.simpleName}"
+                                }
                             }
-                            torProxyStatus = if (reachable) {
-                                "TCP port reachable (SOCKS5 handshake not yet verified)"
-                            } else {
-                                "Not available; start a local Tor SOCKS5 service"
-                            }
+                            torProxyStatus = result
                         }
                     }) { Text("Check local Tor proxy") }
                     if (torSettingError.isNotBlank()) {
