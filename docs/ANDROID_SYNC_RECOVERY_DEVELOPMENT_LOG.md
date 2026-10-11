@@ -186,3 +186,10 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - stage=handshake_complete, peer_state=disconnected, disconnect_reason=initial setup failed, last_network_message_utc=07:34:38, last_sync_utc=07:29:35.
 - Interpretation: direct connectivity is unreliable or unavailable after VPN OFF, with TCP connect failures among attempts. The last error may be historical; handshake telemetry means some connections progressed further. Do not conclude definitive ISP filtering without direct route tests.
 - Compare to VPN ON 07:27:16 snapshot (active_peers=2). Do not change consensus, RandomX, genesis, or wallet state to address this.
+
+## 2026-10-11: Huawei VPN-OFF connectivity (user observation)
+
+- User reports Huawei also works without VPN.
+- This is a qualitative observation; no new Huawei diagnostic snapshot accompanied it. Do not infer stable session duration, block sync completion, or active peer count.
+- Xiaomi VPN OFF at 07:35 UTC had zero active peers and tcp-connect failure; Huawei VPN OFF working means blanket claims that VPN is mandatory, or that the VPS port is universally blocked without VPN, are unsupported.
+- Compare per-device Android build, network path, connection lifecycle, and reconnection telemetry before changing code. Preserve consensus and wallet.
