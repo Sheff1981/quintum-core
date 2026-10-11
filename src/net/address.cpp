@@ -375,12 +375,15 @@ bool valid_peer_address(
         return true;
     }
 
+    // CGNAT and benchmark networks cannot accept public inbound peers.
     if (first == 10U ||
         first == 127U ||
+        (first == 100U && second >= 64U && second <= 127U) ||
         (first == 169U && second == 254U) ||
         (first == 172U &&
          second >= 16U && second <= 31U) ||
-        (first == 192U && second == 168U)) {
+        (first == 192U && second == 168U) ||
+        (first == 198U && (second == 18U || second == 19U))) {
         return false;
     }
 
