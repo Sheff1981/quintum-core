@@ -20,6 +20,33 @@ Prerequisites: an already running QUINTUM RandomX Testnet node listening on TCP 
 5. Confirm the QUINTUM daemon is listening on localhost TCP port 39444 and that the Tor service is running. Do not replace the existing public IPv4 seed.
 6. On a machine with a functioning Tor SOCKS5 proxy, verify the onion TCP route before changing any QUINTUM client configuration. A successful SOCKS5 CONNECT only establishes transport; a QUINTUM protocol handshake and full sync are separate required tests.
 
+## Provisioned testnet onion endpoint (2026-10-11)
+
+The VPS operator generated this public onion hostname:
+
+```text
+kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion:39444
+```
+
+The existing public IPv4 seed remains `212.193.15.139:39444`. The Tor daemon was confirmed running before onion-service configuration. Reading the onion hostname confirms key/hostname creation, **not** that the service is reachable or that a QUINTUM handshake succeeded.
+
+On the VPS, verify configuration and listener without restarting QUINTUM:
+
+```bash
+tor --verify-config -f /etc/tor/torrc
+systemctl is-active tor@default
+ss -lntp | grep ':39444'
+journalctl -u tor@default -n 40 --no-pager
+```
+
+From a separate machine with Tor SOCKS5 on `127.0.0.1:9050`, probe the onion endpoint without local DNS resolution:
+
+```bash
+curl --socks5-hostname 127.0.0.1:9050 --connect-timeout 30 --max-time 40 -v telnet://kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion:39444
+```
+
+A TCP connection can be established even if curl later times out waiting for application data; it is **not** a QUINTUM handshake test. A full protocol and chain sync test remains mandatory. Never forward RPC 39445.
+
 ## Existing QUINTUM client support and missing integration
 
 The C++ networking layer supports SOCKS5 and `AddressNetwork::tor_v3` via `ProxyRoutes.tor`, and validates v3 onion addresses. **It does not automatically install or start Tor.** The Android JNI startup currently does not populate `NetworkRuntimeConfig.proxies` and the hardcoded seed is IPv4 only. Therefore, creating the onion service alone will **not** make Android clients connect via Tor automatically.
