@@ -217,3 +217,11 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - Existing per-endpoint backoff remains in effect; the 300-second cap and network/consensus constants are unchanged.
 - Motivation: intermittent direct mobile connectivity on Xiaomi and Huawei, especially when VPN is disabled.
 - Verification pending: Android ARM64 CI, Linux/Windows builds, tests, and on-device no-VPN peer recovery. This is not proof that the VPS is reachable through every mobile carrier.
+
+## 2026-10-11 16:41 UTC: Android Core does not start (revision cde7acb)
+
+User-supplied screenshot/diagnostics: core_running=false, stage=idle for 145559ms, active_peers=0, known_peers=0, attempt_count=0, local_height=Unavailable, last_error_code=0, service error=None reported. Android UI remains "Connecting... / Starting..." and VPN indicator is visible. This is a **pre-P2P startup incident**, not evidence of failed outbound TCP or VPN-off operation.
+
+The source revision cde7acb924ad660a2b8bff2e872877d4b8d1bc96 is a merge commit of f13d3aaa into cf531302, confirmed through GitHub. NodeService.onStartCommand invokes NativeCore.nativeStart from Dispatchers.IO, while the JNI nativeStart calls NetworkRuntime::start synchronously before publishing g_runtime/g_core_running. If native startup stalls, the UI can show the observed idle state without a service error until nativeStart returns. This is a hypothesis, not a proven stall: also inspect Android service lifecycle events and native diagnostic logs.
+
+Do not delete application data, blockchain, or private keys. Next diagnostic: collect QUINTUM diagnostic event log / Android logcat with service start_request and core starting/started/failure timestamps; identify whether start was requested and where it stopped before changing consensus or P2P.
