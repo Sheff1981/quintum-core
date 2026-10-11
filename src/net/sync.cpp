@@ -1279,8 +1279,13 @@ SyncResult sync_from_peer(
                         journal.gauge("header_batch_progress", progress);
                     }
                 });
-                known_since_report = 0U;
-                new_since_report = 0U;
+                // The validation callback also runs before each header
+                // (completed=false). Preserve accumulated counts until a
+                // completed-header reporting boundary flushes them.
+                if (completed) {
+                    known_since_report = 0U;
+                    new_since_report = 0U;
+                }
             }
             if (cancelled()) return false;
             // The sync worker is the exclusive socket owner. Never race its
