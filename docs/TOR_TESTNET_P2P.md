@@ -61,3 +61,9 @@ Required before enabling automatic fallback:
 ## Operational security
 
 The onion service must forward **only** QUINTUM P2P TCP/39444. Do not map localhost RPC/39445, expose Tor service keys, disable QUINTUM consensus checks, or imply that Tor guarantees connectivity through every ISP.
+
+## Android opt-in transport (commit 5cbbe091)
+
+The Android JNI startup supports an **opt-in** Tor seed. Create the regular file `enable-tor-socks5` in the Android app's native data root (the directory passed to `nativeStart`) **before** starting the core. The Android device must separately run a local SOCKS5 listener at `127.0.0.1:9050`; the VPS proxy at `127.0.0.1:9050` is **not** reachable from the phone. When opted in, the client adds the public onion bootstrap and configures the existing P2P SOCKS5 route. It does not disable direct IPv4 or change consensus, wallet, or chain storage.
+
+Current limitations: no Android UI control for this opt-in, no bundled Tor runtime, no local proxy health check, no successful QUINTUM handshake or synchronization through Tor verified yet. The marker is intentionally off by default. Do not claim mobile-data-without-VPN support until end-to-end Android testing is complete.
