@@ -193,3 +193,10 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - This is a qualitative observation; no new Huawei diagnostic snapshot accompanied it. Do not infer stable session duration, block sync completion, or active peer count.
 - Xiaomi VPN OFF at 07:35 UTC had zero active peers and tcp-connect failure; Huawei VPN OFF working means blanket claims that VPN is mandatory, or that the VPS port is universally blocked without VPN, are unsupported.
 - Compare per-device Android build, network path, connection lifecycle, and reconnection telemetry before changing code. Preserve consensus and wallet.
+
+## 2026-10-11: Both Xiaomi and Huawei show intermittent VPN-OFF P2P
+
+- User confirms Huawei behaves like Xiaomi: peers can appear without VPN but periodically disappear.
+- This supersedes any interpretation that Huawei is stably connected without VPN.
+- Both devices exhibit intermittent VPN-OFF connectivity; exact causes remain unproven and may include shared app reconnect logic and differing mobile-network routes.
+- Next priority: inspect common Android/Core connection lifecycle and failure classification, add deterministic reconnect regression tests, then verify APK on both phones. Do not alter RandomX or chain parameters.
