@@ -353,7 +353,19 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     {
         std::scoped_lock lock(state_mutex_);
 
+        // Report startup progress before potentially expensive chain replay.
+        // Without this marker Android shows idle/0 peers indefinitely while
+        // NodeRuntime::start() is still restoring the on-disk chain.
+        observe(config_.diagnostics, [](auto& d) {
+            d.stage("chain_startup");
+            d.peer_state("initializing");
+        });
         out.node = node_.start();
+        observe(config_.diagnostics, [&](auto& d) {
+            if (out.node.ok()) d.stage("chain_loaded");
+            else d.failure("core_node", static_cast<int>(out.node.error),
+                           "chain startup failed");
+        });
         if (out.node.ok()) observe(config_.diagnostics, [&](auto& d) {
             if (auto h = node_.chain().height()) d.local_height(*h);
         });
