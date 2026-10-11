@@ -200,3 +200,12 @@ The local environment additionally rejects AF_UNIX send with EPERM, so the frame
 - This supersedes any interpretation that Huawei is stably connected without VPN.
 - Both devices exhibit intermittent VPN-OFF connectivity; exact causes remain unproven and may include shared app reconnect logic and differing mobile-network routes.
 - Next priority: inspect common Android/Core connection lifecycle and failure classification, add deterministic reconnect regression tests, then verify APK on both phones. Do not alter RandomX or chain parameters.
+
+## 2026-10-11: CI sync diagnostics root cause fixed
+
+- Android ARM64 and GUI workflows passed for c54c95a; Ubuntu build and security workflows failed in quintum_sync_tests.
+- Ubuntu CI log identified exact mismatch: expected headers_verified=5, actual headers_verified=1, while headers_received=5 and blocks_accepted=5.
+- Root cause: src/net/sync.cpp service_validation callback runs both before each header (completed=false) and after it (completed=true). Aggregated counters were reset even on pre-header callbacks, discarding unflushed counts.
+- Commit b558462 changes the reset to occur only when completed=true at a reporting boundary. This affects diagnostics only, not PoW validation.
+- Earlier commit c54c95a removes the permanent >=3 reconnect exclusion, retaining existing exponential backoff capped at 300 seconds.
+- CI for b558462 must pass before declaring the fix verified. Neither change has been field-tested on Huawei/Xiaomi in a newly built APK.
