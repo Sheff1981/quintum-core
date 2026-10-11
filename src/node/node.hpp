@@ -6,6 +6,7 @@
 #include "node/mempool.hpp"
 
 #include <cstddef>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -145,7 +146,8 @@ public:
         std::uint64_t max_attempts,
         std::size_t worker_count,
         bool full_memory,
-        std::uint64_t start_nonce = 0U
+        std::uint64_t start_nonce = 0U,
+        const std::atomic<bool>* cancel = nullptr
     );
 
     [[nodiscard]] NodeMineResult mine_block(
@@ -170,7 +172,8 @@ public:
         std::size_t worker_count,
         bool full_memory,
         std::span<const Transaction> transactions = {},
-        std::uint64_t start_nonce = 0U
+        std::uint64_t start_nonce = 0U,
+        const std::atomic<bool>* cancel = nullptr
     );
 
 private:

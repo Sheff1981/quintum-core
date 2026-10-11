@@ -3,12 +3,57 @@
 #include <randomx.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <thread>
 #include <utility>
 #include <vector>
 
 namespace quintum::crypto {
+namespace {
+thread_local RandomXVerificationScope* verification_scope = nullptr;
+}
+
+void report_randomx_verification(
+    std::string_view name,
+    std::uint64_t microseconds) noexcept
+{
+    if (verification_scope != nullptr && verification_scope->observer_ != nullptr) {
+        try {
+            verification_scope->observer_(
+                verification_scope->context_, name, microseconds);
+        } catch (...) {
+            // Timing observers cannot affect consensus hashes.
+        }
+    }
+}
+
+namespace {
+void report_verification(
+    std::string_view name,
+    std::chrono::steady_clock::time_point started) noexcept
+{
+    report_randomx_verification(name,
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started).count());
+}
+}
+
+RandomXVerificationScope::RandomXVerificationScope(
+    Observer observer,
+    void* context) noexcept
+    : observer_(observer),
+      context_(context),
+      previous_(verification_scope)
+{
+    verification_scope = this;
+}
+
+RandomXVerificationScope::~RandomXVerificationScope()
+{
+    report_randomx_verification("randomx_operation_complete", 0U);
+    verification_scope = previous_;
+}
 
 struct RandomXLightHasher::Impl {
     randomx_cache* cache{nullptr};
@@ -38,11 +83,20 @@ RandomXLightHasher::RandomXLightHasher(
     // supported) while keeping light mode and the explicit v2 ruleset.
     // RandomX guarantees identical hash output across these execution modes;
     // fixed cross-platform vectors enforce that consensus property in CI.
-    const auto flags =
-        static_cast<randomx_flags>(
-            randomx_get_flags() |
-            RANDOMX_FLAG_V2
-        );
+    // Android may forbid executable JIT mappings (W^X/SELinux).
+    // Interpreter mode computes the same consensus hashes without JIT.
+#if defined(__ANDROID__)
+    // Android does not permit the desktop JIT executable-memory strategy.
+    // Enable only the runtime-detected hardware AES capability on ARM64.
+    // Both interpreter paths must produce identical RandomX v2 hashes.
+    const auto flags = static_cast<randomx_flags>(
+        (randomx_get_flags() & RANDOMX_FLAG_HARD_AES) | RANDOMX_FLAG_V2
+    );
+#else
+    const auto flags = static_cast<randomx_flags>(
+        randomx_get_flags() | RANDOMX_FLAG_V2
+    );
+#endif
 
     impl_->cache =
         randomx_alloc_cache(flags);
@@ -52,12 +106,16 @@ RandomXLightHasher::RandomXLightHasher(
         return;
     }
 
+    const auto cache_started = std::chrono::steady_clock::now();
+    report_randomx_verification("randomx_cache_started", 0U);
     randomx_init_cache(
         impl_->cache,
         key.data(),
         key.size()
     );
 
+    report_verification("randomx_cache_ms", cache_started);
+    report_randomx_verification("randomx_operation_complete", 0U);
     impl_->vm =
         randomx_create_vm(
             flags,
@@ -95,6 +153,8 @@ std::optional<Hash256> RandomXLightHasher::hash(
 
     Hash256 out{};
 
+    const auto hash_started = std::chrono::steady_clock::now();
+    report_randomx_verification("randomx_hash_started", 0U);
     randomx_calculate_hash(
         impl_->vm,
         input.data(),
@@ -102,6 +162,8 @@ std::optional<Hash256> RandomXLightHasher::hash(
         out.data()
     );
 
+    report_verification("randomx_verify_ms", hash_started);
+    report_randomx_verification("randomx_operation_complete", 0U);
     return out;
 }
 
@@ -146,11 +208,17 @@ RandomXMiningContext::RandomXMiningContext(
                 64U
             );
 
-        auto flags =
-            static_cast<randomx_flags>(
-                randomx_get_flags() |
-                RANDOMX_FLAG_V2
-            );
+        // Android uses portable interpreter mode; no executable JIT pages.
+#if defined(__ANDROID__)
+        // Keep JIT disabled; select AES only if detected by RandomX.
+        auto flags = static_cast<randomx_flags>(
+            (randomx_get_flags() & RANDOMX_FLAG_HARD_AES) | RANDOMX_FLAG_V2
+        );
+#else
+        auto flags = static_cast<randomx_flags>(
+            randomx_get_flags() | RANDOMX_FLAG_V2
+        );
+#endif
 
         if (full_memory) {
             flags =
@@ -331,3 +399,4 @@ RandomXMiningContext::hash(
 }
 
 } // namespace quintum::crypto
+

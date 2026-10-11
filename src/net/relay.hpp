@@ -5,6 +5,7 @@
 #include "node/node.hpp"
 
 #include <cstddef>
+#include <mutex>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -95,7 +96,8 @@ parse_transaction_payload(
     PeerSession& peer,
     const NodeRuntime& node,
     const WireMessage& message,
-    std::span<const Hash256> hidden_transactions = {}
+    std::span<const Hash256> hidden_transactions = {},
+    std::mutex* state_mutex = nullptr
 );
 
 [[nodiscard]] RelayResult serve_relay_once(
@@ -111,7 +113,8 @@ parse_transaction_payload(
 
 [[nodiscard]] RelayResult sync_mempool_from_peer(
     PeerSession& peer,
-    NodeRuntime& node
+    NodeRuntime& node,
+    std::mutex* state_mutex = nullptr
 );
 
 } // namespace quintum::net

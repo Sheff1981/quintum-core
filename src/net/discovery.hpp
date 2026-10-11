@@ -19,7 +19,8 @@ struct ProxyRoutes {
     const PeerAddress& address,
     const VersionMessage& local_version,
     std::uint32_t timeout_ms,
-    const ProxyRoutes& routes
+    const ProxyRoutes& routes,
+    std::shared_ptr<Diagnostics> diagnostics = {}
 );
 
 enum class DiscoveryError {
@@ -92,7 +93,8 @@ public:
         std::uint32_t timeout_ms,
         std::size_t max_candidates,
         std::span<const PeerAddress> excluded = {},
-        ProxyRoutes routes = {}
+        ProxyRoutes routes = {},
+        std::shared_ptr<Diagnostics> diagnostics = {}
     );
 
     [[nodiscard]] DiscoveryConnectResult connect_one(
@@ -101,7 +103,8 @@ public:
         std::uint64_t now,
         std::uint32_t timeout_ms,
         std::span<const PeerAddress> excluded = {},
-        ProxyRoutes routes = {}
+        ProxyRoutes routes = {},
+        std::shared_ptr<Diagnostics> diagnostics = {}
     );
 
 private:
@@ -109,3 +112,4 @@ private:
 };
 
 } // namespace quintum::net
+

@@ -24,6 +24,9 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Record RandomX exact-input reuse measurement
+        run: ctest --test-dir build -C Release -R '^randomx$' --verbose
+
       - name: Smoke walletless Linux node
         if: runner.os == 'Linux'
         shell: bash
@@ -133,3 +136,33 @@ jobs:
           name: quintum-linux-x64
           path: dist/linux/**
           if-no-files-found: error
+
+  android-seed-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure seed probe
+        run: cmake -S . -B build-probe -DQUINTUM_ENABLE_NAT_MAPPING=OFF
+      - name: Build seed probe
+        run: cmake --build build-probe --target quintum_android_p2p_probe -j2
+      - name: Check live RandomX Testnet handshake and headers
+        id: seed
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 45 ./build-probe/quintum_android_p2p_probe 212.193.15.139 2>&1 | tee seed-probe.log
+      - name: Record probe result
+        if: always()
+        env:
+          PROBE_OUTCOME: ${{ steps.seed.outcome }}
+        run: |
+          echo "Live seed probe: $PROBE_OUTCOME (external diagnostic; see log, not device verification)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload seed probe log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-seed-diagnostic
+          path: seed-probe.log
+          if-no-files-found: warn

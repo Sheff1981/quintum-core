@@ -5,6 +5,9 @@
 #include "node/node.hpp"
 
 #include <cstddef>
+#include <atomic>
+#include <mutex>
+#include <functional>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -52,6 +55,7 @@ enum class SyncError {
     announced_block_mismatch,
     block_rejected,
     storage_failed,
+    cancelled,
 };
 
 struct SyncResult {
@@ -148,10 +152,22 @@ parse_inventory(
     const Chainstate& chain
 );
 
+struct SyncOptions {
+    std::mutex* state_mutex{nullptr};
+    const std::atomic<bool>* cancel{nullptr};
+    std::uint32_t io_timeout_ms{5'000U};
+    std::uint64_t ping_interval_seconds{30U};
+    std::uint64_t ping_timeout_seconds{30U};
+    std::function<bool(std::size_t, bool)> header_progress{};
+};
+
 [[nodiscard]] SyncResult sync_from_peer(
     PeerSession& peer,
     NodeRuntime& node,
-    std::uint64_t adjusted_time
+    std::uint64_t adjusted_time,
+    std::shared_ptr<Diagnostics> diagnostics = {},
+    SyncOptions options = {}
 );
 
 } // namespace quintum::net
+

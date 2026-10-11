@@ -6,12 +6,14 @@
 #include "net/dandelion.hpp"
 #include "net/nat_mapping.hpp"
 #include "net/peer.hpp"
+#include "net/validation_worker.hpp"
 #include "node/node.hpp"
 #include "wallet/fee_policy.hpp"
 #include "wallet/wallet.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -65,6 +67,7 @@ reconnect_backoff_delay(
 }
 
 struct NetworkRuntimeConfig {
+    std::shared_ptr<Diagnostics> diagnostics{};
     std::string bind_address{"0.0.0.0"};
     std::optional<std::uint16_t> listen_port{};
     bool allow_ephemeral_listener_fallback{false};
@@ -265,6 +268,8 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] NetworkRuntimeStatus status() const;
+    // UI polling must remain responsive while initial sync owns chain state.
+    [[nodiscard]] NetworkRuntimeStatus status_nonblocking() const;
 
     [[nodiscard]] std::vector<
         wallet::WalletTransactionRecord>
@@ -359,6 +364,14 @@ public:
         std::uint64_t max_attempts
     );
 
+    [[nodiscard]] NodeMineResult mine_mempool_block_parallel(
+        const Bytes& payout_script,
+        std::uint64_t max_attempts,
+        std::size_t worker_count,
+        bool full_memory,
+        const std::atomic<bool>* cancel = nullptr
+    );
+
     [[nodiscard]] NodeMineResult mine_wallet_block(
         std::uint64_t max_attempts
     );
@@ -405,6 +418,8 @@ public:
     ) const;
 
 private:
+    [[nodiscard]] NetworkRuntimeStatus status_impl(bool wait_for_chain) const;
+
     struct PendingAnnouncement {
         std::uint32_t type{0U};
         Hash256 hash{};
@@ -445,11 +460,16 @@ private:
 
     struct LivePeer {
         PeerSession session{};
+        std::vector<PeerAddress> learned_addresses{};
+        bool resync_requested{false};
+        std::string endpoint{}, disconnect_reason{}, timeout_reason{};
         std::optional<PeerAddress> address{};
         std::uint64_t last_activity{0U};
         std::uint64_t ping_sent_at{0U};
         std::optional<std::uint64_t> pending_ping{};
         std::uint32_t reported_height{0U};
+        std::optional<Hash256> diagnostic_remote_work{};
+        std::optional<std::uint32_t> reconnect_failures{};
         std::uint64_t message_window_started{0U};
         std::uint32_t messages_in_window{0U};
         std::uint32_t stem_transactions_in_window{0U};
@@ -474,6 +494,10 @@ private:
     void service_stem_embargo(std::uint64_t now);
     void flush_announcements();
     void prune_closed(std::uint64_t now);
+
+    [[nodiscard]] bool begin_initial_peer(LivePeer&& peer, std::uint64_t now, bool outbound);
+    void finish_initial_peer(std::uint64_t now);
+    void disconnect_peer(LivePeer& peer, std::string_view reason, std::string_view timeout = {});
 
     [[nodiscard]] bool prepare_live_peer(
         LivePeer& peer,
@@ -611,6 +635,11 @@ private:
     NatPortMapper nat_mapper_{};
 
     std::vector<LivePeer> peers_{};
+    // Event loop owns the slot; worker exclusively owns the pointed-to peer
+    // until future completion. A vector relocation cannot invalidate it.
+    std::unique_ptr<ValidationWorker> validation_worker_{};
+    std::unique_ptr<LivePeer> initializing_peer_{};
+    std::optional<std::future<bool>> initialization_result_{};
     std::vector<ReconnectCandidate>
         reconnect_candidates_{};
 
@@ -629,6 +658,30 @@ private:
     std::atomic<std::size_t> peer_count_{0U};
     std::atomic<std::size_t> outbound_count_{0U};
     std::atomic<std::size_t> known_address_count_{0U};
+#ifdef __ANDROID__
+public:
+    [[nodiscard]] int android_last_connect_error() const noexcept
+    { return android_last_connect_error_.load(std::memory_order_relaxed); }
+    [[nodiscard]] std::uint64_t android_connect_attempts() const noexcept
+    { return android_connect_attempts_.load(std::memory_order_relaxed); }
+    [[nodiscard]] std::uint64_t android_connect_elapsed_ms() const noexcept
+    { const auto started = android_connect_started_ms_.load(std::memory_order_relaxed);
+      if (started == 0U) return 0U;
+      const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count();
+      return now > 0 && static_cast<std::uint64_t>(now) >= started
+          ? static_cast<std::uint64_t>(now) - started : 0U; }
+    [[nodiscard]] std::string android_peer_details() const;
+    [[nodiscard]] int android_p2p_diagnostic() const noexcept
+    { return android_p2p_diagnostic_.load(std::memory_order_relaxed); }
+private:
+    std::atomic<int> android_p2p_diagnostic_{0};
+    std::atomic<int> android_last_connect_error_{0};
+    std::atomic<std::uint64_t> android_connect_attempts_{0U};
+    std::atomic<std::uint64_t> android_connect_started_ms_{0U};
+    mutable std::mutex android_peer_details_mutex_{};
+    std::string android_peer_details_{};
+#endif
     std::atomic<std::uint32_t> peer_best_height_{0U};
     std::atomic<bool> have_peer_height_{false};
     std::atomic<std::uint16_t> listen_port_{0U};
@@ -649,3 +702,4 @@ private:
 };
 
 } // namespace quintum::net
+

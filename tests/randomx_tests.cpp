@@ -1,4 +1,7 @@
 #include "crypto/randomx.hpp"
+#include "consensus/pow.hpp"
+#include <chrono>
+#include <iostream>
 #include "core/serialize.hpp"
 
 #include <array>
@@ -141,10 +144,56 @@ void test_empty_key_is_rejected()
     assert(!hasher.valid());
 }
 
+void test_exact_seed_and_input_hash_reuse()
+{
+    using namespace quintum;
+    using namespace quintum::consensus;
+    BlockHeader header;
+    header.bits = 0x2100ffffU;
+    header.nonce = 0x706572662d70726fU;
+    Hash256 seed{}; seed[0] = 0x73U;
+    PowParams params;
+    params.pow_limit_bits = header.bits;
+    std::uint64_t calls = 0U;
+    crypto::RandomXVerificationScope scope(
+        [](void* context, std::string_view name, std::uint64_t) {
+            if (name == "randomx_verify_ms") ++*static_cast<std::uint64_t*>(context);
+        }, &calls);
+    const auto started = std::chrono::steady_clock::now();
+    const auto raw = randomx_pow_hash(header, seed);
+    assert(raw);
+    const auto cache_warm = std::chrono::steady_clock::now();
+    const auto raw_again = randomx_pow_hash(header, seed);
+    assert(raw_again == raw);
+    const auto baseline_done = std::chrono::steady_clock::now();
+    const auto first = check_randomx_proof_of_work(header, params, seed);
+    const auto verified_done = std::chrono::steady_clock::now();
+    const auto calls_before_reuse = calls;
+    assert(check_randomx_proof_of_work(header, params, seed) == first);
+    const auto reused_done = std::chrono::steady_clock::now();
+    assert(calls == calls_before_reuse);
+    // A different input or seed must perform a real hash.
+    ++header.nonce;
+    (void)check_randomx_proof_of_work(header, params, seed);
+    assert(calls == calls_before_reuse + 1U);
+    seed[0] ^= 1U;
+    (void)check_randomx_proof_of_work(header, params, seed);
+    assert(calls == calls_before_reuse + 2U);
+    const auto us = [](auto duration) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    };
+    std::cout << "RandomX measurement: raw_two_hash_us=" << us(baseline_done - started)
+        << " uncached_single_hash_us=" << us(baseline_done - cache_warm)
+        << " first_verification_us=" << us(verified_done - baseline_done)
+        << " exact_reuse_us=" << us(reused_done - verified_done)
+        << " real_calls=" << calls << '\n';
+}
+
 } // namespace
 
 int main()
 {
+    test_exact_seed_and_input_hash_reuse();
     test_upstream_v2_vector_a();
     test_upstream_v2_vector_b();
     test_shared_light_mining_context();

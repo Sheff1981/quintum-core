@@ -2,6 +2,7 @@
 #include "consensus/tx_auth.hpp"
 #include "crypto/secp256k1.hpp"
 #include "net/peer.hpp"
+#include "net/diagnostics.hpp"
 #include "net/sync.hpp"
 #include "node/node.hpp"
 
@@ -10,8 +11,14 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <future>
+#include <mutex>
+#include <atomic>
 #include <string>
 #include <thread>
+#ifndef _WIN32
+#include <sys/socket.h>
+#endif
 
 namespace {
 
@@ -366,14 +373,33 @@ void test_genesis_to_tip_sync_and_restart()
 
     assert(connected.ok());
 
+    auto diagnostics = std::make_shared<Diagnostics>(client_dir / "diagnostics");
     const auto synced =
         sync_from_peer(
             *connected.session,
             client,
-            now + 100U
+            now + 100U,
+            diagnostics
         );
 
     assert(synced.ok());
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {
+             "\"headers_received\":5", "\"headers_verified\":5",
+             "\"blocks_requested\":5", "\"blocks_received\":5",
+             "\"blocks_accepted\":5", "\"blocks_rejected\":0",
+             "\"local_height\":5", "\"header_batches_accepted\":1"}) {
+        assert(snapshot.find(field) != std::string::npos);
+    }
+    const auto events = diagnostics->export_log();
+    for (const auto phase : {
+             "headers_sync", "header_wait", "header_validation",
+             "blocks_sync", "block_wait", "block_validation"}) {
+        assert(events.find(phase) != std::string::npos);
+    }
+    // The sync helper cannot declare global runtime synchronization.
+    assert(events.find("fully_synchronized") == std::string::npos);
+
     assert(synced.headers_received == 5U);
     assert(synced.blocks_requested == 5U);
     assert(synced.block_request_batches == 1U);
@@ -1125,7 +1151,9 @@ void test_randomx_headers_first_uses_randomx_pow()
 }
 
 
-void test_invalid_difficulty_headers_stop_before_block_download()
+enum class InvalidHeaderCase { difficulty, proof_of_work, malformed };
+
+void test_invalid_headers_stop_before_block_download(InvalidHeaderCase test_case)
 {
     using namespace quintum;
     using namespace quintum::net;
@@ -1149,26 +1177,40 @@ void test_invalid_difficulty_headers_stop_before_block_download()
     invalid.timestamp =
         params.genesis.timestamp + 1U;
 
-    // Regtest expects the parent's unchanged 0x2100ffff target here. This
-    // harder target is still below the PoW limit and can therefore carry a
-    // perfectly valid hash while remaining consensus-invalid bad-diffbits.
-    invalid.bits = 0x207fffffU;
-
-    const auto mined =
-        consensus::mine_header(
-            invalid,
-            4'096U
-        );
-    assert(mined.found());
-    assert(consensus::check_proof_of_work(
-               invalid,
-               params.pow) ==
-           consensus::PowCheckError::none);
-    assert(client.chain().
-               next_work_required(
-                   invalid.timestamp) !=
-           std::optional<std::uint32_t>{
-               invalid.bits});
+    if (test_case == InvalidHeaderCase::proof_of_work) {
+        invalid.bits = *client.chain().next_work_required(invalid.timestamp);
+        bool invalid_pow = false;
+        for (std::uint64_t nonce = 0U; nonce < 1'000'000U; ++nonce) {
+            invalid.nonce = nonce;
+            if (consensus::check_proof_of_work(invalid, params.pow) ==
+                consensus::PowCheckError::hash_above_target) {
+                invalid_pow = true;
+                break;
+            }
+        }
+        assert(invalid_pow);
+    } else {
+        // Regtest expects the parent's unchanged 0x2100ffff target here. This
+        // harder target is still below the PoW limit and can therefore carry a
+        // perfectly valid hash while remaining consensus-invalid bad-diffbits.
+        invalid.bits = 0x207fffffU;
+    
+        const auto mined =
+            consensus::mine_header(
+                invalid,
+                4'096U
+            );
+        assert(mined.found());
+        assert(consensus::check_proof_of_work(
+                   invalid,
+                   params.pow) ==
+               consensus::PowCheckError::none);
+        assert(client.chain().
+                   next_work_required(
+                       invalid.timestamp) !=
+               std::optional<std::uint32_t>{
+                   invalid.bits});
+    }
 
     PeerListener listener{params};
     assert(listener.listen(
@@ -1214,7 +1256,8 @@ void test_invalid_difficulty_headers_stop_before_block_download()
         server_error =
             accepted.session->send_command(
                 "headers",
-                serialize_headers(headers)
+                test_case == InvalidHeaderCase::malformed
+                    ? Bytes{0xffU} : serialize_headers(headers)
             );
 
         if (server_error ==
@@ -1245,20 +1288,41 @@ void test_invalid_difficulty_headers_stop_before_block_download()
         );
     assert(connected.ok());
 
+    auto diagnostics = std::make_shared<Diagnostics>(client_dir / "diagnostics");
     const auto synced =
         sync_from_peer(
             *connected.session,
             client,
-            now
+            now,
+            diagnostics
         );
 
-    assert(synced.error ==
-           SyncError::
-               invalid_header_consensus);
-    assert(synced.chain_error ==
-           ChainConnectError::
-               unexpected_difficulty);
-    assert(synced.headers_received == 1U);
+    if (test_case == InvalidHeaderCase::malformed) {
+        assert(synced.error == SyncError::malformed_message);
+        assert(synced.headers_received == 0U);
+    } else if (test_case == InvalidHeaderCase::proof_of_work) {
+        assert(synced.error == SyncError::invalid_header_pow);
+        assert(synced.chain_error == ChainConnectError::invalid_proof_of_work);
+        assert(synced.headers_received == 1U);
+    } else {
+        assert(synced.error == SyncError::invalid_header_consensus);
+        assert(synced.chain_error == ChainConnectError::unexpected_difficulty);
+        assert(synced.headers_received == 1U);
+    }
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {
+             "\"headers_verified\":0", "\"header_batches_received\":1",
+             "\"header_batches_rejected\":1", "\"blocks_requested\":0",
+             "\"blocks_accepted\":0"}) {
+        assert(snapshot.find(field) != std::string::npos);
+    }
+    if (test_case != InvalidHeaderCase::malformed) {
+        assert(snapshot.find("\"headers_rejected\":1") != std::string::npos);
+    }
+    const auto events = diagnostics->export_log();
+    assert(events.find("\"event\":\"failure\"") != std::string::npos);
+    assert(events.find("fully_synchronized") == std::string::npos);
+
     assert(synced.blocks_requested == 0U);
     assert(synced.block_request_batches == 0U);
     assert(client.chain().height() ==
@@ -1372,10 +1436,139 @@ void test_full_known_header_batch_is_not_treated_as_stalled()
     ));
 }
 
+#ifndef _WIN32
+void test_sync_transport_failure_evidence(unsigned int test_case)
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("sync-io-evidence");
+    const auto now = params.genesis.timestamp + 10'000U;
+    NodeRuntime node{params, directory};
+    assert(node.start_at(now).ok());
+    auto diagnostics = std::make_shared<Diagnostics>(directory / "diagnostics");
+    int sockets[2]{};
+    assert(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0);
+    if (test_case == 2U) {
+        timeval timeout{0, 50'000};
+        assert(setsockopt(sockets[0], SOL_SOCKET, SO_RCVTIMEO,
+            &timeout, sizeof(timeout)) == 0);
+    }
+    PeerSession client(params, static_cast<std::uintptr_t>(sockets[0]),
+        false, version(0x3001U, 0U));
+    PeerSession server(params, static_cast<std::uintptr_t>(sockets[1]),
+        true, version(0x3002U, 1U));
+    std::thread responder([&] {
+        WireMessage request;
+        assert(server.receive_command(request) == PeerError::none);
+        assert(request.command == "getheaders");
+        if (test_case == 1U) {
+            const std::array<Byte, 3U> prefix{0U, 1U, 2U};
+            assert(send(sockets[1], prefix.data(), prefix.size(), 0) == 3);
+        } else if (test_case == 2U) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        }
+        server.close();
+    });
+    const auto result = sync_from_peer(client, node, now, diagnostics);
+    responder.join();
+    assert(result.error == SyncError::transport_failed);
+    assert(result.peer_error == PeerError::receive_failed);
+    const auto evidence = client.last_io_failure();
+    const auto events = diagnostics->export_log();
+    assert(events.find("header_wait") != std::string::npos);
+    assert(events.find("socket_error=" + std::to_string(evidence.socket_error)) !=
+        std::string::npos);
+    assert(events.find(test_case == 2U ? "eof=0" : "eof=1") != std::string::npos);
+    assert(events.find(test_case == 1U ? "partial_bytes=3" : "partial_bytes=0") !=
+        std::string::npos);
+    assert(events.find("fully_synchronized") == std::string::npos);
+    assert(node.chain().height() == std::optional<std::uint32_t>{0U});
+    client.close();
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+#endif
+
+void test_header_validation_services_ping_outside_chain_lock()
+{
+    using namespace quintum;
+    using namespace quintum::net;
+    const auto& params = consensus::regtest_params();
+    const auto directory = unique_dir("header-ping-progress");
+    const auto now = params.genesis.timestamp + 100'000U;
+    NodeRuntime source{params, directory / "source"};
+    NodeRuntime client{params, directory / "client"};
+    assert(source.start_at(now).ok());
+    assert(client.start_at(now).ok());
+    assert(source.mine_block_at(payout_script(11U), params.genesis.timestamp + 1U, 100U).ok());
+    const auto header = *source.chain().active_header(1U);
+    const auto body = *source.chain().block(*source.chain().tip_hash());
+    PeerListener listener{params};
+    assert(listener.listen("127.0.0.1", 0U) == PeerError::none);
+    std::promise<void> ping_sent, validation_entered;
+    auto validation_started = validation_entered.get_future();
+    auto ping_ready = ping_sent.get_future();
+    std::thread server([&] {
+        auto accepted = listener.accept_and_handshake(version(0x7171U, 1U), 5'000U);
+        assert(accepted.ok());
+        WireMessage message;
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "getheaders");
+        const std::array<BlockHeader, 1U> headers{header};
+        assert(accepted.session->send_command("headers", serialize_headers(headers)) == PeerError::none);
+        validation_started.wait();
+        assert(accepted.session->send_command("ping", serialize_nonce(0x1234U)) == PeerError::none);
+        ping_sent.set_value();
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "pong");
+        assert(parse_nonce(message.payload) == std::optional<std::uint64_t>{0x1234U});
+        assert(accepted.session->receive_command(message) == PeerError::none);
+        assert(message.command == "getdata");
+        assert(accepted.session->send_command("block", serialize_block_payload(body)) == PeerError::none);
+        accepted.session->close();
+    });
+    auto connected = connect_and_handshake(params, "127.0.0.1", listener.local_port(),
+        version(0x7172U, 0U), 5'000U);
+    assert(connected.ok());
+    std::mutex state;
+    std::atomic<bool> cancel{false};
+    auto diagnostics = std::make_shared<Diagnostics>(directory / "diagnostics");
+    const auto result = sync_from_peer(*connected.session, client, now, diagnostics,
+        SyncOptions{.state_mutex = &state, .cancel = &cancel,
+            .header_progress = [&](std::size_t, bool complete) {
+                if (!complete) {
+                    validation_entered.set_value();
+                    ping_ready.wait();
+                    // Model a slow verifier; synchronize packet arrival rather
+                    // than assuming send() defeats TCP delayed ACK/Nagle.
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    assert(connected.session->wait_readable(1'000U));
+                }
+                assert(state.try_lock()); state.unlock();
+                return true;
+            }});
+    server.join();
+    assert(result.ok());
+    assert(result.blocks_accepted == 1U);
+    const auto snapshot = diagnostics->snapshot_json();
+    for (const auto field : {"\"headers_validated\":1", "\"headers_committed\":1",
+        "\"header_batch_progress\":1", "\"headers_validating\":0"})
+        assert(snapshot.find(field) != std::string::npos);
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 } // namespace
 
 int main()
 {
+    test_header_validation_services_ping_outside_chain_lock();
+#ifndef _WIN32
+    test_sync_transport_failure_evidence(0U);
+    test_sync_transport_failure_evidence(1U);
+    test_sync_transport_failure_evidence(2U);
+#endif
     test_wire_codecs_and_locator();
     test_genesis_to_tip_sync_and_restart();
     test_sync_tolerates_interleaved_block_inventory();
@@ -1383,8 +1576,11 @@ int main()
     test_pruned_deep_reorg_redownloads_missing_bodies();
     test_ibd_batches_block_requests();
     test_randomx_headers_first_uses_randomx_pow();
-    test_invalid_difficulty_headers_stop_before_block_download();
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::difficulty);
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::proof_of_work);
+    test_invalid_headers_stop_before_block_download(InvalidHeaderCase::malformed);
     test_chainwork_sync_selection();
     test_full_known_header_batch_is_not_treated_as_stalled();
     return 0;
 }
+
