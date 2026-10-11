@@ -30,3 +30,9 @@
 ## Compatibility constraints
 
 Do not modify genesis, consensus, RandomX, network magic, protocol, ports, addresses, wallet keys, blockchain storage, or existing Android application data. This investigation does not authorize merging into main or publishing an APK.
+
+## Confirmed outbound socket lifecycle
+
+In `connect_tcp_socket()`, outbound sockets are set nonblocking for TCP connect and then explicitly restored to **blocking** mode before `set_io_timeout(candidate, timeout_ms)` applies `SO_RCVTIMEO` and `SO_SNDTIMEO`. A subsequent blocking `recv()` may return EAGAIN/EWOULDBLOCK when the kernel receive timeout expires, without setting the separate `CancellableIo::timed_out` flag. Thus `socket_error=11 io_timeout=0` is consistent with a socket-level receive timeout; it is not sufficient evidence of nonblocking-mode leakage or protocol incompatibility.
+
+The existing POSIX P2P regression test already checks EAGAIN after `SO_RCVTIMEO` and verifies that a subsequent successful receive clears failure evidence. Before changing behavior, inspect the Android call-site timeout value and whether handshake failures are retried at the intended cadence. Avoid increasing timeouts or changing peer selection without measured evidence.
