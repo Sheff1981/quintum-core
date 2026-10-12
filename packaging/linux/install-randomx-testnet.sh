@@ -35,19 +35,61 @@ fi
 
 install -d -o quintum -g quintum -m 0750 "${DATA_ROOT}"
 
-# Stop only the new RandomX service. The historical quintumd.service and
-# /usr/local/bin/quintumd are intentionally left untouched.
-systemctl stop quintumd-randomx-testnet.service >/dev/null 2>&1 || true
+# Keep the previous executable and unit file for a reversible upgrade.
+# The blockchain directory is never deleted or rewritten by this installer.
+backup_dir="$(mktemp -d /var/tmp/quintum-upgrade.XXXXXXXX)"
+chmod 0700 "${backup_dir}"
+had_binary=0
+had_service=0
+was_active=0
+if [[ -f "${TARGET_BINARY}" ]]; then
+    cp -p "${TARGET_BINARY}" "${backup_dir}/quintumd"
+    had_binary=1
+fi
+if [[ -f "${TARGET_SERVICE}" ]]; then
+    cp -p "${TARGET_SERVICE}" "${backup_dir}/service"
+    had_service=1
+fi
+if systemctl is-active --quiet quintumd-randomx-testnet.service; then
+    was_active=1
+fi
+rollback() {
+    local status=$?
+    trap - ERR
+    echo "Upgrade failed (exit ${status}); restoring previous service and executable." >&2
+    systemctl stop quintumd-randomx-testnet.service >/dev/null 2>&1 || true
+    if [[ "${had_binary}" -eq 1 ]]; then
+        cp -p "${backup_dir}/quintumd" "${TARGET_BINARY}"
+    else
+        rm -f "${TARGET_BINARY}"
+    fi
+    if [[ "${had_service}" -eq 1 ]]; then
+        cp -p "${backup_dir}/service" "${TARGET_SERVICE}"
+    else
+        rm -f "${TARGET_SERVICE}"
+    fi
+    systemctl daemon-reload || true
+    if [[ "${was_active}" -eq 1 ]]; then
+        systemctl start quintumd-randomx-testnet.service || true
+    fi
+    echo "Rollback files retained in ${backup_dir}" >&2
+    exit "${status}"
+}
+trap rollback ERR
 
+# Stop only the RandomX service. Historical quintumd remains untouched.
+systemctl stop quintumd-randomx-testnet.service
 temporary="${TARGET_BINARY}.new"
 install -o root -g root -m 0755 "${SOURCE_BINARY}" "${temporary}"
 mv -f "${temporary}" "${TARGET_BINARY}"
-
 install -o root -g root -m 0644 "${SERVICE_SOURCE}" "${TARGET_SERVICE}"
-
 systemctl daemon-reload
 systemctl enable quintumd-randomx-testnet.service >/dev/null
 systemctl start quintumd-randomx-testnet.service
+sleep 1
+systemctl is-active --quiet quintumd-randomx-testnet.service
+trap - ERR
+echo "Previous executable/service backup: ${backup_dir}"
 
 if command -v ufw >/dev/null 2>&1 &&
    ufw status 2>/dev/null | grep -q '^Status: active'; then
