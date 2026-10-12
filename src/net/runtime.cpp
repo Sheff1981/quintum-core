@@ -2844,6 +2844,9 @@ bool NetworkRuntime::process_message(
         const auto addresses_after = addrman_.size();
         observe(config_.diagnostics, [&](auto& d) {
             d.counter("addr_messages_received", 1U);
+            d.counter(use_v2 ? "addrv2_messages_received" : "addrv1_messages_received", 1U);
+            d.counter(peer.address ? "addr_messages_from_outbound_peer"
+                                   : "addr_messages_from_inbound_peer", 1U);
             d.counter("addr_entries_received", parsed->size());
             d.counter("addr_entries_new",
                 addresses_after > addresses_before
