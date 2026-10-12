@@ -1997,9 +1997,18 @@ void NetworkRuntime::accept_inbound(
         if (valid_peer_address(
                 announced,
                 allow_local)) {
+            const auto addresses_before = addrman_.size();
             (void)addrman_.add(
                 announced
             );
+            const auto addresses_after = addrman_.size();
+            observe(config_.diagnostics, [&](auto& d) {
+                d.counter("inbound_advertised_addresses", 1U);
+                if (addresses_after > addresses_before) {
+                    d.counter("inbound_advertised_addresses_new",
+                              addresses_after - addresses_before);
+                }
+            });
 
             if (addrman_.save() !=
                 AddrStoreError::none) {
