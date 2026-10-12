@@ -2839,7 +2839,19 @@ bool NetworkRuntime::process_message(
             return false;
         }
 
+        const auto addresses_before = addrman_.size();
         (void)addrman_.add(*parsed);
+        const auto addresses_after = addrman_.size();
+        observe(config_.diagnostics, [&](auto& d) {
+            d.counter("addr_messages_received", 1U);
+            d.counter("addr_entries_received", parsed->size());
+            d.counter("addr_entries_new",
+                addresses_after > addresses_before
+                    ? addresses_after - addresses_before : 0U);
+            d.counter("addr_entries_existing_or_discarded",
+                parsed->size() > addresses_after - addresses_before
+                    ? parsed->size() - (addresses_after - addresses_before) : 0U);
+        });
 
         if (addrman_.save() !=
             AddrStoreError::none) {
