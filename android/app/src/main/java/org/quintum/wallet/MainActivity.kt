@@ -359,6 +359,12 @@ private fun QuintumHome() {
             } else when (page) {
                 Page.Network -> {
                     Text("Optional Tor P2P", style = MaterialTheme.typography.titleMedium)
+                    if (nodeRunning) {
+                        Text(
+                            "Node is running. Changing Tor transport requires stopping and restarting the node.",
+                            style = MaterialTheme.typography.bodySmall, color = Muted
+                        )
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("Use local Tor SOCKS5", modifier = Modifier.weight(1f))
                         Switch(checked = torOptIn, onCheckedChange = { enabled ->
