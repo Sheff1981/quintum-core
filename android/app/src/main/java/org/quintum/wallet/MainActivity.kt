@@ -134,6 +134,7 @@ private fun QuintumHome() {
     var torOptIn by remember { mutableStateOf(torMarker.isFile) }
     var torSettingError by remember { mutableStateOf("") }
     var torProxyStatus by remember { mutableStateOf("Not checked") }
+    var torCheckRunning by remember { mutableStateOf(false) }
     val torScope = rememberCoroutineScope()
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
@@ -386,8 +387,9 @@ private fun QuintumHome() {
                         style = MaterialTheme.typography.bodySmall, color = Muted
                     )
                     Text("Local SOCKS5: $torProxyStatus", style = MaterialTheme.typography.bodySmall, color = Muted)
-                    TextButton(onClick = {
+                    TextButton(enabled = !torCheckRunning, onClick = {
                         torProxyStatus = "Checking…"
+                        torCheckRunning = true
                         torScope.launch {
                             val result = withContext(Dispatchers.IO) {
                                 runCatching {
@@ -432,6 +434,7 @@ private fun QuintumHome() {
                                 }
                             }
                             torProxyStatus = result
+                            torCheckRunning = false
                         }
                     }) { Text("Check local Tor proxy") }
                     if (torSettingError.isNotBlank()) {
