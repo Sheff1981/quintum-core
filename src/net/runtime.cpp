@@ -2262,7 +2262,16 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
     auto peer = std::move(initializing_peer_);
     success = success && !stop_requested_.load();
     if (success) {
+        const auto addresses_before = addrman_.size();
         (void)addrman_.add(peer->learned_addresses);
+        const auto addresses_after = addrman_.size();
+        observe(config_.diagnostics, [&](auto& d) {
+            d.counter("initial_sync_addr_entries_received",
+                      peer->learned_addresses.size());
+            d.counter("initial_sync_addr_entries_new",
+                      addresses_after > addresses_before
+                          ? addresses_after - addresses_before : 0U);
+        });
         success = addrman_.save() == AddrStoreError::none;
     }
     observe(config_.diagnostics, [&](auto& d) {
