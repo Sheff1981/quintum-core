@@ -45,11 +45,11 @@ int main(){
  d.counter("addr_entries_new", 3);
  d.counter("initial_sync_addr_entries_new", 4);
  d.counter("inbound_advertised_addresses_new", 1);
- assert(d.snapshot_json().find("\\"addr_messages_received\\":2") != std::string::npos);
- assert(d.snapshot_json().find("\\"addr_entries_received\\":14") != std::string::npos);
- assert(d.snapshot_json().find("\\"addr_entries_new\\":3") != std::string::npos);
- assert(d.snapshot_json().find("\\"initial_sync_addr_entries_new\\":4") != std::string::npos);
- assert(d.snapshot_json().find("\\"inbound_advertised_addresses_new\\":1") != std::string::npos);
+ assert(d.snapshot_json().find(R"("addr_messages_received":2)") != std::string::npos);
+ assert(d.snapshot_json().find(R"("addr_entries_received":14)") != std::string::npos);
+ assert(d.snapshot_json().find(R"("addr_entries_new":3)") != std::string::npos);
+ assert(d.snapshot_json().find(R"("initial_sync_addr_entries_new":4)") != std::string::npos);
+ assert(d.snapshot_json().find(R"("inbound_advertised_addresses_new":1)") != std::string::npos);
  auto s=d.snapshot_json();assert(s.find("\"retry_count\":1")!=std::string::npos);assert(s.find("\"header_batch_size\":2000")!=std::string::npos);assert(s.find("\"randomx_verify_ms\":123")!=std::string::npos);assert(s.find("endpoint\\\"\\\\")!=std::string::npos);
  d.peer("", 7, 42);
  assert(d.snapshot_json().find("endpoint\\\"\\\\") != std::string::npos);
