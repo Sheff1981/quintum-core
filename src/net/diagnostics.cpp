@@ -22,7 +22,13 @@ constexpr std::string_view metric_names[] = {
     "active_peers", "known_peers", "previously_connected_peer_addresses", "headers_unvalidated", "randomx_active",
     "headers_validating", "headers_validated", "headers_committed",
     "header_batch_progress", "randomx_last_hash_us", "initializing_peers",
-    "handshake_completed", "randomx_result_reused"
+    "handshake_completed", "randomx_result_reused",
+    "addr_messages_received", "addrv1_messages_received",
+    "addrv2_messages_received", "addr_messages_from_outbound_peer",
+    "addr_messages_from_inbound_peer", "addr_entries_received",
+    "addr_entries_new", "addr_entries_existing_or_discarded",
+    "initial_sync_addr_entries_received", "initial_sync_addr_entries_new",
+    "inbound_advertised_addresses", "inbound_advertised_addresses_new"
 };
 
 std::string bounded(std::string_view input, size_t maximum = 256)
