@@ -353,7 +353,19 @@ NetworkRuntimeStartResult NetworkRuntime::start(
     {
         std::scoped_lock lock(state_mutex_);
 
+        // Report startup progress before potentially expensive chain replay.
+        // Without this marker Android shows idle/0 peers indefinitely while
+        // NodeRuntime::start() is still restoring the on-disk chain.
+        observe(config_.diagnostics, [](auto& d) {
+            d.stage("chain_startup");
+            d.peer_state("initializing");
+        });
         out.node = node_.start();
+        observe(config_.diagnostics, [&](auto& d) {
+            if (out.node.ok()) d.stage("chain_loaded");
+            else d.failure("core_node", static_cast<int>(out.node.error),
+                           "chain startup failed");
+        });
         if (out.node.ok()) observe(config_.diagnostics, [&](auto& d) {
             if (auto h = node_.chain().height()) d.local_height(*h);
         });
@@ -1775,13 +1787,20 @@ VersionMessage NetworkRuntime::local_version(
         .timestamp = now,
         .nonce = runtime_nonce_,
         .start_height = height,
+        // Android's listener is not externally mapped (CGNAT/NAT and
+        // ephemeral fallback). Do not gossip an unreachable inbound port.
+        // Outbound connections and normal protocol negotiation are unaffected.
         .listen_port =
+#ifdef __ANDROID__
+            std::uint16_t{0U},
+#else
             static_cast<std::uint16_t>(
                 params_.p2p_protocol_version >=
                         kPeerAddressProtocolVersion
                     ? listen_port_.load()
                     : std::uint16_t{0U}
             ),
+#endif
     };
 }
 
@@ -1978,9 +1997,18 @@ void NetworkRuntime::accept_inbound(
         if (valid_peer_address(
                 announced,
                 allow_local)) {
+            const auto addresses_before = addrman_.size();
             (void)addrman_.add(
                 announced
             );
+            const auto addresses_after = addrman_.size();
+            observe(config_.diagnostics, [&](auto& d) {
+                d.counter("inbound_advertised_addresses", 1U);
+                if (addresses_after > addresses_before) {
+                    d.counter("inbound_advertised_addresses_new",
+                              addresses_after - addresses_before);
+                }
+            });
 
             if (addrman_.save() !=
                 AddrStoreError::none) {
@@ -2020,14 +2048,15 @@ void NetworkRuntime::maintain_outbound(
         return;
     }
 
-    // Prefer previously successful peers without letting repeatedly failing
-    // endpoints monopolize the outbound dial budget. After three failures,
-    // normal addrman discovery gets a chance to select another peer.
+    // Retry previously successful endpoints after their backoff expires.
+    // Do not permanently exclude a candidate after three failures: a mobile
+    // route or VPN change can make that same endpoint reachable again.
+    // The per-candidate exponential backoff limits repeated dial attempts.
     for (auto it =
              reconnect_candidates_.begin();
          it != reconnect_candidates_.end();
          ++it) {
-        if (it->next_attempt > now || it->failures >= 3U) {
+        if (it->next_attempt > now) {
             continue;
         }
 
@@ -2083,11 +2112,10 @@ void NetworkRuntime::maintain_outbound(
                 addrman_.size()
             );
 
-            next_outbound_attempt_ =
-                now +
-                config_.
-                    outbound_retry_seconds;
-            return;
+            // A failed preferred reconnect must not consume the whole
+            // outbound cycle. Fall through to addrman discovery so another
+            // reachable peer can be tried even when this endpoint is down.
+            break;
         }
 
         addrman_.mark_success(
@@ -2243,7 +2271,16 @@ void NetworkRuntime::finish_initial_peer(std::uint64_t now)
     auto peer = std::move(initializing_peer_);
     success = success && !stop_requested_.load();
     if (success) {
+        const auto addresses_before = addrman_.size();
         (void)addrman_.add(peer->learned_addresses);
+        const auto addresses_after = addrman_.size();
+        observe(config_.diagnostics, [&](auto& d) {
+            d.counter("initial_sync_addr_entries_received",
+                      peer->learned_addresses.size());
+            d.counter("initial_sync_addr_entries_new",
+                      addresses_after > addresses_before
+                          ? addresses_after - addresses_before : 0U);
+        });
         success = addrman_.save() == AddrStoreError::none;
     }
     observe(config_.diagnostics, [&](auto& d) {
@@ -2435,6 +2472,10 @@ bool NetworkRuntime::prepare_live_peer(
             synced.blocks_requested, synced.blocks_accepted);
 #endif
         if (!synced.ok()) {
+            observe(config_.diagnostics, [&](auto& d) {
+                d.failure("initial_sync", static_cast<int>(synced.error),
+                          "initial peer sync failed");
+            });
             return false;
         }
 
@@ -2462,13 +2503,26 @@ bool NetworkRuntime::prepare_live_peer(
 #endif
     if (stop_requested_.load()) return false;
     if (peer.resync_requested) { peer.last_activity = unix_time_now(); return true; }
-    if (peer.session.request_addresses(
-            config_.allow_local_peers || params_.network == consensus::Network::regtest,
-            peer.learned_addresses) != PeerError::none) return false;
+    const auto address_error = peer.session.request_addresses(
+        config_.allow_local_peers || params_.network == consensus::Network::regtest,
+        peer.learned_addresses);
+    if (address_error != PeerError::none) {
+        observe(config_.diagnostics, [&](auto& d) {
+            d.failure("initial_addresses", static_cast<int>(address_error),
+                      "peer address exchange failed");
+        });
+        return false;
+    }
 
     if (stop_requested_.load()) return false;
     const auto mempool_sync = sync_mempool_from_peer(peer.session, node_, &state_mutex_);
-    if (!mempool_sync.ok()) return false;
+    if (!mempool_sync.ok()) {
+        observe(config_.diagnostics, [&](auto& d) {
+            d.failure("initial_mempool", static_cast<int>(mempool_sync.error),
+                      "peer mempool synchronization failed");
+        });
+        return false;
+    }
     {
         std::scoped_lock lock(state_mutex_);
         if (!sync_wallet_locked()) return false;
@@ -2481,11 +2535,15 @@ bool NetworkRuntime::prepare_live_peer(
         tip = node_.chain().tip_hash();
     }
 
-    if (tip &&
-        announce_block(
-            peer.session,
-            *tip) != PeerError::none) {
-        return false;
+    if (tip) {
+        const auto announce_error = announce_block(peer.session, *tip);
+        if (announce_error != PeerError::none) {
+            observe(config_.diagnostics, [&](auto& d) {
+                d.failure("initial_announce", static_cast<int>(announce_error),
+                          "peer tip announcement failed");
+            });
+            return false;
+        }
     }
 
     peer.last_activity = unix_time_now();
@@ -2799,7 +2857,22 @@ bool NetworkRuntime::process_message(
             return false;
         }
 
+        const auto addresses_before = addrman_.size();
         (void)addrman_.add(*parsed);
+        const auto addresses_after = addrman_.size();
+        observe(config_.diagnostics, [&](auto& d) {
+            d.counter("addr_messages_received", 1U);
+            d.counter(use_v2 ? "addrv2_messages_received" : "addrv1_messages_received", 1U);
+            d.counter(peer.address ? "addr_messages_from_outbound_peer"
+                                   : "addr_messages_from_inbound_peer", 1U);
+            d.counter("addr_entries_received", parsed->size());
+            d.counter("addr_entries_new",
+                addresses_after > addresses_before
+                    ? addresses_after - addresses_before : 0U);
+            d.counter("addr_entries_existing_or_discarded",
+                parsed->size() > addresses_after - addresses_before
+                    ? parsed->size() - (addresses_after - addresses_before) : 0U);
+        });
 
         if (addrman_.save() !=
             AddrStoreError::none) {
@@ -4324,6 +4397,12 @@ void NetworkRuntime::update_peer_counts() noexcept
         d.gauge("core_running",running_.load()?1:0);
         d.gauge("active_peers",peer_count_.load());
         d.gauge("known_peers",known_address_count_.load());
+        // Historical successful connections, not live/reachable node count.
+        const auto& entries = addrman_.entries();
+        const auto previously_connected = std::count_if(
+            entries.begin(), entries.end(),
+            [](const AddrInfo& entry) { return entry.last_success != 0U; });
+        d.gauge("previously_connected_peer_addresses", previously_connected);
     });
 }
 

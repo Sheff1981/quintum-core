@@ -1,0 +1,69 @@
+# QUINTUM RandomX Testnet: optional Tor P2P ingress
+
+This is an **optional transport** for the existing P2P service. It does not change genesis, RandomX, consensus, network magic, chain data, or the wallet.
+
+## VPS: publish the existing P2P listener as a Tor v3 onion service
+
+Prerequisites: an already running QUINTUM RandomX Testnet node listening on TCP **127.0.0.1:39444 or 0.0.0.0:39444** and an installed Tor daemon. Do not expose the RPC port (39445) over Tor.
+
+1. Install Tor using the OS package manager and confirm the daemon starts.
+2. Add these lines to the Tor daemon's `torrc` (the path varies by OS):
+
+   ```torrc
+   HiddenServiceDir /var/lib/tor/quintum-testnet/
+   HiddenServiceVersion 3
+   HiddenServicePort 39444 127.0.0.1:39444
+   ```
+
+3. Ensure `/var/lib/tor/quintum-testnet/` is owned by the Tor service account and is not accessible by other users. Restart Tor and inspect its logs for configuration errors.
+4. Read `/var/lib/tor/quintum-testnet/hostname` to obtain the generated v3 `.onion` hostname. **Never publish or copy the private keys from this directory.**
+5. Confirm the QUINTUM daemon is listening on localhost TCP port 39444 and that the Tor service is running. Do not replace the existing public IPv4 seed.
+6. On a machine with a functioning Tor SOCKS5 proxy, verify the onion TCP route before changing any QUINTUM client configuration. A successful SOCKS5 CONNECT only establishes transport; a QUINTUM protocol handshake and full sync are separate required tests.
+
+## Provisioned testnet onion endpoint (2026-10-11)
+
+The VPS operator generated this public onion hostname:
+
+```text
+kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion:39444
+```
+
+The existing public IPv4 seed remains `212.193.15.139:39444`. The Tor daemon was confirmed running before onion-service configuration. Reading the onion hostname confirms key/hostname creation, **not** that the service is reachable or that a QUINTUM handshake succeeded.
+
+On the VPS, verify configuration and listener without restarting QUINTUM:
+
+```bash
+tor --verify-config -f /etc/tor/torrc
+systemctl is-active tor@default
+ss -lntp | grep ':39444'
+journalctl -u tor@default -n 40 --no-pager
+```
+
+From a separate machine with Tor SOCKS5 on `127.0.0.1:9050`, probe the onion endpoint without local DNS resolution:
+
+```bash
+curl --socks5-hostname 127.0.0.1:9050 --connect-timeout 30 --max-time 40 -v telnet://kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion:39444
+```
+
+A TCP connection can be established even if curl later times out waiting for application data; it is **not** a QUINTUM handshake test. A full protocol and chain sync test remains mandatory. Never forward RPC 39445.
+
+## Existing QUINTUM client support and missing integration
+
+The C++ networking layer supports SOCKS5 and `AddressNetwork::tor_v3` via `ProxyRoutes.tor`, and validates v3 onion addresses. **It does not automatically install or start Tor.** The Android JNI startup currently does not populate `NetworkRuntimeConfig.proxies` and the hardcoded seed is IPv4 only. Therefore, creating the onion service alone will **not** make Android clients connect via Tor automatically.
+
+Required before enabling automatic fallback:
+- Provide a supported, user-consented Tor runtime on Android and verify SOCKS5 availability (no silent download, hidden proxy, or remote telemetry).
+- Add a separately configurable onion bootstrap address, supplied from the actual VPS hostname, not a fabricated placeholder.
+- Implement bounded direct-first / Tor-second retry logic with network-change handling and diagnostics showing selected transport and errors.
+- Verify Android and Windows connection, headers/blocks, restarts, and failure behavior when Tor is unavailable. Do not send Tor onion names to system DNS.
+- Keep direct IPv4 bootstrap available and preserve existing peer storage and wallets.
+
+## Operational security
+
+The onion service must forward **only** QUINTUM P2P TCP/39444. Do not map localhost RPC/39445, expose Tor service keys, disable QUINTUM consensus checks, or imply that Tor guarantees connectivity through every ISP.
+
+## Android opt-in transport (commit 5cbbe091)
+
+The Android JNI startup supports an **opt-in** Tor seed. Create the regular file `enable-tor-socks5` in the Android app's native data root (the directory passed to `nativeStart`) **before** starting the core. The Android device must separately run a local SOCKS5 listener at `127.0.0.1:9050`; the VPS proxy at `127.0.0.1:9050` is **not** reachable from the phone. When opted in, the client adds the public onion bootstrap and configures the existing P2P SOCKS5 route. It does not disable direct IPv4 or change consensus, wallet, or chain storage.
+
+Current limitations: no Android UI control for this opt-in, no bundled Tor runtime, no local proxy health check, no successful QUINTUM handshake or synchronization through Tor verified yet. The marker is intentionally off by default. Do not claim mobile-data-without-VPN support until end-to-end Android testing is complete.

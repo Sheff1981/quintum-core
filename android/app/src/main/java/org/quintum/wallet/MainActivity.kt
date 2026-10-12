@@ -130,6 +130,12 @@ class MainActivity : ComponentActivity() {
 private fun QuintumHome() {
     var page by remember { mutableStateOf<Page?>(null) }
     val context = LocalContext.current
+    val torMarker = remember(context) { context.filesDir.resolve("core/enable-tor-socks5") }
+    var torOptIn by remember { mutableStateOf(torMarker.isFile) }
+    var torSettingError by remember { mutableStateOf("") }
+    var torProxyStatus by remember { mutableStateOf("Not checked") }
+    var torCheckRunning by remember { mutableStateOf(false) }
+    val torScope = rememberCoroutineScope()
     val controller = remember { MiningController(context.applicationContext) }
     var stats by remember { mutableStateOf(org.quintum.wallet.mining.MiningUiState()) }
     var nodeRunning by remember { mutableStateOf(false) }
@@ -352,6 +358,95 @@ private fun QuintumHome() {
                 }
             } else when (page) {
                 Page.Network -> {
+                    Text("Optional Tor P2P", style = MaterialTheme.typography.titleMedium)
+                    if (nodeRunning) {
+                        Text(
+                            "Node is running. Changing Tor transport requires stopping and restarting the node.",
+                            style = MaterialTheme.typography.bodySmall, color = Muted
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use local Tor SOCKS5", modifier = Modifier.weight(1f))
+                        Switch(checked = torOptIn, onCheckedChange = { enabled ->
+                            try {
+                                if (enabled) {
+                                    torMarker.parentFile?.mkdirs()
+                                    check(torMarker.createNewFile() || torMarker.isFile) {
+                                        "Could not create Tor opt-in marker"
+                                    }
+                                } else {
+                                    check(!torMarker.exists() || torMarker.delete()) {
+                                        "Could not remove Tor opt-in marker"
+                                    }
+                                }
+                                torOptIn = enabled
+                                torSettingError = ""
+                            } catch (e: Exception) {
+                                torSettingError = e.message ?: "Unable to update Tor setting"
+                            }
+                        })
+                    }
+                    Text(
+                        "Requires a separate Tor client providing SOCKS5 on 127.0.0.1:9050. " +
+                            "Changes take effect after restarting the QUINTUM node. " +
+                            "Direct IPv4 remains enabled.",
+                        style = MaterialTheme.typography.bodySmall, color = Muted
+                    )
+                    Text("Local SOCKS5: $torProxyStatus", style = MaterialTheme.typography.bodySmall, color = Muted)
+                    TextButton(enabled = !torCheckRunning, onClick = {
+                        torProxyStatus = "Checking…"
+                        torCheckRunning = true
+                        torScope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    Socket().use { socket ->
+                                        socket.connect(InetSocketAddress("127.0.0.1", 9050), 1500)
+                                        socket.soTimeout = 20000
+                                        val input = socket.getInputStream()
+                                        val output = socket.getOutputStream()
+                                        // SOCKS5 no-auth method negotiation.
+                                        output.write(byteArrayOf(0x05, 0x01, 0x00))
+                                        output.flush()
+                                        check(input.read() == 0x05 && input.read() == 0x00) {
+                                            "Local port is not a no-auth SOCKS5 proxy"
+                                        }
+                                        val host = "kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion"
+                                        val hostname = host.toByteArray(Charsets.US_ASCII)
+                                        val port = 39444
+                                        output.write(byteArrayOf(0x05, 0x01, 0x00, 0x03, hostname.size.toByte()))
+                                        output.write(hostname)
+                                        output.write(byteArrayOf((port shr 8).toByte(), port.toByte()))
+                                        output.flush()
+                                        val version = input.read()
+                                        val reply = input.read()
+                                        val reserved = input.read()
+                                        val addressType = input.read()
+                                        check(version == 5 && reply == 0 && reserved == 0) {
+                                            "SOCKS5 onion connection rejected (code $reply)"
+                                        }
+                                        val addressLength = when (addressType) {
+                                            1 -> 4
+                                            4 -> 16
+                                            3 -> input.read().also { check(it in 1..255) }
+                                            else -> error("Invalid SOCKS5 reply address type")
+                                        }
+                                        repeat(addressLength + 2) {
+                                            check(input.read() >= 0) { "Truncated SOCKS5 reply" }
+                                        }
+                                        "Tor onion TCP connection established (QUINTUM handshake not tested)"
+                                    }
+                                }.getOrElse { error ->
+                                    "Tor check failed: ${error.message ?: error.javaClass.simpleName}"
+                                }
+                            }
+                            torProxyStatus = result
+                            torCheckRunning = false
+                        }
+                    }) { Text("Check local Tor proxy") }
+                    if (torSettingError.isNotBlank()) {
+                        Text(torSettingError, color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(Modifier.height(12.dp))
                     DetailCard("Connection", if (nodeRunning) "Core running" else if (startRequested) "Starting core (${startupSeconds}s)…" else "Node stopped")
                     if (nodeError.isNotBlank()) Text(nodeError, color = MaterialTheme.colorScheme.error)
                     if (crashReport != null) {

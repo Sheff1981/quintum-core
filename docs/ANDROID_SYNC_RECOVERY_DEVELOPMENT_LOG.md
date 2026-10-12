@@ -145,3 +145,99 @@ Code commit b586d5b58f8fbace0e55970ea3da086ea0acb589 passed Linux and Windows 39
 A shutdown review identified that cancellation only before receive_command was insufficient after a partial wire frame entered receive_exact. Session IO now observes an owner-installed runtime cancellation token inside bounded readiness polls and each partial read/write loop. Existing idle timeouts still reset only on actual byte progress; they are not increased. Cancellation is a distinct internal PeerError, never a fabricated peer timeout/EOF/errno. POSIX readiness uses poll to avoid FD_SETSIZE memory hazards in an Android process with many descriptors; Windows keeps select. Ownership stays exclusive: no foreign-thread socket close, detached thread or partial-message acceptance. A regression consumes a real three-byte prefix, cancels the blocked frame and requires completion with exact partial-byte evidence. Shutdown also avoids publishing a just-completed setup or scoring locally cancelled peers as failures. Full CI will rerun for these IO changes.
 
 The local environment additionally rejects AF_UNIX send with EPERM, so the framed-socket regression cannot execute locally; it must be assessed in CI. Local strict syntax validation continues to pass. Physical ARM64 benchmarks and foreground/screen-lock/OEM/network-interruption/chain-and-wallet restart acceptance are still outstanding. Full-runtime TSan was not run; the worker-only TSan result is not represented as full-runtime coverage.
+
+## 2026-10-11: Android VPN-dependent peer loss (investigation open)
+
+- User reports that Huawei and Xiaomi peers appear with VPN and disappear without VPN. Laptop reportedly works in both conditions. This does not prove ISP blocking.
+- VPS packet capture: three client-side FIN packets at 08:11:30, 08:12:35 and 08:13:40 from 89.125.21.139 to port 39444, roughly 65 seconds apart. VPN/NAT intermediary remains a possible closer.
+- Huawei cc49c517, VPN off, 06:17 UTC: remote height 4286, local height 0, headers received 48, verified 0; sync_error=2 peer_error=10 chain_error=19 socket_error=103. Handshake completed; initial setup failed.
+- Huawei same revision, VPN on, 06:19 UTC: received 72, verified 0, validation active at capture time. Last-error fields can be stale; not evidence of a completed sync.
+- Older c4e5a723 Android revision previously synchronized to 4286, accepted 3254 blocks without rejection, but had reconnect churn. Do not attribute that success to cc49c517.
+- Candidate code path: src/net/sync.cpp services ping/pong and other P2P messages during CPU-intensive header validation; network failure can cancel validation. Root cause not yet confirmed.
+- Base android-foundation cf531302 CI: Ubuntu build and sanitizer jobs fail at tests/sync_tests.cpp:392 on expected diagnostics field; Android Core and JVM diagnostics jobs passed.
+- Draft PR #49: ef30ba8 adds missing-field/snapshot output on test failure. Earlier cd73ab0 introduced invalid PeerIoFailure member references and broke ARM64 compilation; bdde7b0 removed them.
+- No validated VPN-independent fix, APK or two-node regression test yet. Do not merge until tests and real-device reconnection and IBD pass.
+- RandomX version and consensus unchanged. User permits debugging RandomX implementation where necessary, but consensus-changing work requires explicit separate review.
+
+## 2026-10-11 07:20:39 UTC: Android c4e5a723 fully synced but disconnected
+
+- Core running; local_height=remote_height=4286; last_sync_utc=07:18:57 UTC; blocks_accepted=3254, blocks_rejected=0, headers_rejected=0.
+- Active peers=0, known peers=245, attempt_count=2409, retry_count=2408; peer_state=disconnected; disconnect_reason=initial setup failed.
+- Last error text: version-receive peer_error=10 wire_error=0 socket_error=11 eof=0 partial_bytes=0 io_timeout=0 io_cancelled=0. This error may be stale; do not assume it caused the most recent disconnect.
+- Last network message 07:20:26 UTC; connection_duration_ms=12740; last network progress 12576 ms ago. No current core/service error reported.
+- Important distinction: this revision has already synchronized successfully; persistent connectivity and correct reconnection are separate acceptance criteria. This report does not demonstrate a RandomX consensus failure.
+- Next checks: identify exact failure in prepare_live_peer, classify EAGAIN/retry behavior and socket ownership, reproduce VPN transition without losing synchronized chain data.
+
+## 2026-10-11 07:27:16 UTC: Xiaomi connected WITH VPN (user correction)
+
+- Build c4e5a7237c6b22ea37eb3db2a40b2c31c081f69d; user explicitly corrected the network condition: VPN was ON for this 07:27:16 snapshot. Earlier interpretation as VPN OFF was wrong.
+- Active peers=2, peer_state=active, stage=fully_synchronized; local_height=remote_height=4286; blocks_rejected=0.
+- Previous snapshot at 07:20:39 UTC: active peers=0, attempts=2409, known peers=245. New snapshot: attempts=2427, known peers=247.
+- 18 additional connection attempts over 397 seconds; current connection_duration_ms=4578. Because the VPN condition changed, these snapshots cannot establish VPN-OFF recovery or persistent stability.
+- Last error still reports version-receive socket_error=11 (EAGAIN) despite active peers, suggesting historical error state remains visible; do not attribute current session failure to it.
+- No code fix or APK validation is implied by this observational report. Do not cite this sample as evidence that Android connects without VPN.
+
+## 2026-10-11 07:35:04 UTC: Xiaomi VPN OFF, no active peers
+
+- Device Xiaomi, VPN explicitly OFF; build c4e5a7237c6b22ea37eb3db2a40b2c31c081f69d.
+- active_peers=0; known_peers=249; local_height=remote_height=4286; blocks_accepted=3254; blocks_rejected=0.
+- attempt_count=2448 (up 21 from 07:27:16 VPN ON snapshot); retry_count=2447.
+- Last reported failure: tcp-connect peer_error=7 wire_error=0 socket_error=0 eof=0 partial_bytes=0 io_timeout=0 io_cancelled=0.
+- stage=handshake_complete, peer_state=disconnected, disconnect_reason=initial setup failed, last_network_message_utc=07:34:38, last_sync_utc=07:29:35.
+- Interpretation: direct connectivity is unreliable or unavailable after VPN OFF, with TCP connect failures among attempts. The last error may be historical; handshake telemetry means some connections progressed further. Do not conclude definitive ISP filtering without direct route tests.
+- Compare to VPN ON 07:27:16 snapshot (active_peers=2). Do not change consensus, RandomX, genesis, or wallet state to address this.
+
+## 2026-10-11: Huawei VPN-OFF connectivity (user observation)
+
+- User reports Huawei also works without VPN.
+- This is a qualitative observation; no new Huawei diagnostic snapshot accompanied it. Do not infer stable session duration, block sync completion, or active peer count.
+- Xiaomi VPN OFF at 07:35 UTC had zero active peers and tcp-connect failure; Huawei VPN OFF working means blanket claims that VPN is mandatory, or that the VPS port is universally blocked without VPN, are unsupported.
+- Compare per-device Android build, network path, connection lifecycle, and reconnection telemetry before changing code. Preserve consensus and wallet.
+
+## 2026-10-11: Both Xiaomi and Huawei show intermittent VPN-OFF P2P
+
+- User confirms Huawei behaves like Xiaomi: peers can appear without VPN but periodically disappear.
+- This supersedes any interpretation that Huawei is stably connected without VPN.
+- Both devices exhibit intermittent VPN-OFF connectivity; exact causes remain unproven and may include shared app reconnect logic and differing mobile-network routes.
+- Next priority: inspect common Android/Core connection lifecycle and failure classification, add deterministic reconnect regression tests, then verify APK on both phones. Do not alter RandomX or chain parameters.
+
+## 2026-10-11: CI sync diagnostics root cause fixed
+
+- Android ARM64 and GUI workflows passed for c54c95a; Ubuntu build and security workflows failed in quintum_sync_tests.
+- Ubuntu CI log identified exact mismatch: expected headers_verified=5, actual headers_verified=1, while headers_received=5 and blocks_accepted=5.
+- Root cause: src/net/sync.cpp service_validation callback runs both before each header (completed=false) and after it (completed=true). Aggregated counters were reset even on pre-header callbacks, discarding unflushed counts.
+- Commit b558462 changes the reset to occur only when completed=true at a reporting boundary. This affects diagnostics only, not PoW validation.
+- Earlier commit c54c95a removes the permanent >=3 reconnect exclusion, retaining existing exponential backoff capped at 300 seconds.
+- CI for b558462 must pass before declaring the fix verified. Neither change has been field-tested on Huawei/Xiaomi in a newly built APK.
+
+## 2026-10-11: Avoid outbound peer discovery starvation
+
+- In NetworkRuntime::maintain_outbound, a failed preferred reconnect previously returned from the entire outbound cycle after updating backoff.
+- Commit 1f91cad now breaks from the preferred reconnect loop on failure, allowing the existing addrman discovery path to run in the same cycle.
+- Existing per-endpoint backoff remains in effect; the 300-second cap and network/consensus constants are unchanged.
+- Motivation: intermittent direct mobile connectivity on Xiaomi and Huawei, especially when VPN is disabled.
+- Verification pending: Android ARM64 CI, Linux/Windows builds, tests, and on-device no-VPN peer recovery. This is not proof that the VPS is reachable through every mobile carrier.
+
+## 2026-10-11 16:41 UTC: Android Core does not start (revision cde7acb)
+
+User-supplied screenshot/diagnostics: core_running=false, stage=idle for 145559ms, active_peers=0, known_peers=0, attempt_count=0, local_height=Unavailable, last_error_code=0, service error=None reported. Android UI remains "Connecting... / Starting..." and VPN indicator is visible. This is a **pre-P2P startup incident**, not evidence of failed outbound TCP or VPN-off operation.
+
+The source revision cde7acb924ad660a2b8bff2e872877d4b8d1bc96 is a merge commit of f13d3aaa into cf531302, confirmed through GitHub. NodeService.onStartCommand invokes NativeCore.nativeStart from Dispatchers.IO, while the JNI nativeStart calls NetworkRuntime::start synchronously before publishing g_runtime/g_core_running. If native startup stalls, the UI can show the observed idle state without a service error until nativeStart returns. This is a hypothesis, not a proven stall: also inspect Android service lifecycle events and native diagnostic logs.
+
+Do not delete application data, blockchain, or private keys. Next diagnostic: collect QUINTUM diagnostic event log / Android logcat with service start_request and core starting/started/failure timestamps; identify whether start was requested and where it stopped before changing consensus or P2P.
+
+## 2026-10-11 16:44:51 UTC: Startup recovered, transport instability persists
+
+Same merged Android revision cde7acb924ad660a2b8bff2e872877d4b8d1bc96 as earlier startup-idle report. Core now running=true; local_height=4286, remote_height=4286, known_peers=266, active_peers=0, attempts=12, retries=11, stage=handshake_complete. Peer endpoint 212.193.15.139:39444; disconnect_reason="receive error=10 socket_error=104 eof=0" (ECONNRESET). Last error="version-receive peer_error=10 wire_error=0 socket_error=11 eof=0 partial_bytes=0 io_timeout=0 io_cancelled=0" (EAGAIN). Last sync 16:44:33 UTC. Prior snapshot at 16:43:18 showed running=false, idle for 250s, 0 attempts. Thus startup eventually completed and persisted chain state is intact; the incident has transitioned to intermittent P2P handshake/transport resets. Snapshot counters may contain last-error data from a different attempt than the current disconnect reason; do not conflate them. VPN state of this latest sample is not explicitly reported.
+
+## 2026-10-11 16:45:19 UTC: VPN ON, synced via alternate peer
+
+User explicitly confirms VPN ON. Android revision cde7acb924ad660a2b8bff2e872877d4b8d1bc96: core_running=true, active_peers=1, known_peers=268, stage=fully_synchronized, local_height=remote_height=4286, endpoint=20.57.223.151:43223, attempts=14, retries=13, last_sync=16:45:01 UTC. Last recorded error remains version-receive peer_error=10 socket_error=11 EAGAIN; snapshot may retain prior attempt's error despite currently having one active peer. This confirms functional discovery of an alternate endpoint under VPN, not direct/no-VPN connectivity. Compare against an explicitly VPN-OFF capture from the same build before claiming VPN independence.
+
+## 2026-10-11 16:47:38 UTC: VPN-off regression after VPN-on sync
+
+User followed the requested VPN toggle without closing QUINTUM; this capture is treated as VPN OFF. Same Android source revision cde7acb924ad660a2b8bff2e872877d4b8d1bc96. Core running=true; active peers=0; known peers=268; local/remote height=4286; stage=handshake_complete; peer_state=disconnected; disconnect_reason="initial setup failed"; endpoint=212.193.15.139:39444; attempts=22, retries=21; handshake_completed=1; last sync=16:46:18 UTC. Compared to VPN ON at 16:45:19 (active peers=1, attempts=14, retries=13, fully_synchronized), this is +8 attempts with no sustained peer. Last error remains version-receive peer_error=10 socket_error=11 EAGAIN, potentially stale from a different attempt. Evidence supports a transport/setup reliability problem under direct mobile route, not consensus or block storage failure. Root cause of setup failure remains unproven. Preserve blockchain and keys. Next inspect initial sync worker failure propagation and peer diagnostics; correlate server-side close/reset logs.
+
+## 2026-10-11: Both Android phones connect on home Wi-Fi without VPN
+
+User confirms both Xiaomi and Huawei connect successfully on home Wi-Fi with VPN disabled. Xiaomi local diagnostic at 18:42:24 UTC on revision 57c629fd7c52c126bbbcdaabcf526e57dc6e20d3 (merge including 2cdf82e5): core running=true, active peers=1, known peers=278, fully_synchronized, height=4286, endpoint=212.193.15.139:39444, connection_duration_ms=158323. Prior mobile-carrier (MTS/MegaFon) tests without VPN did not sustain peers. This is cross-device evidence for a network-path-dependent failure; no evidence yet that carriers intentionally block the port or protocol. Investigate mobile TCP/IPv4/IPv6 reachability, route changes, handshake and timeouts without modifying consensus, RandomX, genesis, blockchain or wallets.

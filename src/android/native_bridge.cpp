@@ -111,6 +111,31 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
     config.wallet_enabled = false;
     config.diagnostics = journal;
 
+    // Optional Android Tor transport. The user must explicitly provision a
+    // local SOCKS5 proxy and opt in by creating this app-private marker.
+    // Without the marker, Android retains its existing direct IPv4 behavior.
+    // No Tor binaries are installed or started by QUINTUM.
+    const auto tor_opt_in = root / "enable-tor-socks5";
+    std::error_code tor_marker_error;
+    const bool tor_enabled =
+        std::filesystem::is_regular_file(tor_opt_in, tor_marker_error);
+    if (tor_enabled && !tor_marker_error) {
+        config.proxies.tor = quintum::net::Socks5Proxy{"127.0.0.1", 9050U};
+        quintum::net::PeerAddress onion_seed;
+        onion_seed.network = quintum::net::AddressNetwork::tor_v3;
+        onion_seed.host =
+            "kcq2lkzw2tu3jvd52xw5jhhqtgn7ivjpcmgxiyeyrpd6lqlx7qrhoeqd.onion";
+        onion_seed.port = 39444U;
+        config.bootstrap_peers.push_back(std::move(onion_seed));
+        if (journal) {
+            journal->event("p2p_tor", "info",
+                "optional Tor seed enabled; local SOCKS5 required on 127.0.0.1:9050");
+        }
+    } else if (journal) {
+        journal->event("p2p_tor", "info",
+            "optional Tor transport disabled; direct IPv4 unchanged");
+    }
+
     const auto result = runtime->start(std::move(config));
     if (!result.ok()) {
         // Preserve the individual startup failure layers for field diagnosis.
