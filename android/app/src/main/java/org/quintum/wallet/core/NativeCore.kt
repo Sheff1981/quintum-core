@@ -18,6 +18,7 @@ object NativeCore {
     external fun nativeServiceEvent(name: String)
 
     external fun nativeStart(dataDirectory: String): Int
+    external fun nativeStartWithTor(dataDirectory: String, torProxy: String): Int
     external fun nativeStop()
     external fun nativeRunning(): Boolean
 
