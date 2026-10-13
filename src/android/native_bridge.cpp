@@ -1,6 +1,7 @@
 #include "consensus/chainparams.hpp"
 #include "consensus/tx_auth.hpp"
 #include "net/runtime.hpp"
+#include "net/socks5.hpp"
 #include "net/diagnostics.hpp"
 #include "wallet/address.hpp"
 
@@ -73,11 +74,10 @@ void stop_mining()
 
 } // namespace
 
-extern "C" JNIEXPORT jint JNICALL
-Java_org_quintum_wallet_core_NativeCore_nativeStart(
+static jint start_node_with_tor(
     JNIEnv* env,
-    jobject,
-    jstring data_directory)
+    jstring data_directory,
+    jstring tor_proxy)
 {
     if (data_directory == nullptr) return 1;
     const char* raw = env->GetStringUTFChars(data_directory, nullptr);
@@ -110,6 +110,20 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
     config.allow_ephemeral_listener_fallback = true;
     config.wallet_enabled = false;
     config.diagnostics = journal;
+    if (tor_proxy != nullptr) {
+        const char* raw_proxy = env->GetStringUTFChars(tor_proxy, nullptr);
+        if (raw_proxy == nullptr) return 4;
+        const std::string proxy_text{raw_proxy};
+        env->ReleaseStringUTFChars(tor_proxy, raw_proxy);
+        if (!proxy_text.empty()) {
+            const auto parsed = quintum::net::parse_socks5_proxy(proxy_text);
+            if (!parsed) {
+                if (journal) journal->failure("tor_proxy", 4, "invalid SOCKS5 endpoint");
+                return 4;
+            }
+            config.proxies.tor = *parsed;
+        }
+    }
 
     const auto result = runtime->start(std::move(config));
     if (!result.ok()) {
@@ -129,6 +143,20 @@ Java_org_quintum_wallet_core_NativeCore_nativeStart(
     g_core_running.store(true);
     if (journal) journal->event("core", "info", "started");
     return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeStart(
+    JNIEnv* env, jobject, jstring data_directory)
+{
+    return start_node_with_tor(env, data_directory, nullptr);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_quintum_wallet_core_NativeCore_nativeStartWithTor(
+    JNIEnv* env, jobject, jstring data_directory, jstring tor_proxy)
+{
+    return start_node_with_tor(env, data_directory, tor_proxy);
 }
 
 extern "C" JNIEXPORT jint JNICALL
