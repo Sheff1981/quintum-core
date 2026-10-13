@@ -10,6 +10,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <future>
 #include <mutex>
@@ -389,7 +390,12 @@ void test_genesis_to_tip_sync_and_restart()
              "\"blocks_requested\":5", "\"blocks_received\":5",
              "\"blocks_accepted\":5", "\"blocks_rejected\":0",
              "\"local_height\":5", "\"header_batches_accepted\":1"}) {
-        assert(snapshot.find(field) != std::string::npos);
+        if (snapshot.find(field) == std::string::npos) {
+            std::fprintf(stderr,
+                "sync diagnostics missing field: %s\nactual snapshot: %s\n",
+                field, snapshot.c_str());
+            assert(false && "sync diagnostics snapshot missing expected field");
+        }
     }
     const auto events = diagnostics->export_log();
     for (const auto phase : {
