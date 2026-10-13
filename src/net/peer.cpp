@@ -377,7 +377,18 @@ bool send_all(
         ));
 #endif
 
-        if (result < 0 && interrupted_socket_call()) continue;
+        if (result < 0) {
+            const int error = last_socket_error();
+            if (interrupted_socket_call()) continue;
+#ifdef _WIN32
+            const bool retryable = error == WSAEWOULDBLOCK;
+#else
+            const bool retryable = error == EAGAIN || error == EWOULDBLOCK;
+#endif
+            // Retry transient nonblocking I/O only while a cancellable
+            // operation is active. Its existing deadline bounds the retry.
+            if (retryable && active_io && active_io->cancel) continue;
+        }
         if (result <= 0) {
             thread_io_failure = {result < 0 ? last_socket_error() : 0, false, sent};
 #ifdef __ANDROID__
@@ -430,7 +441,18 @@ bool receive_exact(
         ));
 #endif
 
-        if (result < 0 && interrupted_socket_call()) continue;
+        if (result < 0) {
+            const int error = last_socket_error();
+            if (interrupted_socket_call()) continue;
+#ifdef _WIN32
+            const bool retryable = error == WSAEWOULDBLOCK;
+#else
+            const bool retryable = error == EAGAIN || error == EWOULDBLOCK;
+#endif
+            // Retry transient nonblocking I/O only while a cancellable
+            // operation is active. Its existing deadline bounds the retry.
+            if (retryable && active_io && active_io->cancel) continue;
+        }
         if (result <= 0) {
             thread_io_failure = {result < 0 ? last_socket_error() : 0, result == 0, received};
 #ifdef __ANDROID__
