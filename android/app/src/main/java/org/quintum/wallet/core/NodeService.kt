@@ -79,7 +79,12 @@ class NodeService : Service() {
                             android.util.Log.e("QUINTUM-Node", "Unable to create core data directory")
                             recordStatus("Cannot create node data directory")
                             -2
-                        } else NativeCore.nativeStart(dataDir.absolutePath)
+                        } else {
+                            val torProxy = getSharedPreferences("network_settings", MODE_PRIVATE)
+                                .getString("tor_socks5_proxy", null)?.trim().orEmpty()
+                            if (torProxy.isEmpty()) NativeCore.nativeStart(dataDir.absolutePath)
+                            else NativeCore.nativeStartWithTor(dataDir.absolutePath, torProxy)
+                        }
                 }
                 val elapsedMs = SystemClock.elapsedRealtime() - startedAt
                 android.util.Log.i("QUINTUM-Node", "Native startup result=$result duration_ms=$elapsedMs")
