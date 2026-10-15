@@ -316,12 +316,6 @@ bool prepare_cancellable_io(NativeSocket socket, bool write, std::size_t transfe
             thread_io_failure = {0, false, transferred, true, false};
             return false;
         }
-        int wait_error = 0;
-        if (wait_socket(socket, write, 100U, &wait_error)) return true;
-        if (wait_error != 0) {
-            thread_io_failure = {wait_error, false, transferred};
-            return false;
-        }
         if (std::chrono::steady_clock::now() >= active_io->deadline) {
 #ifdef _WIN32
             constexpr int timeout_error = WSAETIMEDOUT;
@@ -329,6 +323,12 @@ bool prepare_cancellable_io(NativeSocket socket, bool write, std::size_t transfe
             constexpr int timeout_error = EAGAIN;
 #endif
             thread_io_failure = {timeout_error, false, transferred, false, true};
+            return false;
+        }
+        int wait_error = 0;
+        if (wait_socket(socket, write, 100U, &wait_error)) return true;
+        if (wait_error != 0) {
+            thread_io_failure = {wait_error, false, transferred};
             return false;
         }
     }
@@ -466,6 +466,7 @@ bool receive_exact(
 
         received +=
             static_cast<std::size_t>(result);
+        if (active_io) active_io->progress();
     }
 
     return true;
