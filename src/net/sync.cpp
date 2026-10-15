@@ -1279,8 +1279,12 @@ SyncResult sync_from_peer(
                         journal.gauge("header_batch_progress", progress);
                     }
                 });
-                known_since_report = 0U;
-                new_since_report = 0U;
+                // An in-progress callback must not discard completed headers
+                // accumulated since the last reporting boundary.
+                if (completed) {
+                    known_since_report = 0U;
+                    new_since_report = 0U;
+                }
             }
             if (cancelled()) return false;
             // The sync worker is the exclusive socket owner. Never race its
